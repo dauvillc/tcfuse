@@ -1,0 +1,38 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# IDE
+.vscode/
+.idea/
+.github/
+.ruff_cache/
+
+# Output directories
+outputs/
+logs/
+submitit/
+
+# PyTorch Lightning
+lightning_logs/
+*.ckpt
+
+# Weights & Biases
+wandb/
+
+# General/Misc
+.DS_Store
+.mypy_cache/
+.pytest_cache/
+.rsyncignore

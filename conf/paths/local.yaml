@@ -1,0 +1,22 @@
+# Base directories
+work: ${oc.env:HOME}/tcfuse
+scratch: ${oc.env.SCRATCH}/tcfuse
+store: ${oc.env.SCRATCH}/tcfuse  # There's no store on the local machine.
+
+# Paths to raw datasets
+raw_datasets:
+  tc_primed: ${paths.scratch}/data/raw/tc_primed
+  cyclobs: ${paths.scratch}/data/raw/cyclobs
+  dropsondes: ${paths.scratch}/data/raw/dropsondes
+  argo: ${paths.scratch}/data/raw/argo
+
+# Path to preprocessed datasets
+preprocessed_datasets:
+  tc_primed: ${paths.scratch}/data/preprocessed/tc_primed
+  cyclobs: ${paths.scratch}/data/preprocessed/cyclobs
+  dropsondes: ${paths.scratch}/data/preprocessed/dropsondes
+  argo: ${paths.scratch}/data/preprocessed/argo
+
+# Paths for training outputs
+checkpoints: ${paths.work}/checkpoints
+wandb: ${paths.work}/wandb

@@ -1,0 +1,4 @@
+# Main configuration file for data preprocessing.
+defaults:
+  - paths: local  # override with paths=jz on Jean-Zay
+  - _self_
