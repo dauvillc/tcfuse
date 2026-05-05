@@ -10,12 +10,9 @@ raw_datasets:
   dropsondes: ${paths.scratch}/data/raw/dropsondes
   argo: ${paths.scratch}/data/raw/argo
 
-# Path to preprocessed datasets
-preprocessed_datasets:
-  tc_primed: ${paths.scratch}/data/preprocessed/tc_primed
-  cyclobs: ${paths.scratch}/data/preprocessed/cyclobs
-  dropsondes: ${paths.scratch}/data/preprocessed/dropsondes
-  argo: ${paths.scratch}/data/preprocessed/argo
+# Root directory for preprocessed sources.
+# Each source is stored at ${paths.preprocessed_sources}/<source_name>/.
+preprocessed_sources: ${paths.scratch}/data/preprocessed/sources
 
 # Paths for training outputs
 checkpoints: ${paths.work}/checkpoints
