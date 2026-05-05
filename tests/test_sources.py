@@ -6,7 +6,7 @@ All tests use synthetic tensors — no real data required.
 import pytest
 import torch
 
-from tcfuse.data.sources.base import Source, SourceKind
+from tcfuse.data.sources import Source, SourceKind
 
 # ---------------------------------------------------------------------------
 # Helpers: synthetic source factories

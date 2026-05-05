@@ -8,7 +8,7 @@ from scripts.preprocess.tc_primed.prepare_radar import (
     _read_radar_swath,
 )
 
-from tcfuse.data.sources.base import Source, SourceKind
+from tcfuse.data.sources import Source, SourceKind
 
 
 class TestGetRegriddingResolution:

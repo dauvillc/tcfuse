@@ -12,8 +12,7 @@ from pathlib import Path
 
 import torch
 
-from tcfuse.data.sources.base import Source, SourceKind
-from tcfuse.utils.io import read_snapshot, write_snapshot
+from tcfuse.data.sources import Source, SourceKind, Snapshot
 from tests.test_sources import make_field_source, make_profile_source, make_scalar_source
 
 # ---------------------------------------------------------------------------
@@ -31,12 +30,12 @@ _META = {
 }
 
 
-def _write_read(sources: dict[str, Source], **read_kwargs: object) -> dict[str, Source]:
+def _write_read(sources: dict[str, Source], **read_kwargs: object) -> Snapshot:
     """Write sources to a temp HDF5 file and read them back."""
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "snapshots" / "AL012020_20200801T120000Z.h5"
-        write_snapshot(path, _META, sources)
-        return read_snapshot(path, **read_kwargs)  # type: ignore[arg-type]
+        Snapshot(sources=sources, meta=_META).write(path)
+        return Snapshot.from_disk(path, **read_kwargs)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +116,7 @@ class TestMultiSource:
             "pmw_amsr2": make_field_source(),
         }
         result = _write_read(sources)
-        assert set(result.keys()) == {"best_track", "dropsonde_001", "pmw_amsr2"}
+        assert set(result) == {"best_track", "dropsonde_001", "pmw_amsr2"}
 
     def test_multiple_field_sources(self) -> None:
         sources = {
@@ -142,7 +141,7 @@ class TestMissingSources:
 
     def test_empty_snapshot_returns_empty_dict(self) -> None:
         result = _write_read({})
-        assert result == {}
+        assert len(result) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +164,7 @@ class TestPartialRead:
     def test_request_absent_source_returns_empty(self) -> None:
         sources = {"best_track": make_scalar_source()}
         result = _write_read(sources, source_names=["nonexistent"])
-        assert result == {}
+        assert len(result) == 0
 
 
 # ---------------------------------------------------------------------------

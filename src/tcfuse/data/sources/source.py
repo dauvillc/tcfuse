@@ -1,13 +1,13 @@
-"""Base source abstraction: a collection of (value, coordinate) pairs."""
+"""Source abstraction: a single (value, coordinate) collection from one instrument."""
 
 from __future__ import annotations
 
-import dataclasses
-from collections.abc import Iterator
+import json
 from dataclasses import dataclass
 from enum import Enum, auto
 
-import pandas as pd
+import h5py
+import numpy as np
 import torch
 from torch import Tensor
 
@@ -18,6 +18,17 @@ class SourceKind(Enum):
     SCALAR = auto()  # 0D: single point measurement
     PROFILE = auto()  # 1D: vertical profile (L levels)
     FIELD = auto()  # 2D: image or gridded field (H x W)
+
+
+# Map SourceKind to top-level HDF5 group name.
+_KIND_TO_GROUP: dict[SourceKind, str] = {
+    SourceKind.SCALAR: "scalar",
+    SourceKind.PROFILE: "profile",
+    SourceKind.FIELD: "field",
+}
+_GROUP_TO_KIND: dict[str, SourceKind] = {v: k for k, v in _KIND_TO_GROUP.items()}
+
+_FLOAT_COMPRESSION = {"compression": "gzip", "compression_opts": 4}
 
 
 @dataclass
@@ -109,102 +120,64 @@ class Source:
             mask=self.mask.to(device) if self.mask is not None else None,
         )
 
+    # ------------------------------------------------------------------
+    # HDF5 per-source I/O
+    # ------------------------------------------------------------------
 
-@dataclasses.dataclass
-class SourceMetadata:
-    """Source-level metadata: physical description + full snapshot index.
+    def to_hdf5_group(self, group: h5py.Group) -> None:
+        """Write this source into an open, writable HDF5 group.
 
-    This object holds everything that is known about a source across all its
-    snapshots.  It does NOT contain any measurement tensors — those live in
-    individual :class:`Source` objects loaded on demand.
-
-    Args:
-        name: Source directory name, e.g. ``"pmw_amsr2_gcomw1"``.
-        type: Physical category, e.g. ``"microwave"``, ``"radar"``.
-        kind: Dimensionality class (SCALAR, PROFILE, or FIELD).
-        channels: Ordered list of channel names matching the last axis of
-            the ``values`` array in each snapshot.
-        index: Snapshot index loaded from ``index.parquet``.  Each row
-            corresponds to one HDF5 snapshot file; columns include at least
-            ``storm_id``, ``snapshot_time_utc``, ``lat``, ``lon``,
-            ``source_name``, and ``file_path``.
-    """
-
-    name: str
-    type: str
-    kind: SourceKind
-    channels: list[str]
-    index: pd.DataFrame = dataclasses.field(compare=False)
-
-    @property
-    def num_channels(self) -> int:
-        """Number of channels (last axis of ``values`` in each snapshot)."""
-        return len(self.channels)
-
-
-@dataclasses.dataclass
-class MultisourceMetadata:
-    """Grouped metadata for a collection of sources.
-
-    Wraps multiple :class:`SourceMetadata` objects and exposes a merged
-    snapshot index across all sources.
-
-    Args:
-        sources: Mapping from source name to its :class:`SourceMetadata`.
-    """
-
-    sources: dict[str, SourceMetadata]
-
-    def __post_init__(self) -> None:
-        """Merge individual source indices into a single DataFrame for easy querying."""
-        self._index: pd.DataFrame = (
-            pd.concat(
-                [meta.index for meta in self.sources.values()],
-                ignore_index=True,
-            )
-            if self.sources
-            else pd.DataFrame()
-        )
-
-    @property
-    def index(self) -> pd.DataFrame:
-        """Merged snapshot index across all sources (one row per snapshot per source)."""
-        return self._index
-
-    def __getitem__(self, source_name: str) -> SourceMetadata:
-        """Return the SourceMetadata for the given source name."""
-        return self.sources[source_name]
-
-    def __len__(self) -> int:
-        """Return the number of sources."""
-        return len(self.sources)
-
-    def __iter__(self) -> Iterator[str]:
-        """Iterate over source names."""
-        return iter(self.sources)
-
-    def __contains__(self, source_name: object) -> bool:
-        """Return True if source_name is present."""
-        return source_name in self.sources
-
-    @property
-    def names(self) -> list[str]:
-        """Ordered list of source names."""
-        return list(self.sources.keys())
-
-    def filter_by_source_type(self, source_types: str | list[str]) -> MultisourceMetadata:
-        """Return a new MultisourceMetadata restricted to sources whose type matches.
+        The group should already be a sub-group named by ``source_name``
+        (created by the caller).  Datasets ``values`` and ``coords`` are
+        always written; ``mask`` is written only when present.
 
         Args:
-            source_types: A single type string (e.g. ``"microwave"``) or a list of
-                type strings. Only sources whose :attr:`SourceMetadata.type` appears
-                in this set are included in the returned object.
+            group: Open, writable h5py Group for this source.
+        """
+        group.create_dataset(
+            "values",
+            data=self.values.detach().cpu().numpy().astype(np.float32),
+            **_FLOAT_COMPRESSION,
+        )
+        # FIELD coords stored as float32 (lat/lon precision sufficient); others float64.
+        coord_dtype = np.float32 if self.kind is SourceKind.FIELD else np.float64
+        group.create_dataset(
+            "coords",
+            data=self.coords.detach().cpu().numpy().astype(coord_dtype),
+            **_FLOAT_COMPRESSION,
+        )
+        if self.mask is not None:
+            group.create_dataset(
+                "mask",
+                data=self.mask.detach().cpu().numpy().astype(bool),
+            )
+        group.attrs["source_name"] = self.source_name
+        group.attrs["channels"] = json.dumps(self.channels)
+
+    @classmethod
+    def from_hdf5_group(cls, group: h5py.Group, kind: SourceKind) -> Source:
+        """Read a Source from an HDF5 group previously written by :meth:`to_hdf5_group`.
+
+        Args:
+            group: Open h5py Group for this source.
+            kind: SourceKind of this source (determined by parent group name).
 
         Returns:
-            A new :class:`MultisourceMetadata` containing only the matching sources.
+            Reconstructed Source with tensors on CPU.
         """
-        if isinstance(source_types, str):
-            source_types = [source_types]
-        allowed = set(source_types)
-        filtered = {name: meta for name, meta in self.sources.items() if meta.type in allowed}
-        return MultisourceMetadata(sources=filtered)
+        values = torch.from_numpy(np.array(group["values"], dtype=np.float32))
+        coord_dtype = np.float32 if kind is SourceKind.FIELD else np.float64
+        coords = torch.from_numpy(np.array(group["coords"], dtype=coord_dtype))
+        mask: torch.Tensor | None = None
+        if "mask" in group:
+            mask = torch.from_numpy(np.array(group["mask"], dtype=bool))
+        source_name = str(group.attrs["source_name"])
+        channels: list[str] = json.loads(str(group.attrs["channels"]))
+        return cls(
+            kind=kind,
+            values=values,
+            coords=coords,
+            source_name=source_name,
+            channels=channels,
+            mask=mask,
+        )

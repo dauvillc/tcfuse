@@ -32,8 +32,7 @@ from scripts.preprocess.tc_primed.utils import (
     should_skip_existing,
 )
 from scripts.preprocess.utils.regridding import ResamplingError, regrid
-from tcfuse.data.sources.base import Source, SourceKind
-from tcfuse.utils.io import source_snapshot_path, write_snapshot, write_source_metadata
+from tcfuse.data.sources import Snapshot, Source, SourceKind, SourceMetadata
 
 # Sensor → {"37": (swath_name, [variable_names]), "89": (swath_name, [variable_names])}
 # Only 37 GHz and 89 GHz (or the closest equivalents for each sensor) are extracted.
@@ -159,7 +158,7 @@ def process_pmw_file(
         # --- Early skip check (before reading swath data) ---
         overpass_time = pd.Timestamp(time_unix_s, unit="s")
         overpass_time_utc = overpass_time.strftime("%Y%m%dT%H%M%SZ")
-        dest_path = source_snapshot_path(sources_root, source_name, storm_id, overpass_time_utc)
+        dest_path = Snapshot.path(sources_root, source_name, storm_id, overpass_time_utc)
         if should_skip_existing(dest_path, skip_existing, max_age_hours):
             return {
                 "storm_id": storm_id,
@@ -227,7 +226,7 @@ def process_pmw_file(
 
     overpass_time = pd.Timestamp(time_unix_s, unit="s")
     overpass_time_utc = overpass_time.strftime("%Y%m%dT%H%M%SZ")
-    dest_path = source_snapshot_path(sources_root, source_name, storm_id, overpass_time_utc)
+    dest_path = Snapshot.path(sources_root, source_name, storm_id, overpass_time_utc)
     meta: dict[str, Any] = {
         "storm_id": storm_id,
         "basin": basin,
@@ -240,7 +239,7 @@ def process_pmw_file(
         "storm_speed_ms": storm_speed_ms,
         "storm_heading_deg": storm_heading_deg,
     }
-    write_snapshot(dest_path, meta, {source_name: source})
+    Snapshot(sources={source_name: source}, meta=meta).write(dest_path)
 
     return {
         "storm_id": storm_id,
@@ -378,14 +377,10 @@ def main(raw_cfg: DictConfig) -> None:
             index_path = sources_root / source_name / "index.parquet"
             index_df.to_parquet(index_path, index=False)
             print(f"Wrote index ({source_name}): {len(index_df)} rows → {index_path}")
-            write_source_metadata(
-                sources_root,
-                source_name,
-                source_type="microwave",
-                source_kind=SourceKind.FIELD,
-                channels=channels_by_source[source_name],
+            source_meta = SourceMetadata(
+                source_name, "pmw", SourceKind.FIELD, channels_by_source[source_name], index_df
             )
-            print(f"Wrote metadata: {sources_root / source_name / 'metadata.yaml'}")
+            source_meta.write(sources_root)
     else:
         print("No valid snapshots found.")
 
