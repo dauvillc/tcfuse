@@ -4,4 +4,11 @@ defaults:
   - setup: local    # override with setup=jz_<hw> on Jean-Zay
   - _self_
 
-launch_without_submitit: false  # set true for local debugging without submitit
+# If true, launches the jobs as a SLURM job using submitit
+submitit: true
+
+# Number of parallel preprocessing workers (override on Jean-Zay via setup config).
+num_workers: 4
+
+# Approximate number of snapshots per submitit job chunk.
+chunk_size: 200
