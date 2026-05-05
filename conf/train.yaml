@@ -8,4 +8,4 @@ defaults:
   - experiment: ???   # must be specified at launch
   - _self_
 
-launch_without_submitit: false  # set true for local debugging without submitit
+submitit: true  # Set to false to run locally
