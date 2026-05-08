@@ -5,6 +5,7 @@ store: /home/cdauvill/scratch/tcfuse  # There's no store on the local machine.
 
 # Paths to raw datasets
 raw_datasets:
+  ibtracs: ${paths.scratch}/data/raw/ibtracs
   tc_primed: ${paths.scratch}/data/raw/tc_primed
   cyclobs: ${paths.scratch}/data/raw/cyclobs
   dropsondes: ${paths.scratch}/data/raw/dropsondes
