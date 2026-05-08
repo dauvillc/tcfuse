@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from dataclasses import dataclass
 from enum import Enum, auto
+from pathlib import Path
+from typing import Any
 
 import h5py
 import numpy as np
@@ -62,6 +65,7 @@ class Source:
     source_name: str
     channels: list[str]
     mask: Tensor | None = None
+    meta: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate shape consistency between values, coords, and mask."""
@@ -181,3 +185,91 @@ class Source:
             channels=channels,
             mask=mask,
         )
+
+    # ------------------------------------------------------------------
+    # File-level HDF5 I/O (single-source files)
+    # ------------------------------------------------------------------
+
+    def write(self, path: Path) -> None:
+        """Write this source to a self-contained HDF5 file.
+
+        Root-level attributes hold ``self.meta`` (storm / observation metadata).
+        Tensor data lives under ``/{kind}/{source_name}/``, matching the layout
+        used by :meth:`to_hdf5_group`.  Parent directories are created as needed.
+
+        Args:
+            path: Destination ``.h5`` file path.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with h5py.File(path, "w") as f:
+            # Write storm / observation metadata as root attributes.
+            for key, value in self.meta.items():
+                f.attrs[key] = value
+            # Write tensors into /{kind}/{source_name}/.
+            kind_group_name = _KIND_TO_GROUP[self.kind]
+            src_group = f.create_group(f"{kind_group_name}/{self.source_name}")
+            self.to_hdf5_group(src_group)
+
+    @classmethod
+    def from_disk(cls, path: Path) -> Source:
+        """Load a Source from an HDF5 file written by :meth:`write`.
+
+        Root-level attributes are loaded into ``meta``.  The single
+        ``/{kind}/{source_name}/`` group provides the tensor data.
+
+        Args:
+            path: Path to the ``.h5`` file.
+
+        Returns:
+            Reconstructed :class:`Source` with tensors on CPU and root
+            attributes in ``meta``.
+        """
+        with h5py.File(path, "r") as f:
+            meta = dict(f.attrs)
+            # Find the one source group (there is exactly one per file).
+            for kind_group_name, kind in _GROUP_TO_KIND.items():
+                if kind_group_name not in f:
+                    continue
+                for _name, group in f[kind_group_name].items():  # type: ignore[union-attr]
+                    source = cls.from_hdf5_group(group, kind)
+                    source.meta = meta
+                    return source
+        raise ValueError(f"No source group found in {path}")
+
+    @staticmethod
+    def read_meta(path: Path) -> dict[str, Any]:
+        """Read only root-level metadata attributes without loading tensors.
+
+        Useful for building or refreshing an index without touching source data.
+
+        Args:
+            path: Path to the ``.h5`` file.
+
+        Returns:
+            Dict of root-level HDF5 attributes.
+        """
+        with h5py.File(path, "r") as f:
+            return dict(f.attrs)
+
+    @staticmethod
+    def path(
+        sources_root: Path,
+        source_name: str,
+        storm_id: str,
+        snapshot_time_utc: str,
+    ) -> Path:
+        """Return the canonical path for a single-source HDF5 file.
+
+        Args:
+            sources_root: Root directory for preprocessed sources
+                (``cfg.paths.preprocessed_sources``).
+            source_name: Source identifier, e.g. ``"pmw_amsr2_gcomw1"``.
+            storm_id: Storm identifier, e.g. ``"2016AL10"``.
+            snapshot_time_utc: Compact UTC timestamp string,
+                e.g. ``"20160912T010942Z"``.
+
+        Returns:
+            Absolute path:
+            ``{sources_root}/{source_name}/snapshots/{storm_id}_{snapshot_time_utc}.h5``
+        """
+        return sources_root / source_name / "snapshots" / f"{storm_id}_{snapshot_time_utc}.h5"

@@ -26,7 +26,7 @@ class SourceMetadata:
         kind: Dimensionality class (SCALAR, PROFILE, or FIELD).
         channels: Ordered list of channel names matching the last axis of
             the ``values`` array in each snapshot.
-        index: Snapshot index loaded from ``index.parquet``.  Each row
+        index: Source index loaded from ``index.parquet``.  Each row
             corresponds to one HDF5 snapshot file; columns include at least
             ``storm_id``, ``snapshot_time_utc``, ``lat``, ``lon``,
             ``source_name``, and ``file_path``.

@@ -32,7 +32,7 @@ from scripts.preprocess.tc_primed.utils import (
     should_skip_existing,
 )
 from scripts.preprocess.utils.regridding import ResamplingError, regrid
-from tcfuse.data.sources import Snapshot, Source, SourceKind, SourceMetadata
+from tcfuse.data.sources import Source, SourceKind, SourceMetadata
 
 # Sensor → {"37": (swath_name, [variable_names]), "89": (swath_name, [variable_names])}
 # Only 37 GHz and 89 GHz (or the closest equivalents for each sensor) are extracted.
@@ -158,7 +158,7 @@ def process_pmw_file(
         # --- Early skip check (before reading swath data) ---
         overpass_time = pd.Timestamp(time_unix_s, unit="s")
         overpass_time_utc = overpass_time.strftime("%Y%m%dT%H%M%SZ")
-        dest_path = Snapshot.path(sources_root, source_name, storm_id, overpass_time_utc)
+        dest_path = Source.path(sources_root, source_name, storm_id, overpass_time_utc)
         if should_skip_existing(dest_path, skip_existing, max_age_hours):
             return {
                 "storm_id": storm_id,
@@ -215,18 +215,9 @@ def process_pmw_file(
     # A pixel is valid only when all channels are non-NaN
     mask_np = ~np.isnan(values_np).any(axis=-1)  # (H, W)
 
-    source = Source(
-        kind=SourceKind.FIELD,
-        values=torch.from_numpy(values_np),
-        coords=torch.from_numpy(coords_np),
-        source_name=source_name,
-        channels=channels,
-        mask=torch.from_numpy(mask_np),
-    )
-
     overpass_time = pd.Timestamp(time_unix_s, unit="s")
     overpass_time_utc = overpass_time.strftime("%Y%m%dT%H%M%SZ")
-    dest_path = Snapshot.path(sources_root, source_name, storm_id, overpass_time_utc)
+    dest_path = Source.path(sources_root, source_name, storm_id, overpass_time_utc)
     meta: dict[str, Any] = {
         "storm_id": storm_id,
         "basin": basin,
@@ -239,7 +230,16 @@ def process_pmw_file(
         "storm_speed_ms": storm_speed_ms,
         "storm_heading_deg": storm_heading_deg,
     }
-    Snapshot(sources={source_name: source}, meta=meta).write(dest_path)
+    source = Source(
+        kind=SourceKind.FIELD,
+        values=torch.from_numpy(values_np),
+        coords=torch.from_numpy(coords_np),
+        source_name=source_name,
+        channels=channels,
+        mask=torch.from_numpy(mask_np),
+        meta=meta,
+    )
+    source.write(dest_path)
 
     return {
         "storm_id": storm_id,

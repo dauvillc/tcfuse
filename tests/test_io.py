@@ -1,4 +1,4 @@
-"""Round-trip tests for the HDF5 I/O layer.
+"""Round-trip tests for the Source HDF5 I/O layer.
 
 All tests use synthetic tensors — no real data required.
 Tests import the source factories defined in test_sources.py.
@@ -10,13 +10,14 @@ import math
 import tempfile
 from pathlib import Path
 
+import pytest
 import torch
 
-from tcfuse.data.sources import Source, SourceKind, Snapshot
+from tcfuse.data.sources import Source, SourceKind
 from tests.test_sources import make_field_source, make_profile_source, make_scalar_source
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Shared per-item storm metadata used across tests
 # ---------------------------------------------------------------------------
 
 _META = {
@@ -30,12 +31,12 @@ _META = {
 }
 
 
-def _write_read(sources: dict[str, Source], **read_kwargs: object) -> Snapshot:
-    """Write sources to a temp HDF5 file and read them back."""
+def _write_read(source: Source) -> Source:
+    """Write source to a temp HDF5 file and read it back."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "snapshots" / "AL012020_20200801T120000Z.h5"
-        Snapshot(sources=sources, meta=_META).write(path)
-        return Snapshot.from_disk(path, **read_kwargs)  # type: ignore[arg-type]
+        path = Path(tmpdir) / "test.h5"
+        source.write(path)
+        return Source.from_disk(path)
 
 
 # ---------------------------------------------------------------------------
@@ -46,125 +47,99 @@ def _write_read(sources: dict[str, Source], **read_kwargs: object) -> Snapshot:
 class TestRoundTrip:
     def test_scalar_values_match(self) -> None:
         src = make_scalar_source(C=4)
-        result = _write_read({"best_track": src})
-        assert torch.allclose(result["best_track"].values, src.values, atol=1e-6)
+        result = _write_read(src)
+        assert torch.allclose(result.values, src.values, atol=1e-6)
 
     def test_scalar_coords_match(self) -> None:
         src = make_scalar_source()
-        result = _write_read({"best_track": src})
-        assert torch.allclose(result["best_track"].coords.double(), src.coords.double(), atol=1e-9)
+        result = _write_read(src)
+        assert torch.allclose(result.coords.double(), src.coords.double(), atol=1e-9)
 
     def test_profile_values_match(self) -> None:
         src = make_profile_source(L=15, C=6)
-        result = _write_read({"dropsonde_001": src})
-        assert torch.allclose(result["dropsonde_001"].values, src.values, atol=1e-6)
+        result = _write_read(src)
+        assert torch.allclose(result.values, src.values, atol=1e-6)
 
     def test_profile_coords_match(self) -> None:
         src = make_profile_source(L=15, C=6)
-        result = _write_read({"dropsonde_001": src})
-        assert torch.allclose(
-            result["dropsonde_001"].coords.double(), src.coords.double(), atol=1e-9
-        )
+        result = _write_read(src)
+        assert torch.allclose(result.coords.double(), src.coords.double(), atol=1e-9)
 
     def test_field_values_match(self) -> None:
         src = make_field_source(H=12, W=10, C=4)
-        result = _write_read({"pmw_amsr2": src})
-        assert torch.allclose(result["pmw_amsr2"].values, src.values, atol=1e-5)
+        result = _write_read(src)
+        assert torch.allclose(result.values, src.values, atol=1e-5)
 
     def test_field_coords_match(self) -> None:
         src = make_field_source(H=12, W=10, C=4)
-        result = _write_read({"pmw_amsr2": src})
-        assert torch.allclose(result["pmw_amsr2"].coords, src.coords.float(), atol=1e-5)
+        result = _write_read(src)
+        assert torch.allclose(result.coords, src.coords.float(), atol=1e-5)
 
     def test_source_kind_preserved_scalar(self) -> None:
-        src = make_scalar_source()
-        result = _write_read({"best_track": src})
-        assert result["best_track"].kind is SourceKind.SCALAR
+        result = _write_read(make_scalar_source())
+        assert result.kind is SourceKind.SCALAR
 
     def test_source_kind_preserved_profile(self) -> None:
-        src = make_profile_source()
-        result = _write_read({"dropsonde_001": src})
-        assert result["dropsonde_001"].kind is SourceKind.PROFILE
+        result = _write_read(make_profile_source())
+        assert result.kind is SourceKind.PROFILE
 
     def test_source_kind_preserved_field(self) -> None:
-        src = make_field_source()
-        result = _write_read({"pmw_amsr2": src})
-        assert result["pmw_amsr2"].kind is SourceKind.FIELD
+        result = _write_read(make_field_source())
+        assert result.kind is SourceKind.FIELD
 
     def test_source_name_preserved(self) -> None:
         src = make_scalar_source(source_name="era5_surface")
-        result = _write_read({"era5_surface": src})
-        assert result["era5_surface"].source_name == "era5_surface"
+        result = _write_read(src)
+        assert result.source_name == "era5_surface"
 
     def test_nan_values_preserved(self) -> None:
         src = make_profile_source(L=8, C=3)
         src.values[2, 1] = float("nan")
-        result = _write_read({"dropsonde_nan": src})
-        assert math.isnan(float(result["dropsonde_nan"].values[2, 1]))
+        result = _write_read(src)
+        assert math.isnan(float(result.values[2, 1]))
 
 
 # ---------------------------------------------------------------------------
-# Multi-source snapshot
+# Meta round-trip
 # ---------------------------------------------------------------------------
 
 
-class TestMultiSource:
-    def test_all_three_kinds_round_trip(self) -> None:
-        sources = {
-            "best_track": make_scalar_source(),
-            "dropsonde_001": make_profile_source(),
-            "pmw_amsr2": make_field_source(),
-        }
-        result = _write_read(sources)
-        assert set(result) == {"best_track", "dropsonde_001", "pmw_amsr2"}
+class TestMeta:
+    def test_meta_written_and_read_back(self) -> None:
+        src = make_scalar_source()
+        src.meta = dict(_META)
+        result = _write_read(src)
+        assert result.meta["storm_id"] == "AL012020"
+        assert result.meta["basin"] == "AL"
+        assert float(result.meta["vmax_kt"]) == pytest.approx(65.0)
 
-    def test_multiple_field_sources(self) -> None:
-        sources = {
-            "pmw_amsr2": make_field_source(H=8, W=8, C=4),
-            "era5_surface": make_field_source(H=16, W=16, C=5, source_name="era5_surface"),
-        }
-        result = _write_read(sources)
-        assert result["pmw_amsr2"].values.shape == (8, 8, 4)
-        assert result["era5_surface"].values.shape == (16, 16, 5)
+    def test_empty_meta_no_error(self) -> None:
+        src = make_field_source()
+        src.meta = {}
+        result = _write_read(src)
+        assert result.meta == {}
 
-
-# ---------------------------------------------------------------------------
-# Missing sources (absent HDF5 group)
-# ---------------------------------------------------------------------------
-
-
-class TestMissingSources:
-    def test_absent_source_not_in_result(self) -> None:
-        sources = {"best_track": make_scalar_source()}
-        result = _write_read(sources)
-        assert "pmw_amsr2" not in result
-
-    def test_empty_snapshot_returns_empty_dict(self) -> None:
-        result = _write_read({})
-        assert len(result) == 0
+    def test_read_meta_static_method(self) -> None:
+        src = make_scalar_source()
+        src.meta = {"storm_id": "EP052021", "lat": 18.5}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "test.h5"
+            src.write(path)
+            meta = Source.read_meta(path)
+        assert meta["storm_id"] == "EP052021"
+        assert float(meta["lat"]) == pytest.approx(18.5)
 
 
 # ---------------------------------------------------------------------------
-# Partial read (source_names filter)
+# Canonical path helper
 # ---------------------------------------------------------------------------
 
 
-class TestPartialRead:
-    def test_only_requested_sources_returned(self) -> None:
-        sources = {
-            "best_track": make_scalar_source(),
-            "pmw_amsr2": make_field_source(),
-            "era5_surface": make_field_source(source_name="era5_surface"),
-        }
-        result = _write_read(sources, source_names=["best_track", "era5_surface"])
-        assert "best_track" in result
-        assert "era5_surface" in result
-        assert "pmw_amsr2" not in result
-
-    def test_request_absent_source_returns_empty(self) -> None:
-        sources = {"best_track": make_scalar_source()}
-        result = _write_read(sources, source_names=["nonexistent"])
-        assert len(result) == 0
+class TestPath:
+    def test_path_structure(self) -> None:
+        sources_root = Path("/data/preprocessed")
+        p = Source.path(sources_root, "pmw_amsr2", "2016AL10", "20160912T010942Z")
+        assert p == Path("/data/preprocessed/pmw_amsr2/snapshots/2016AL10_20160912T010942Z.h5")
 
 
 # ---------------------------------------------------------------------------
@@ -185,16 +160,16 @@ class TestMaskRoundTrip:
             channels=[f"ch{i}" for i in range(C)],
             mask=mask,
         )
-        result = _write_read({"dropsonde_masked": src})
-        assert result["dropsonde_masked"].mask is not None
-        assert not result["dropsonde_masked"].mask[3, 0]
-        assert result["dropsonde_masked"].mask[0, 0]
+        result = _write_read(src)
+        assert result.mask is not None
+        assert not result.mask[3, 0]
+        assert result.mask[0, 0]
 
     def test_no_mask_when_none(self) -> None:
         src = make_scalar_source()
         assert src.mask is None
-        result = _write_read({"best_track": src})
-        assert result["best_track"].mask is None
+        result = _write_read(src)
+        assert result.mask is None
 
 
 # ---------------------------------------------------------------------------
@@ -207,10 +182,12 @@ class TestChannelsRoundTrip:
         src = make_scalar_source(C=2, source_name="best_track")
         src.channels[0] = "vmax_kt"
         src.channels[1] = "mslp_hpa"
-        result = _write_read({"best_track": src})
-        assert result["best_track"].channels == ["vmax_kt", "mslp_hpa"]
+        result = _write_read(src)
+        assert result.channels == ["vmax_kt", "mslp_hpa"]
 
     def test_channels_preserved_for_field_source(self) -> None:
         src = make_field_source(C=4, source_name="pmw_amsr2")
-        result = _write_read({"pmw_amsr2": src})
-        assert result["pmw_amsr2"].channels == src.channels
+        result = _write_read(src)
+        assert result.channels == src.channels
+
+

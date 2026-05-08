@@ -35,7 +35,7 @@ from scripts.preprocess.tc_primed.utils import (
     list_tc_primed_storm_files,
     should_skip_existing,
 )
-from tcfuse.data.sources import Snapshot, Source, SourceKind, SourceMetadata
+from tcfuse.data.sources import Source, SourceKind, SourceMetadata
 
 # Maps infrared_availability_flag value → source name (None = unavailable).
 # Index 0 means no IR data; 1 = TC-IRAR (4 km); 2 = HURSAT (8 km).
@@ -127,7 +127,7 @@ def process_ir_file(
         # --- Early skip check (before reading image data) ---
         overpass_time = pd.Timestamp(time_unix_s, unit="s")
         overpass_time_utc = overpass_time.strftime("%Y%m%dT%H%M%SZ")
-        dest_path = Snapshot.path(sources_root, source_name, storm_id, overpass_time_utc)
+        dest_path = Source.path(sources_root, source_name, storm_id, overpass_time_utc)
         if should_skip_existing(dest_path, skip_existing, max_age_hours):
             return {
                 "storm_id": storm_id,
@@ -155,15 +155,6 @@ def process_ir_file(
     )  # (H, W, 3)
     mask_np = ~np.isnan(irwin)  # (H, W)
 
-    source = Source(
-        kind=SourceKind.FIELD,
-        values=torch.from_numpy(values_np),
-        coords=torch.from_numpy(coords_np),
-        source_name=source_name,
-        channels=["irwin"],
-        mask=torch.from_numpy(mask_np),
-    )
-
     meta: dict[str, Any] = {
         "storm_id": storm_id,
         "basin": basin,
@@ -171,7 +162,16 @@ def process_ir_file(
         "lat": storm_lat,
         "lon": storm_lon,
     }
-    Snapshot(sources={source_name: source}, meta=meta).write(dest_path)
+    source = Source(
+        kind=SourceKind.FIELD,
+        values=torch.from_numpy(values_np),
+        coords=torch.from_numpy(coords_np),
+        source_name=source_name,
+        channels=["irwin"],
+        mask=torch.from_numpy(mask_np),
+        meta=meta,
+    )
+    source.write(dest_path)
 
     return {
         "storm_id": storm_id,
