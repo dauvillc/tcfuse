@@ -27,7 +27,7 @@ Every source, regardless of its dimensionality, is represented as a set of **(va
 
 | Source type | Example sources | Value shape | Coordinate channels |
 |---|---|---|---|
-| **0D** (scalar) | Best-track, buoy point obs | `(1,)` | time, lat, lon |
+| **0D** (scalar) | Best-track, buoy point obs | `(C,)` | time, lat, lon |
 | **1D** (vertical profile) | Dropsonde, Argo float | `(L, C)` — L levels, C channels | time, lat, lon, altitude/depth |
 | **2D** (image / field) | PMW satellite, IR geostationary, ERA5 field | `(H, W, C)` | time (scalar), lat grid `(H, W)`, lon grid `(H, W)` |
 
@@ -62,51 +62,66 @@ Every source, regardless of its dimensionality, is represented as a set of **(va
 
 ## On-disk preprocessed format
 
-Preprocessed data is organised **source-first** under `cfg.paths.preprocessed_sources`:
+Preprocessing is a **two-stage pipeline**. Use `/preprocess` for the full workflow and dataset inventory.
+
+### Stage 1 — Per-source format (`cfg.paths.preprocessed_sources`)
 
 ```
-<preprocessed_sources>/          ← cfg.paths.preprocessed_sources
+<preprocessed_sources>/
 ├── pmw_amsr2_gcomw1/
+│   ├── metadata.yaml            ← source kind, channels, char_vars
 │   ├── index.parquet            ← one row per snapshot; fast lookup without opening HDF5 files
 │   └── snapshots/
 │       └── {storm_id}_{YYYYMMDDTHHMMSSZ}.h5
 ├── pmw_ssmis_f18/
-│   ├── index.parquet
-│   └── snapshots/
-│       └── ...
-├── era5_surface/
 │   └── ...
-└── best_track/
-    └── ...
+└── ...
 ```
 
-Each HDF5 file holds **exactly one source** plus storm-level metadata in root attributes.
-Use `source_snapshot_path(sources_root, source_name, storm_id, snapshot_time_utc)` from
-`src/tcfuse/utils/io.py` to compute canonical paths.
-
-**HDF5 per-snapshot structure:**
+Each HDF5 holds **exactly one source**; use `Source.path(sources_root, source_name, storm_id, snapshot_time_utc)` for canonical paths.
 
 ```
 /
-├── attrs: {storm_id, basin, snapshot_time_utc, lat, lon, vmax_kt, mslp_hpa, …}
-├── scalar/
-│   └── {source_name}/  values float32 (C,)       coords float64 (3,)      [time_unix_s, lat, lon]
-├── profile/
-│   └── {source_name}/  values float32 (L, C)      coords float64 (L, 4)   [time_unix_s, lat, lon, alt_m]
-└── field/
-    └── {source_name}/  values float32 (H, W, C)   coords float32 (H, W, 3) [time_unix_s broadcast, lat, lon]
+├── attrs: {storm_id, basin, snapshot_time_utc, lat, lon, vmax_kt, …}   ← Source.meta
+├── scalar/{source_name}/  values float32 (C,)      coords float64 (3,)     attrs: {source_name, channels (JSON), char_vars (JSON)}
+├── profile/{source_name}/ values float32 (L, C)    coords float64 (L, 4)   attrs: {source_name, channels (JSON), char_vars (JSON)}
+└── field/{source_name}/   values float32 (H, W, C) coords float32 (H, W, 3) attrs: {source_name, channels (JSON), char_vars (JSON)}
 ```
 
-Each source sub-group also has an optional `mask` bool dataset (same leading shape as `values`) and attrs `{source_name, channels}`.
+Each sub-group also has an optional `mask` bool dataset (same leading shape as `values`).
+
+### Stage 2 — Assembled format (`cfg.paths.preprocessed_data`)
+
+`scripts/preprocess/assemble.py` merges per-source files into one HDF5 per storm and injects IBTrACS best-track data.
+
+```
+<preprocessed_data>/
+├── {ibtracs_sid}.h5    ← one file per storm (ATCF ID used when no IBTrACS match)
+└── index.parquet       ← global index: storm_id, basin, season, atcf_id, source_name,
+                           snapshot_time_utc, lat, lon, vmax_kt
+```
+
+Each HDF5 holds **all sources for one storm**; use `StormData.path(assembled_root, storm_id)` for canonical paths.
+
+```
+/
+├── attrs: {storm_id (IBTrACS SID), basin, season, atcf_id}
+└── {source_name}/
+    └── {compact_time}/           ← e.g., "20160912T010942Z"
+        ├── values / coords / [mask]
+        └── attrs: {source_name, channels (JSON), char_vars (JSON), kind, snapshot_time_utc, …meta}
+```
+
+IBTrACS best-track observations are injected as `source_name = "ibtracs_best_track"` (SCALAR, 7 channels: vmax_kt, mslp_hpa, rmw_nm, r34_{ne,se,sw,nw}_nm).
 
 **Key conventions:**
-- Each HDF5 contains exactly one source; the source group is absent when data is unavailable (never empty groups).
-- `source_name` identifies the source (e.g. `"best_track"`, `"era5_surface"`) — not tied to a raw dataset name.
-- Index `source_name` column is a single string matching the source directory name.
-- Per-source `index.parquet` files carry **no** split column. Train/val/test assignment is done separately by `scripts/preprocess/build_splits.py`, which merges all source indexes and writes `{preprocessed_sources}/train.parquet`, `val.parquet`, `test.parquet`.
+- `StormData.sources` dict key: `(source_name, snapshot_time_utc)` using isoformat strings.
+- Per-source `index.parquet` carries no split column. Train/val/test assignment is done separately by `scripts/preprocess/build_splits.py`, which reads the assembled `index.parquet` (which has a `season` column) and writes `{preprocessed_data}/train.parquet`, `val.parquet`, `test.parquet`.
 
-All I/O goes through `src/tcfuse/utils/io.py` (`write_snapshot`, `read_snapshot`, `read_snapshot_meta`, `source_snapshot_path`).
-Use `/preprocess` for the full preprocessing workflow and dataset inventory.
+**I/O API** (`src/tcfuse/data/sources/`):
+- `Source.write(path)` / `Source.from_disk(path)` / `Source.read_meta(path)` / `Source.path(...)`
+- `StormData.write(assembled_root)` / `StormData.from_disk(assembled_root, storm_id)` / `StormData.path(...)`
+- `SourceMetadata.from_disk(source_dir)` / `MultisourceMetadata.from_disk(sources_root)`
 
 ---
 
@@ -125,7 +140,7 @@ project_root/
 ├── src/
 │   └── tcfuse/
 │       ├── data/
-│       │   ├── sources/           ← one module per source type (tcprimed, argo, dropsonde, …)
+│       │   ├── sources/           ← Source, SourceKind, SourceMetadata, MultisourceMetadata, StormData
 │       │   ├── collocation.py     ← spatiotemporal window queries
 │       │   ├── transforms.py      ← normalization, coordinate encoding
 │       │   └── dataset.py         ← PyTorch Dataset / LightningDataModule
@@ -138,10 +153,9 @@ project_root/
 │       │   ├── losses.py
 │       │   └── callbacks.py
 │       └── utils/
-│           ├── coords.py          ← coordinate utilities (projections, normalization)
-│           └── io.py              ← NetCDF / HDF5 helpers
+│           └── coords.py          ← coordinate utilities (projections, normalization)
 ├── scripts/
-│   ├── preprocess/            ← data download and preprocessing scripts
+│   ├── preprocess/            ← source preprocessors (prepare_*.py) + assemble.py + build_splits.py
 │   └── slurm/                 ← Jean-Zay job submission scripts (see section below)
 ├── tests/
 │   ├── test_sources.py
@@ -168,6 +182,7 @@ project_root/
 - No magic numbers anywhere in `src/`. Use named constants or config values.
 - Tensor shapes must be documented in docstrings as comments: `# (B, L, C)`.
 - All configurable hyperparameters live in `conf/`. Code reads from config; config does not live in code.
+- Use inline comments liberally: add a short `# comment` above every logical code block (even small ones) to explain what it does.
 
 **W&B conventions:**
 - Project name: `TODO`

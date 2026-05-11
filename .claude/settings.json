@@ -2,7 +2,22 @@
   "permissions": {
     "allow": [
       "Bash(pip show *)",
-      "Read(//home/cdauvill/scratch/tcfuse/**)"
+      "Read(//home/cdauvill/scratch/tcfuse/**)",
+      "Bash(grep -E \"\\\\.\\(parquet|csv|yaml|json\\)$\")"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"\nimport json, sys, re\ndata = json.load(sys.stdin)\nf = data.get('tool_input', {}).get('file_path', '')\nif not f: sys.exit(0)\nif re.search(r'/src/|/scripts/|/conf/', f) and not re.search(r'CLAUDE\\\\.md|\\\\.claude/commands/', f):\n    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse', 'additionalContext': f'Pipeline file edited: {f} — check if CLAUDE.md or .claude/commands/ skill files need updating.'}}))\n\" 2>/dev/null || true",
+            "statusMessage": "Checking if docs need updating..."
+          }
+        ]
+      }
     ]
   }
 }
