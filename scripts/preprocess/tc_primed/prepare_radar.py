@@ -126,7 +126,7 @@ def process_radar_file(
         season = int(meta_grp["season"][0])
         basin = str(meta_grp["basin"][0])
         storm_number = int(meta_grp["cyclone_number"][-1])
-        storm_id = f"{season}{basin}{storm_number}"
+        storm_id = f"{basin}{storm_number:02d}{season}"
         time_unix_s = float(meta_grp["time"][0])
 
         # Retrieve storm info interpolated from best track

@@ -70,6 +70,32 @@ def _get_regridding_resolution(sensat: str, swath_89: str, ifovs: dict) -> float
     return min(ifov_entry)
 
 
+def _get_channel_ifovs(
+    sensat: str, swath: str, variables: list[str], ifovs: dict
+) -> dict[str, list[float]]:
+    """Return per-channel IFOV values (km) for a given PMW swath.
+
+    Each entry in the returned dict is a 4-element list
+    ``[along_track_1, across_track_1, along_track_2, across_track_2]`` in km.
+
+    Args:
+        sensat: Sensor/satellite string (e.g. "AMSR2_GCOMW1").
+        swath: Swath identifier (e.g. "S4").
+        variables: Channel variable names in the swath (e.g. ["TB_36.5H", "TB_36.5V"]).
+        ifovs: Full IFOV dict loaded from tc_primed_ifovs.yaml.
+
+    Returns:
+        Dict mapping lower-cased channel name to its IFOV list.
+    """
+    entry = ifovs[sensat][swath]
+    result = {}
+    for v in variables:
+        # Entry is either a dict keyed by channel name (e.g. GMI S1) or a shared list.
+        ifov = entry[v] if isinstance(entry, dict) else entry
+        result[v.lower()] = list(ifov)
+    return result
+
+
 def _read_pmw_swath(
     grp: Any, variables: list[str]
 ) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
@@ -142,7 +168,7 @@ def process_pmw_file(
         season = int(meta_grp["season"][0])
         basin = str(meta_grp["basin"][0])
         storm_number = int(meta_grp["cyclone_number"][-1])
-        storm_id = f"{season}{basin}{storm_number}"
+        storm_id = f"{basin}{storm_number:02d}{season}"
         time_unix_s = float(meta_grp["time"][0])
 
         # Retrieve some info about the storm that were interpolated from best track.
@@ -215,6 +241,14 @@ def process_pmw_file(
     # A pixel is valid only when all channels are non-NaN
     mask_np = ~np.isnan(values_np).any(axis=-1)  # (H, W)
 
+    # Per-channel IFOVs (km) for both frequency bands.
+    char_vars: dict[str, Any] = {
+        "ifov": {
+            **_get_channel_ifovs(sensat, swath_37, vars_37, ifovs),
+            **_get_channel_ifovs(sensat, swath_89, vars_89, ifovs),
+        }
+    }
+
     overpass_time = pd.Timestamp(time_unix_s, unit="s")
     overpass_time_utc = overpass_time.strftime("%Y%m%dT%H%M%SZ")
     dest_path = Source.path(sources_root, source_name, storm_id, overpass_time_utc)
@@ -238,6 +272,7 @@ def process_pmw_file(
         channels=channels,
         mask=torch.from_numpy(mask_np),
         meta=meta,
+        char_vars=char_vars,
     )
     source.write(dest_path)
 
@@ -322,6 +357,7 @@ def main(raw_cfg: DictConfig) -> None:
     # Collect rows per source name so each source gets its own index.parquet.
     rows_by_source: dict[str, list[dict[str, Any]]] = {}
     channels_by_source: dict[str, list[str]] = {}
+    char_vars_by_source: dict[str, dict[str, Any]] = {}
 
     if launch_local:
         for sensat, files in pmw_files.items():
@@ -339,9 +375,15 @@ def main(raw_cfg: DictConfig) -> None:
                 pct = 100.0 * discarded / max(len(results), 1)
                 print(f"  Discarded {discarded}/{len(results)} ({pct:.1f}%)")
             source_name = f"pmw_{sensat.lower()}"
-            _, vars_37 = SENSOR_VARIABLES[sensor]["37"]
-            _, vars_89 = SENSOR_VARIABLES[sensor]["89"]
+            swath_37, vars_37 = SENSOR_VARIABLES[sensor]["37"]
+            swath_89, vars_89 = SENSOR_VARIABLES[sensor]["89"]
             channels_by_source[source_name] = [v.lower() for v in vars_37 + vars_89]
+            char_vars_by_source[source_name] = {
+                "ifov": {
+                    **_get_channel_ifovs(sensat, swath_37, vars_37, ifovs),
+                    **_get_channel_ifovs(sensat, swath_89, vars_89, ifovs),
+                }
+            }
             rows_by_source.setdefault(source_name, []).extend(valid)
     else:
         from tcfuse.utils.submitit_utils import make_executor as make_submitit_executor
@@ -366,9 +408,15 @@ def main(raw_cfg: DictConfig) -> None:
                 print(f"  {sensat}: discarded {discarded}/{len(results)} ({pct:.1f}%)")
             sensor = sensat.split("_")[0]
             source_name = f"pmw_{sensat.lower()}"
-            _, vars_37 = SENSOR_VARIABLES[sensor]["37"]
-            _, vars_89 = SENSOR_VARIABLES[sensor]["89"]
+            swath_37, vars_37 = SENSOR_VARIABLES[sensor]["37"]
+            swath_89, vars_89 = SENSOR_VARIABLES[sensor]["89"]
             channels_by_source[source_name] = [v.lower() for v in vars_37 + vars_89]
+            char_vars_by_source[source_name] = {
+                "ifov": {
+                    **_get_channel_ifovs(sensat, swath_37, vars_37, ifovs),
+                    **_get_channel_ifovs(sensat, swath_89, vars_89, ifovs),
+                }
+            }
             rows_by_source.setdefault(source_name, []).extend(valid)
 
     if rows_by_source:
@@ -378,7 +426,12 @@ def main(raw_cfg: DictConfig) -> None:
             index_df.to_parquet(index_path, index=False)
             print(f"Wrote index ({source_name}): {len(index_df)} rows → {index_path}")
             source_meta = SourceMetadata(
-                source_name, "pmw", SourceKind.FIELD, channels_by_source[source_name], index_df
+                source_name,
+                "pmw",
+                SourceKind.FIELD,
+                channels_by_source[source_name],
+                index_df,
+                char_vars=char_vars_by_source[source_name],
             )
             source_meta.write(sources_root)
     else:

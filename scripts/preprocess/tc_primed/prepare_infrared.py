@@ -41,6 +41,13 @@ from tcfuse.data.sources import Source, SourceKind, SourceMetadata
 # Index 0 means no IR data; 1 = TC-IRAR (4 km); 2 = HURSAT (8 km).
 IR_FLAG_TO_SOURCE: list[str | None] = [None, "ir_tcirar", "ir_hursat"]
 
+# Scalar IFOV (km) per IR provenance dataset.
+# IR data is already on a regular equiangular grid so a single value suffices.
+IR_SOURCE_IFOVS: dict[str, float] = {
+    "ir_tcirar": 4.0,
+    "ir_hursat": 8.0,
+}
+
 
 def _read_ir_data(
     ir_grp: Any,
@@ -108,7 +115,7 @@ def process_ir_file(
         season = int(meta_grp["season"][0])
         basin = str(meta_grp["basin"][0])
         storm_number = int(meta_grp["cyclone_number"][-1])
-        storm_id = f"{season}{basin}{storm_number}"
+        storm_id = f"{basin}{storm_number:02d}{season}"
         time_unix_s = float(meta_grp["time"][0])
 
         storm_grp = raw["overpass_storm_metadata"]
@@ -162,6 +169,8 @@ def process_ir_file(
         "lat": storm_lat,
         "lon": storm_lon,
     }
+    # Scalar IFOV (km); no along/across distinction since data is already gridded.
+    char_vars: dict[str, Any] = {"ifov": {"irwin": IR_SOURCE_IFOVS[source_name]}}
     source = Source(
         kind=SourceKind.FIELD,
         values=torch.from_numpy(values_np),
@@ -170,6 +179,7 @@ def process_ir_file(
         channels=["irwin"],
         mask=torch.from_numpy(mask_np),
         meta=meta,
+        char_vars=char_vars,
     )
     source.write(dest_path)
 
@@ -286,7 +296,12 @@ def main(raw_cfg: DictConfig) -> None:
             index_df.to_parquet(index_path, index=False)
             print(f"Wrote index ({source_name}): {len(index_df)} rows → {index_path}")
             source_meta = SourceMetadata(
-                source_name, "infrared", SourceKind.FIELD, ["irwin"], index_df
+                source_name,
+                "infrared",
+                SourceKind.FIELD,
+                ["irwin"],
+                index_df,
+                char_vars={"ifov": {"irwin": IR_SOURCE_IFOVS[source_name]}},
             )
             source_meta.write(sources_root)
     else:
