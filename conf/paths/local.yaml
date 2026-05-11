@@ -5,7 +5,7 @@ store: /home/cdauvill/scratch/tcfuse  # There's no store on the local machine.
 
 # Paths to raw datasets
 raw_datasets:
-  ibtracs: ${paths.scratch}/data/raw/ibtracs
+  ibtracs: ${paths.scratch}/data/raw/ibtracs/ibtracs.ALL.list.v04r01.csv
   tc_primed: ${paths.scratch}/data/raw/tc_primed
   cyclobs: ${paths.scratch}/data/raw/cyclobs
   dropsondes: ${paths.scratch}/data/raw/dropsondes
@@ -14,6 +14,10 @@ raw_datasets:
 # Root directory for preprocessed sources.
 # Each source is stored at ${paths.preprocessed_sources}/<source_name>/.
 preprocessed_sources: ${paths.scratch}/data/preprocessed/sources
+
+# Directory for preprocessed data after it has been assembled into a single
+# dataset.
+preprocessed_data: ${paths.scratch}/data/preprocessed/assembled/
 
 # Paths for training outputs
 checkpoints: ${paths.work}/checkpoints

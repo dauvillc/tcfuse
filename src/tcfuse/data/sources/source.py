@@ -57,6 +57,9 @@ class Source:
             Length must equal ``values.shape[-1]``.
         mask: Boolean mask of valid (non-missing) entries; True = valid.
             Same leading shape as values. If None, all entries are assumed valid.
+        char_vars: Instrument-level descriptor variables that are constant across all
+            snapshots of this source (e.g. ``{"ifov": {"tb_89.0h": [7.2, 4.4, 7.2, 4.4]}}``).
+            Values must be JSON-serialisable (lists, dicts, scalars).
     """
 
     kind: SourceKind
@@ -66,6 +69,7 @@ class Source:
     channels: list[str]
     mask: Tensor | None = None
     meta: dict[str, Any] = dataclasses.field(default_factory=dict)
+    char_vars: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate shape consistency between values, coords, and mask."""
@@ -122,6 +126,8 @@ class Source:
             source_name=self.source_name,
             channels=self.channels,
             mask=self.mask.to(device) if self.mask is not None else None,
+            meta=self.meta,
+            char_vars=self.char_vars,
         )
 
     # ------------------------------------------------------------------
@@ -157,6 +163,8 @@ class Source:
             )
         group.attrs["source_name"] = self.source_name
         group.attrs["channels"] = json.dumps(self.channels)
+        # Instrument-level descriptors (same for every snapshot of this source).
+        group.attrs["char_vars"] = json.dumps(self.char_vars)
 
     @classmethod
     def from_hdf5_group(cls, group: h5py.Group, kind: SourceKind) -> Source:
@@ -177,6 +185,8 @@ class Source:
             mask = torch.from_numpy(np.array(group["mask"], dtype=bool))
         source_name = str(group.attrs["source_name"])
         channels: list[str] = json.loads(str(group.attrs["channels"]))
+        # Backward-compatible: older snapshots written before char_vars was introduced.
+        char_vars: dict[str, Any] = json.loads(str(group.attrs.get("char_vars", "{}")))
         return cls(
             kind=kind,
             values=values,
@@ -184,6 +194,7 @@ class Source:
             source_name=source_name,
             channels=channels,
             mask=mask,
+            char_vars=char_vars,
         )
 
     # ------------------------------------------------------------------

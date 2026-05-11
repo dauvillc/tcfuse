@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import yaml
@@ -30,6 +31,9 @@ class SourceMetadata:
             corresponds to one HDF5 snapshot file; columns include at least
             ``storm_id``, ``snapshot_time_utc``, ``lat``, ``lon``,
             ``source_name``, and ``file_path``.
+        char_vars: Instrument-level descriptor variables constant across all snapshots
+            of this source (e.g. ``{"ifov": {"tb_89.0h": [7.2, 4.4, 7.2, 4.4]}}``).
+            Values must be JSON-serialisable (lists, dicts, scalars).
     """
 
     name: str
@@ -37,6 +41,7 @@ class SourceMetadata:
     kind: SourceKind
     channels: list[str]
     index: pd.DataFrame = dataclasses.field(compare=False)
+    char_vars: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     @property
     def num_channels(self) -> int:
@@ -66,6 +71,7 @@ class SourceMetadata:
             "kind": self.kind.name.lower(),
             "channels": self.channels,
             "num_channels": self.num_channels,
+            "char_vars": self.char_vars,
         }
         with open(dest / "metadata.yaml", "w") as f:
             yaml.dump(meta, f, default_flow_style=False, sort_keys=False)
@@ -94,6 +100,8 @@ class SourceMetadata:
 
         source_kind = SourceKind[raw["kind"].upper()]
         index = pd.read_parquet(sources_root / source_name / "index.parquet")
+        # Backward-compatible: older metadata.yaml files written before char_vars was introduced.
+        char_vars: dict[str, Any] = raw.get("char_vars") or {}
 
         return cls(
             name=raw["name"],
@@ -101,6 +109,7 @@ class SourceMetadata:
             kind=source_kind,
             channels=raw["channels"],
             index=index,
+            char_vars=char_vars,
         )
 
 
