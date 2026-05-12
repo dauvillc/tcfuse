@@ -14,6 +14,7 @@ python = "==3.12.11"
 xarray = "*"
 zarr = "*"
 cartopy = "*"
+cmocean = "*"
 h5py = "*"
 netcdf4 = "*"
 pandas = "*"
@@ -28,6 +29,7 @@ pyresample = ">=1.35.0,<2"
 boto3 = ">=1.42.91,<2"
 dask = ">=2026.3.0,<2027"
 polars = ">=1.40.0,<2"
+scipy = ">=1.17.1,<2"
 
 [pypi-dependencies]
 tcfuse = { path = ".", editable = true }
