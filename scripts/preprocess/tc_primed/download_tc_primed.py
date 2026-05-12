@@ -10,15 +10,15 @@ Examples
 ========
 # 1)  All 2015 Atlantic storms
 python scripts/preprocess/tc_primed/download_tc_primed.py \
-    year=28 basin=AL
+    +year=28 +basin=AL
 
-# 2)  Everything in v01r01/final (≈1.6 TB – be sure you really want it!)
+# 2)  Everything in v01r01/final (≈1.6 TB - be sure you really want it!)
 python scripts/preprocess/tc_primed/download_tc_primed.py \
-    workers=32
+    +workers=32
 
 # 3)  On Jean-Zay (paths resolved from conf/paths/jz.yaml)
 python scripts/preprocess/tc_primed/download_tc_primed.py \
-    paths=jz year=28 basin=AL
+    +paths=jz +year=28 +basin=AL
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ def main(raw_cfg: DictConfig) -> None:
     # Find everything we're going to grab
     objects = list(list_keys(prefix))
     total_size = sum(size for _, size in objects)
-    print(f"Found {len(objects):,} files – {total_size / 1e9:,.2f} GB.")
+    print(f"Found {len(objects):,} files - {total_size / 1e9:,.2f} GB.")
 
     # Multi-threaded download with progress bar showing bytes
     with tqdm(
