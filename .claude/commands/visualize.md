@@ -100,6 +100,7 @@ One file per thematic domain:
 visualization/
 ├── style.py              ← shared style foundation (do not scatter style config elsewhere)
 ├── storm_data_visu.py    ← StormDataVisualizer class: show_footprints and future overview plots
+├── timeline.py           ← plot_source_timeline(): source availability eventplot from assembled index
 ├── tracks.py             ← TC track and intensity maps
 ├── fields.py             ← 2D satellite / model field plots (PMW, IR, ERA5)
 ├── profiles.py           ← vertical profile plots (dropsonde, Argo)

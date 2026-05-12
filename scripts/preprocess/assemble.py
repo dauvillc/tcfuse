@@ -197,7 +197,8 @@ def ibtracs_rows_to_sources(
         )  # (3,)
 
         # ISO 8601 key compatible with the rest of the pipeline.
-        snapshot_time_utc = row["ISO_TIME"].isoformat()
+        # Strip tzinfo to match the naive-UTC format used by other sources.
+        snapshot_time_utc = row["ISO_TIME"].replace(tzinfo=None).isoformat()
 
         source = Source(
             kind=SourceKind.SCALAR,
@@ -474,7 +475,7 @@ def build_assembled_index(
                     "season": season,
                     "atcf_id": atcf_id_val,
                     "source_name": _IBTRACS_SOURCE_NAME,
-                    "snapshot_time_utc": row["ISO_TIME"].isoformat(),
+                    "snapshot_time_utc": row["ISO_TIME"].replace(tzinfo=None).isoformat(),
                     "lat": float(lat),
                     "lon": float(lon),
                     "vmax_kt": vmax_kt,

@@ -3,7 +3,9 @@
     "allow": [
       "Bash(pip show *)",
       "Read(//home/cdauvill/scratch/tcfuse/**)",
-      "Bash(grep -E \"\\\\.\\(parquet|csv|yaml|json\\)$\")"
+      "Bash(grep -E \"\\\\.\\(parquet|csv|yaml|json\\)$\")",
+      "Bash(find /home/cdauvill/inria/tcfuse/.claude /home/cdauvill/.claude/commands -name \"visualize*\" 2>/dev/null)",
+      "Read(//home/cdauvill/.claude/**)"
     ]
   },
   "hooks": {
