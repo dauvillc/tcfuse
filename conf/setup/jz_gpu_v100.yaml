@@ -1,0 +1,24 @@
+# @package _global_
+# Jean-Zay V100 quad-GPU partition (gpu_p13, default GPU partition).
+# Hardware: 4x V100 (16 or 32 GB), 40 CPUs, ~160 GB RAM.
+# QoS: qos_gpu-t3 (default, max 20h) or qos_gpu-t4 (max 100h, <=16 GPU/job).
+# To target 32 GB V100 only, add: setup.slurm_constraint=v100-32g
+
+defaults:
+  - override /paths: jz
+
+setup:
+  slurm_partition: gpu_p13
+  slurm_account: xyw@v100
+  nodes: 1
+  tasks_per_node: 1
+  gpus_per_node: 4
+  cpus_per_task: 40
+  mem_gb: 160
+  timeout_min: 1200               # 20h (qos_gpu-t3 default); set 6000 for qos_gpu-t4
+  signal_delay_s: 120
+  setup_commands:
+    - "module load pytorch-gpu/py3/2.8.0"
+  num_workers: 8                  # per GPU (40 CPUs / 4 GPUs, leaving slack)
+  name: tc_fusion_jz_v100
+archive: true

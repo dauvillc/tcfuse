@@ -1,0 +1,14 @@
+# @package _global_
+# Jean-Zay archive partition reference config.
+#
+# This file documents the archive partition parameters used by
+# src/tcfuse/utils/archive.py — it is NOT loaded directly by scripts.
+# The parameters are applied programmatically inside submit_archive_job().
+#
+# The archive partition is for long-running data transfers to STORE (no GPU,
+# single CPU, up to 20h). Jobs must use the xyw@cpu account.
+
+slurm_partition: archive
+slurm_account: "xyw@cpu"
+timeout_min: 240
+cpus_per_task: 1

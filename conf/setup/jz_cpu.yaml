@@ -11,8 +11,8 @@ setup:
   slurm_signal_delay_s: 120
   slurm_additional_parameters:
     hint: nomultithread
-  local_setup:
-    - source ${oc.env:HOME}/.bash_profile
-    - v100  # Env is also adapted for preprocessing
+  setup_commands:
+    - "module load pytorch-gpu/py3/2.8.0"
   
 num_workers: 39
+archive: true
