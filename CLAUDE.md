@@ -96,9 +96,12 @@ Each sub-group also has an optional `mask` bool dataset (same leading shape as `
 
 ```
 <preprocessed_data>/
-├── {ibtracs_sid}.h5    ← one file per storm (ATCF ID used when no IBTrACS match)
-└── index.parquet       ← global index: storm_id, basin, season, atcf_id, source_name,
-                           snapshot_time_utc, lat, lon, vmax_kt
+├── {ibtracs_sid}.h5           ← one file per storm (ATCF ID used when no IBTrACS match)
+├── index.parquet              ← global index: storm_id, basin, season, atcf_id, source_name,
+│                                 snapshot_time_utc, lat, lon, vmax_kt
+├── normalization_stats.yaml   ← per-channel mean/std/count for every source (merged)
+└── normalization/             ← intermediate per-source YAML files (one per source)
+    └── {source_name}.yaml
 ```
 
 Each HDF5 holds **all sources for one storm**; use `StormData.path(assembled_root, storm_id)` for canonical paths.
@@ -117,6 +120,7 @@ IBTrACS best-track observations are injected as `source_name = "ibtracs_best_tra
 **Key conventions:**
 - `StormData.sources` dict key: `(source_name, snapshot_time_utc)` using isoformat strings.
 - Per-source `index.parquet` carries no split column. Train/val/test assignment is done separately by `scripts/preprocess/build_splits.py`, which reads the assembled `index.parquet` (which has a `season` column) and writes `{preprocessed_data}/train.parquet`, `val.parquet`, `test.parquet`.
+- Per-channel normalization constants (mean, std, count) are computed by `scripts/preprocess/compute_normalization.py` using an online Welford algorithm **on training-split snapshots only** (from `{preprocessed_data}/train.parquet`) to prevent leakage; the merged output lives at `{preprocessed_data}/normalization_stats.yaml`. Run `build_splits.py` before `compute_normalization.py`.
 
 **I/O API** (`src/tcfuse/data/sources/`):
 - `Source.write(path)` / `Source.from_disk(path)` / `Source.read_meta(path)` / `Source.path(...)`

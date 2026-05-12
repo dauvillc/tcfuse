@@ -225,12 +225,23 @@ print(df["source_name"].value_counts())
 After all desired sources are preprocessed and assembled, run:
 
 ```bash
+# Local run
 python scripts/preprocess/build_splits.py
+
+# Jean-Zay
+python scripts/preprocess/build_splits.py paths=jz
 ```
 
-This reads the assembled `index.parquet` (which carries a `season` column), applies the
-year-based split rule (`season % 10 == 0` → test; `season % 5 == 0` → val; else → train),
-and writes:
+This reads the assembled `index.parquet` (which carries a `season` column) and assigns
+each row to a split based on the season lists in `conf/preproc.yaml`:
+- **val**:   seasons in `cfg.splits.val`   (default: 2021, 2022)
+- **test**:  seasons in `cfg.splits.test`  (default: 2020, 2023)
+- **train**: all remaining seasons
+
+The `season` column holds a single value per storm lifetime (not per-snapshot), so a
+storm that crosses a calendar year boundary is always assigned to one split.
+
+Output files:
 
 ```
 ${paths.preprocessed_data}/
@@ -238,6 +249,47 @@ ${paths.preprocessed_data}/
 ├── val.parquet
 └── test.parquet
 ```
+
+### Step 7 — Compute normalization statistics
+
+After splits are built, compute per-channel mean and std for every source using an online
+Welford algorithm.  **Only training-split snapshots** (from `train.parquet`) are used to
+prevent leakage from val/test sets.  Results are used by the data transforms layer during training.
+
+```bash
+# Local run (sequential, one source at a time)
+python scripts/preprocess/compute_normalization.py submitit=false
+
+# Jean-Zay production run (one SLURM job per source, parallel)
+python scripts/preprocess/compute_normalization.py paths=jz setup=jz_cpu
+```
+
+Outputs:
+- `{preprocessed_data}/normalization_stats.yaml` — merged stats for all sources
+- `{preprocessed_data}/normalization/{source_name}.yaml` — intermediate per-source stats
+- `figures/normalization/{source_name}.png` — channel distribution histograms
+
+Stats YAML structure:
+```yaml
+pmw_amsr2_gcomw1:
+  kind: field
+  channels:
+    tb_36.5h:
+      mean: 234.567
+      std: 12.345
+      count: 1234567
+ibtracs_best_track:
+  kind: scalar
+  channels:
+    vmax_kt:
+      mean: 62.1
+      std: 28.4
+      count: 85000
+```
+
+Masked pixels (where `mask == False`) and non-finite values are excluded from both
+statistics and histogram samples.  `ibtracs_best_track` is included even though it has
+no `metadata.yaml` in `sources_root`; its channels are discovered from the HDF5 attrs.
 
 ---
 
