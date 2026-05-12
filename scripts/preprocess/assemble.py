@@ -32,6 +32,7 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
 from tcfuse.data.sources import MultisourceMetadata, Source, SourceKind, StormData
+from tcfuse.utils.archive import submit_archive_job
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -589,6 +590,14 @@ def main(raw_cfg: DictConfig) -> None:
     index_path = assembled_root / "index.parquet"
     index_df.to_parquet(index_path, index=False)
     print(f"Wrote assembled index: {len(index_df)} rows → {index_path}")
+
+    # Archive the entire assembled directory to STORE as a single tarball.
+    submit_archive_job(
+        assembled_root,
+        Path(cfg["paths"]["archives"]["preprocessed_data"]),
+        cfg,
+        job_name="archive_assembled",
+    )
 
 
 if __name__ == "__main__":

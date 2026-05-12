@@ -1,5 +1,5 @@
 # Base directories
-work: ${oc.env:HOME}/tcfuse
+work: ${oc.env:WORK}/tcfuse
 scratch: ${oc.env.SCRATCH}/tcfuse
 store: ${oc.env.STORE}/tcfuse
 
@@ -22,3 +22,11 @@ preprocessed_data: ${paths.scratch}/data/preprocessed/assembled/
 # Paths for training outputs
 checkpoints: ${paths.scratch}/checkpoints
 wandb: ${paths.scratch}/wandb
+
+# Archive paths on STORE (tarballs, one per source type or per run).
+# Jobs that write to these paths use the archive SLURM partition.
+archives:
+  raw_tc_primed:        ${paths.store}/archives/raw/tc_primed.tar.gz
+  preprocessed_sources: ${paths.store}/archives/preprocessed/sources  # dir; one .tar.gz per source
+  preprocessed_data:    ${paths.store}/archives/preprocessed/assembled.tar.gz
+  checkpoints:          ${paths.store}/archives/checkpoints  # dir; one .tar.gz per run ID

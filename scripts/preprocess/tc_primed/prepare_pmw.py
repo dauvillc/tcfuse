@@ -33,6 +33,7 @@ from scripts.preprocess.tc_primed.utils import (
 )
 from scripts.preprocess.utils.regridding import ResamplingError, regrid
 from tcfuse.data.sources import Source, SourceKind, SourceMetadata
+from tcfuse.utils.archive import submit_archive_job
 
 # Sensor → {"37": (swath_name, [variable_names]), "89": (swath_name, [variable_names])}
 # Only 37 GHz and 89 GHz (or the closest equivalents for each sensor) are extracted.
@@ -434,6 +435,14 @@ def main(raw_cfg: DictConfig) -> None:
                 char_vars=char_vars_by_source[source_name],
             )
             source_meta.write(sources_root)
+            # Archive this source's directory to STORE as a per-source tarball.
+            tar_path = (
+                Path(cfg["paths"]["archives"]["preprocessed_sources"])
+                / f"{source_name}.tar.gz"
+            )
+            submit_archive_job(
+                sources_root / source_name, tar_path, cfg, job_name=f"archive_{source_name}"
+            )
     else:
         print("No valid snapshots found.")
 

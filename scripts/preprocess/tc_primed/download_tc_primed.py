@@ -35,6 +35,8 @@ from botocore.client import Config
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
+from tcfuse.utils.archive import submit_archive_job
+
 BUCKET_NAME = "noaa-nesdis-tcprimed-pds"
 
 
@@ -120,6 +122,14 @@ def main(raw_cfg: DictConfig) -> None:
                 future.result()  # Raise any exceptions
 
     print("Done.")
+
+    # Archive the raw TC-PRIMED directory to STORE as a tarball.
+    submit_archive_job(
+        tc_primed_root,
+        Path(cfg["paths"]["archives"]["raw_tc_primed"]),
+        cfg,
+        job_name="archive_raw_tc_primed",
+    )
 
 
 if __name__ == "__main__":

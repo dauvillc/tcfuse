@@ -36,6 +36,7 @@ from scripts.preprocess.tc_primed.utils import (
     should_skip_existing,
 )
 from tcfuse.data.sources import Source, SourceKind, SourceMetadata
+from tcfuse.utils.archive import submit_archive_job
 
 # Maps infrared_availability_flag value → source name (None = unavailable).
 # Index 0 means no IR data; 1 = TC-IRAR (4 km); 2 = HURSAT (8 km).
@@ -304,6 +305,14 @@ def main(raw_cfg: DictConfig) -> None:
                 char_vars={"ifov": {"irwin": IR_SOURCE_IFOVS[source_name]}},
             )
             source_meta.write(sources_root)
+            # Archive this source's directory to STORE as a per-source tarball.
+            tar_path = (
+                Path(cfg["paths"]["archives"]["preprocessed_sources"])
+                / f"{source_name}.tar.gz"
+            )
+            submit_archive_job(
+                sources_root / source_name, tar_path, cfg, job_name=f"archive_{source_name}"
+            )
     else:
         print("No valid IR snapshots found.")
 

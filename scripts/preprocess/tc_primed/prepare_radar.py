@@ -31,6 +31,7 @@ from tqdm import tqdm
 from scripts.preprocess.tc_primed.utils import list_tc_primed_overpass_files_by_sensat
 from scripts.preprocess.utils.regridding import ResamplingError, regrid
 from tcfuse.data.sources import Source, SourceKind, SourceMetadata
+from tcfuse.utils.archive import submit_archive_job
 
 # Sensor/satellite → (swath_name, [variable_names])
 # Extracts near-surface precipitation rate, rate uncertainty, and precipitation type.
@@ -339,6 +340,14 @@ def main(raw_cfg: DictConfig) -> None:
                 source_name, "radar", SourceKind.FIELD, channels_by_source[source_name], index_df
             )
             source_meta.write(sources_root)
+            # Archive this source's directory to STORE as a per-source tarball.
+            tar_path = (
+                Path(cfg["paths"]["archives"]["preprocessed_sources"])
+                / f"{source_name}.tar.gz"
+            )
+            submit_archive_job(
+                sources_root / source_name, tar_path, cfg, job_name=f"archive_{source_name}"
+            )
     else:
         print("No valid snapshots found.")
 
