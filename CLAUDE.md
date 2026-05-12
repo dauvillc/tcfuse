@@ -153,7 +153,8 @@ project_root/
 │       │   ├── losses.py
 │       │   └── callbacks.py
 │       └── utils/
-│           └── coords.py          ← coordinate utilities (projections, normalization)
+│           ├── coords.py          ← coordinate utilities (projections, normalization)
+│           └── archive.py         ← submit_archive_job(): async tarball to STORE via archive partition
 ├── scripts/
 │   ├── preprocess/            ← source preprocessors (prepare_*.py) + assemble.py + build_splits.py
 │   └── slurm/                 ← Jean-Zay job submission scripts (see section below)
@@ -221,6 +222,29 @@ The framework is **architecture-agnostic at the backbone level**. The embedding 
 Use the `/jz` skill for all cluster operations (storage layout, environment setup, W&B sync, SLURM parameters, checkpoint/resume, preflight checks).
 
 SLURM parameters live in `conf/setup/jz_<hw>.yaml`; job submission uses `submitit.AutoExecutor` in `scripts/train.py` and `scripts/preprocess/<source>.py`. There is no manual bash SLURM template.
+
+**Available GPU configs:**
+
+| Config | Partition | Hardware | CPUs | Max walltime |
+|---|---|---|---|---|
+| `jz_gpu_v100` | `gpu_p13` | 4× V100 32 GB | 40 (Intel) | 100 h (qos_gpu-t4) |
+| `jz_gpu_a100` | `gpu_p5` | 8× A100 80 GB | 64 (AMD Milan) | **20 h** (no t4 QoS) |
+| `jz_gpu_h100` | `gpu_p6` | 4× H100 80 GB | 96 (Intel) | 100 h (qos_gpu_h100-t4) |
+| `jz_cpu` | `prepost` | Pre/post CPU nodes | 40 (Intel) | 20 h |
+
+**Important:** A100 and H100 configs load `arch/a100` / `arch/h100` **before** `pytorch-gpu` — this is already encoded in their `setup_commands`. Do not reorder these.
+
+Environment uses the prebuilt `pytorch-gpu/py3/2.8.0` module (no conda/pixi on compute nodes). Extra packages are installed once via `bash scripts/setup_jz.sh` on the login node. Compute nodes have no internet — all installs and data downloads must happen on the login or `prepost` node first.
+
+### Archival to STORE
+
+SCRATCH is auto-deleted after 30 days. All scripts that produce valuable data automatically submit an async archival job to the `archive` partition after successful completion. The archive job creates a `.tar.gz` on STORE (inode-safe). Archiving is a copy — the SCRATCH copy is left to auto-expire.
+
+- **Trigger:** `archive: true` in the active setup config (all `jz_*` configs). Set `archive: false` (in `local.yaml`) to skip.
+- **Granularity:** one tarball per preprocessed source type, one for assembled data, one per training run ID.
+- **Archive paths:** `cfg.paths.archives.*` — defined in `conf/paths/jz.yaml` under `${paths.store}/archives/`.
+- **Implementation:** `src/tcfuse/utils/archive.py` — `submit_archive_job(src, tar, cfg, job_name)`. Always uses partition `archive`, account `xyw@cpu`, 1 CPU, 4 h timeout.
+- **Reference config:** `conf/setup/jz_archive.yaml` (documentation only — not loaded by scripts).
 
 ---
 
