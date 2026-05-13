@@ -40,14 +40,13 @@ from tqdm import tqdm
 from tcfuse.utils.archive import submit_archive_job
 from tcfuse.utils.submitit_utils import make_executor
 
-# One S3 client per thread — avoids connection-pool exhaustion under concurrent downloads
-_thread_local = threading.local()
-
-
 def _s3_client() -> Any:
-    if not hasattr(_thread_local, "client"):
-        _thread_local.client = boto3.client("s3", config=Config(signature_version=UNSIGNED))
-    return _thread_local.client
+    # One client per thread — avoids connection-pool exhaustion; stored on the thread
+    # object directly so it is never captured by cloudpickle when submitit serializes the job.
+    t = threading.current_thread()
+    if not hasattr(t, "_s3_client"):
+        t._s3_client = boto3.client("s3", config=Config(signature_version=UNSIGNED))  # type: ignore[attr-defined]
+    return t._s3_client  # type: ignore[attr-defined]
 
 
 BUCKET_NAME = "noaa-nesdis-tcprimed-pds"
