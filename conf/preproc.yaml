@@ -1,7 +1,7 @@
 # Main configuration file for data preprocessing.
 defaults:
-  - paths: local    # override with paths=jz on Jean-Zay
-  - setup: local    # override with setup=jz_<hw> on Jean-Zay
+  - paths: jz    # override with paths=jz on Jean-Zay
+  - setup: jz_cpu    # override with setup=jz_<hw> on Jean-Zay
   - _self_
 
 # If true, launches the jobs as a SLURM job using submitit
