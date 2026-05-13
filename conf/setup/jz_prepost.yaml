@@ -15,7 +15,7 @@ setup:
   timeout_min: 1200         # 20 h ceiling on prepost
   name: download_jz
   slurm_signal_delay_s: 120
-  setup_commands:
+  slurm_setup:
     - "module load pytorch-gpu/py3/2.8.0"
 
 workers: 16                 # concurrent S3 download threads

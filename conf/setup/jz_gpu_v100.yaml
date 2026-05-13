@@ -17,7 +17,7 @@ setup:
   mem_gb: 160
   timeout_min: 1200               # 20h (qos_gpu-t3 default); set 6000 for qos_gpu-t4
   signal_delay_s: 120
-  setup_commands:
+  slurm_setup:
     - "module load pytorch-gpu/py3/2.8.0"
   num_workers: 8                  # per GPU (40 CPUs / 4 GPUs, leaving slack)
   name: tc_fusion_jz_v100

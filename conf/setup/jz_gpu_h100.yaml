@@ -19,7 +19,7 @@ setup:
   mem_gb: 468
   timeout_min: 1200               # 20h default; set 6000 for qos_gpu_h100-t4
   signal_delay_s: 120
-  setup_commands:
+  slurm_setup:
     - "module load arch/h100"     # must load BEFORE pytorch — specific Eviden HW arch
     - "module load pytorch-gpu/py3/2.8.0"
   num_workers: 22                 # per GPU (96 CPUs / 4 GPUs, leaving slack)

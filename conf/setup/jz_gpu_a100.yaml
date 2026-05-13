@@ -19,7 +19,7 @@ setup:
   mem_gb: 468
   timeout_min: 1200               # hard max 20h on A100 (no qos_gpu_a100-t4 exists)
   signal_delay_s: 120
-  setup_commands:
+  slurm_setup:
     - "module load arch/a100"     # must load BEFORE pytorch — AMD Milan architecture
     - "module load pytorch-gpu/py3/2.8.0"
   num_workers: 7                  # per GPU (64 CPUs / 8 GPUs, leaving slack)

@@ -1,7 +1,7 @@
 # Base directories
 work: ${oc.env:WORK}/tcfuse
-scratch: ${oc.env.SCRATCH}/tcfuse
-store: ${oc.env.STORE}/tcfuse
+scratch: ${oc.env:SCRATCH}/tcfuse
+store: ${oc.env:STORE}/tcfuse
 
 # Paths to raw datasets
 raw_datasets:
