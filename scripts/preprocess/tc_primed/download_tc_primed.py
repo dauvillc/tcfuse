@@ -40,6 +40,7 @@ from tqdm import tqdm
 from tcfuse.utils.archive import submit_archive_job
 from tcfuse.utils.submitit_utils import make_executor
 
+
 def _s3_client() -> Any:
     # One client per thread — avoids connection-pool exhaustion; stored on the thread
     # object directly so it is never captured by cloudpickle when submitit serializes the job.
