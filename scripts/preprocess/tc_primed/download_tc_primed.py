@@ -24,6 +24,8 @@ python scripts/preprocess/tc_primed/download_tc_primed.py \
 from __future__ import annotations
 
 import os
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, cast
@@ -35,37 +37,81 @@ from botocore.client import Config
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
+# One S3 client per thread — avoids connection-pool exhaustion under concurrent downloads
+_thread_local = threading.local()
+
+
+def _s3_client() -> Any:
+    if not hasattr(_thread_local, "client"):
+        _thread_local.client = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+    return _thread_local.client
+
 from tcfuse.utils.archive import submit_archive_job
 from tcfuse.utils.submitit_utils import make_executor
 
 BUCKET_NAME = "noaa-nesdis-tcprimed-pds"
 
 
-def list_keys(prefix: str):
-    """Recursively list object keys under `prefix` in the public bucket."""
+def list_keys(prefix: str) -> list[tuple[str, int]]:
+    """List all object keys under `prefix` in the public bucket.
+
+    Shows a live count while paginating so the user can see progress
+    even before the download starts (listing can be slow for large prefixes).
+
+    Returns:
+        List of (key, size_bytes) tuples.
+    """
     s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
     paginator = s3.get_paginator("list_objects_v2")
 
-    for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=prefix):
-        for obj in page.get("Contents", []):
-            yield obj["Key"], obj["Size"]
+    objects: list[tuple[str, int]] = []
+    # Live counter — S3 listing can take tens of seconds for large prefixes
+    with tqdm(desc="Listing objects", unit=" files", leave=True) as pbar:
+        for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                objects.append((obj["Key"], obj["Size"]))
+                pbar.update(1)
+    return objects
 
 
-def download_one(s3, key: str, size: int, dest_root: str, pbar: tqdm, prefix: str):
-    """Download a single object unless it already exists locally at the same size."""
+def download_one(
+    key: str,
+    size: int,
+    dest_root: str,
+    byte_pbar: tqdm,
+    file_pbar: tqdm,
+    prefix: str,
+) -> str:
+    """Download a single object unless it already exists locally at the same size.
+
+    Args:
+        key: S3 object key.
+        size: Expected size in bytes (used to detect already-complete downloads).
+        dest_root: Local directory root for the download tree.
+        byte_pbar: tqdm bar tracking total bytes transferred.
+        file_pbar: tqdm bar tracking total files completed.
+        prefix: S3 prefix stripped when building the local relative path.
+
+    Returns:
+        ``"skipped"`` if the file was already present, ``"downloaded"`` otherwise.
+    """
+    # Derive local path by stripping the S3 prefix
     local_path = os.path.join(dest_root, os.path.relpath(key, start=prefix))
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
-    # Skip if file exists and the size matches
+    # Skip if file exists and the size matches (idempotent re-runs)
     if os.path.exists(local_path) and os.path.getsize(local_path) == size:
-        pbar.update(size)
-        return
+        byte_pbar.update(size)
+        file_pbar.update(1)
+        return "skipped"
 
-    # Download with progress callback
-    def callback(bytes_transferred):
-        pbar.update(bytes_transferred)
+    # Stream bytes from S3, forwarding each chunk to the byte progress bar
+    def callback(bytes_transferred: int) -> None:
+        byte_pbar.update(bytes_transferred)
 
-    s3.download_file(BUCKET_NAME, key, local_path, Callback=callback)
+    _s3_client().download_file(BUCKET_NAME, key, local_path, Callback=callback)
+    file_pbar.update(1)
+    return "downloaded"
 
 
 class DownloadJob:
@@ -104,29 +150,91 @@ class DownloadJob:
             dest_root = dest_root / basin
 
         dest_root_str = str(dest_root)
-        print(f"Downloading from s3://{BUCKET_NAME}/{prefix} to {dest_root_str}/")
 
-        # Anonymous (unsigned) S3 client
-        s3_client = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+        # Print job parameters so the log is self-documenting
+        print(f"Source : s3://{BUCKET_NAME}/{prefix}")
+        print(f"Dest   : {dest_root_str}/")
+        print(f"Workers: {workers}")
 
-        # Find everything we're going to grab
-        objects = list(list_keys(prefix))
+        # List all objects (shows a live counter while paginating)
+        objects = list_keys(prefix)
+        total_files = len(objects)
         total_size = sum(size for _, size in objects)
-        print(f"Found {len(objects):,} files - {total_size / 1e9:,.2f} GB.")
+        print(f"Found {total_files:,} files — {total_size / 1e9:,.2f} GB total.")
 
-        # Multi-threaded download with a byte-level progress bar
-        with tqdm(
-            total=total_size, desc="Downloading", unit="B", unit_scale=True, unit_divisor=1024
-        ) as pbar:
+        # Nothing to do if the prefix matched no objects
+        if total_files == 0:
+            print("Nothing to download.")
+            return
+
+        # Thread-safe counters for the final summary
+        counters: dict[str, int] = {"downloaded": 0, "skipped": 0, "errors": 0}
+        error_messages: list[str] = []
+        lock = threading.Lock()
+
+        t0 = time.monotonic()
+
+        # Two stacked progress bars: byte throughput (top) and file count (bottom)
+        with (
+            tqdm(
+                total=total_size,
+                desc="Bytes  ",
+                unit="B",
+                unit_scale=True,
+                unit_divisor=1024,
+                position=0,
+            ) as byte_pbar,
+            tqdm(
+                total=total_files,
+                desc="Files  ",
+                unit=" files",
+                position=1,
+            ) as file_pbar,
+        ):
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [
-                    pool.submit(download_one, s3_client, key, size, dest_root_str, pbar, prefix)
+                # Map each future back to its key for error reporting
+                future_to_key = {
+                    pool.submit(
+                        download_one,
+                        key,
+                        size,
+                        dest_root_str,
+                        byte_pbar,
+                        file_pbar,
+                        prefix,
+                    ): key
                     for key, size in objects
-                ]
-                for future in as_completed(futures):
-                    future.result()  # Raise any exceptions
+                }
 
-        print("Done.")
+                # Collect results as futures complete; continue on per-file errors
+                for future in as_completed(future_to_key):
+                    key = future_to_key[future]
+                    try:
+                        status = future.result()
+                        with lock:
+                            counters[status] += 1
+                    except Exception as exc:
+                        # Advance the file bar even for failures so counts stay consistent
+                        file_pbar.update(1)
+                        with lock:
+                            counters["errors"] += 1
+                            error_messages.append(f"{key}: {exc}")
+
+        elapsed = time.monotonic() - t0
+
+        # Print final summary with per-status counts and total elapsed time
+        print(
+            f"\nFinished in {elapsed:.1f}s — "
+            f"{counters['downloaded']:,} downloaded, "
+            f"{counters['skipped']:,} skipped (already present), "
+            f"{counters['errors']:,} errors."
+        )
+
+        # Print individual error details if any occurred
+        if error_messages:
+            print("Failed files:")
+            for msg in error_messages:
+                print(f"  {msg}")
 
         # Archive the raw TC-PRIMED directory to STORE as a tarball
         submit_archive_job(
