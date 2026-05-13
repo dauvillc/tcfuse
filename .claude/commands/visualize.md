@@ -56,12 +56,13 @@ fig, ax = plt.subplots(figsize=(COL2, COL2 * AR_GOLDEN))  # double-column
 ```python
 from tcfuse.data.visualization.style import get_cmap
 
-cmap = get_cmap("tb")      # brightness temperature — cmocean.thermal or "inferno"
-cmap = get_cmap("wind")    # wind speed          — cmocean.speed or "YlOrRd"
-cmap = get_cmap("anomaly") # signed anomaly      — cmocean.balance or "RdBu_r"
+cmap = get_cmap("tb")       # brightness temperature — cmocean.thermal or "inferno"
+cmap = get_cmap("wind")     # wind speed             — cmocean.speed or "YlOrRd"
+cmap = get_cmap("sar_wind") # SAR wind speed         — cmocean.speed or "YlOrRd" (alias for wind)
+cmap = get_cmap("anomaly")  # signed anomaly         — cmocean.balance or "RdBu_r"
 ```
 
-Available keys: `"tb"`, `"wind"`, `"sst"`, `"precip"`, `"anomaly"`, `"depth"`.
+Available keys: `"tb"`, `"wind"`, `"sar_wind"`, `"sst"`, `"precip"`, `"anomaly"`, `"depth"`.
 `get_cmap()` returns the cmocean version when installed, otherwise a matplotlib fallback.
 
 ### Categorical colors
@@ -71,6 +72,7 @@ from tcfuse.data.visualization.style import INTENSITY_COLORS, SOURCE_COLORS
 
 color = INTENSITY_COLORS["C3"]          # Saffir-Simpson intensity color
 color = SOURCE_COLORS["pmw"]            # source-type color for legends
+color = SOURCE_COLORS["sar"]            # SAR source color (#17becf teal)
 ```
 
 ### Setup and save
@@ -102,7 +104,7 @@ visualization/
 ├── storm_data_visu.py    ← StormDataVisualizer class: show_footprints and future overview plots
 ├── timeline.py           ← plot_source_timeline(): source availability eventplot from assembled index
 ├── tracks.py             ← TC track and intensity maps
-├── fields.py             ← 2D satellite / model field plots (PMW, IR, ERA5)
+├── fields.py             ← 2D satellite / model field plots (PMW, IR, ERA5, SAR): plot_field(), plot_sar_wind()
 ├── profiles.py           ← vertical profile plots (dropsonde, Argo)
 └── training.py           ← loss curves, attention weights, model diagnostics
 ```
@@ -194,59 +196,30 @@ def plot_track(lats, lons, vmax_kt, ax=None, *, title="", save_path=None):
 ### 2. 2D satellite field
 
 **Module:** `fields.py`
-**When to use:** Display one channel of a PMW / IR / ERA5 field source.
+**When to use:** Display one channel of a PMW / IR / ERA5 / SAR field source.
 
 Key design decisions:
 - Projection: `ccrs.PlateCarree()` (field coords are already lat/lon)
-- Colormap: `get_cmap("tb")` for PMW, `get_cmap("wind")` for ERA5 wind, etc.
+- Colormap: `get_cmap("tb")` for PMW, `get_cmap("wind")` for ERA5 wind, `get_cmap("sar_wind")` for SAR, etc.
 - NaN masking: pass `values` as a masked array or rely on `pcolormesh` NaN handling
 - Colorbar: horizontal, below the plot, label = physical quantity + unit
 - Storm center: small crosshair marker at `(storm_lat, storm_lon)`
 - Domain: derived from field coordinate bounding box (no hardcoded extents)
 
 ```python
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
-from tcfuse.data.visualization.style import setup_style, COL1, get_cmap, save_fig
+from tcfuse.data.visualization.fields import plot_field, plot_sar_wind
 
-setup_style()
+# Generic field (raw numpy arrays):
+fig, ax = plot_field(values, lats, lons, channel="sar_wind", unit="m s⁻¹",
+                     storm_lat=15.0, storm_lon=-75.0)
 
-def plot_field(values, lats, lons, *, channel="tb", unit="K",
-               storm_lat=None, storm_lon=None, ax=None, title="", save_path=None):
-    # (values: H×W, lats: H×W, lons: H×W)
-    if ax is None:
-        fig, ax = plt.subplots(
-            figsize=(COL1, COL1),
-            subplot_kw={"projection": ccrs.PlateCarree()},
-        )
-    else:
-        fig = ax.get_figure()
-
-    # Draw the field with the appropriate colormap
-    im = ax.pcolormesh(lons, lats, values, cmap=get_cmap(channel),
-                       transform=ccrs.PlateCarree(), shading="auto")
-
-    # Add coastlines
-    ax.add_feature(cfeature.COASTLINE.with_scale("50m"), linewidth=0.5)
-
-    # Colorbar below the axes with physical unit label
-    cbar = fig.colorbar(im, ax=ax, orientation="horizontal", pad=0.04, fraction=0.046)
-    cbar.set_label(f"{channel} ({unit})")
-
-    # Storm center crosshair (if provided)
-    if storm_lat is not None and storm_lon is not None:
-        ax.plot(storm_lon, storm_lat, "+", color="white", markersize=6,
-                markeredgewidth=1.0, transform=ccrs.PlateCarree())
-
-    # Set domain from field bounding box
-    ax.set_extent([lons.min(), lons.max(), lats.min(), lats.max()])
-
-    if title:
-        ax.set_title(title)
-    if save_path:
-        save_fig(fig, save_path)
-    return fig, ax
+# SAR convenience wrapper (accepts a Source object directly):
+fig, ax = plot_sar_wind(source, storm_lat=15.0, storm_lon=-75.0)
 ```
+
+`plot_sar_wind` extracts `values[..., 0]`, `coords[..., 1]` (lats), `coords[..., 2]` (lons) from
+the `Source` dataclass, applies the validity mask (→ NaN for invalid pixels), and calls `plot_field`
+with `channel="sar_wind"` and `unit="m s⁻¹"`.
 
 ---
 

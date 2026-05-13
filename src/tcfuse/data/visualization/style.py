@@ -10,10 +10,9 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-
 # --- Figure width constants (inches, AMS / AGU two-column style) ---
-COL1 = 3.5        # single-column width
-COL2 = 7.0        # double-column (full-width) figure
+COL1 = 3.5  # single-column width
+COL2 = 7.0  # double-column (full-width) figure
 AR_GOLDEN = 0.618  # golden-ratio height/width — good default for single-panel figures
 
 
@@ -24,13 +23,15 @@ def _build_cmap_catalogue() -> dict:
     """Return a dict of cmocean colormaps, or empty dict if cmocean is absent."""
     try:
         import cmocean.cm as cmo
+
         return {
-            "tb":      cmo.thermal,  # brightness temperature (PMW)
-            "wind":    cmo.speed,    # surface wind speed
-            "sst":     cmo.thermal,  # sea surface temperature
-            "precip":  cmo.rain,     # rainfall / rain rate
+            "tb": cmo.thermal,  # brightness temperature (PMW)
+            "wind": cmo.speed,  # surface wind speed
+            "sar_wind": cmo.speed,  # SAR-derived wind speed (alias for wind)
+            "sst": cmo.thermal,  # sea surface temperature
+            "precip": cmo.rain,  # rainfall / rain rate
             "anomaly": cmo.balance,  # signed anomalies (diverging, zero-centered)
-            "depth":   cmo.deep,     # ocean depth / bathymetry
+            "depth": cmo.deep,  # ocean depth / bathymetry
         }
     except ImportError:
         return {}
@@ -40,12 +41,13 @@ CMAPS: dict = _build_cmap_catalogue()
 
 # Fallback colormaps from matplotlib — always available, no extra dependency
 CMAPS_FALLBACK: dict[str, str] = {
-    "tb":      "inferno",
-    "wind":    "YlOrRd",
-    "sst":     "inferno",
-    "precip":  "Blues",
+    "tb": "inferno",
+    "wind": "YlOrRd",
+    "sar_wind": "YlOrRd",  # SAR-derived wind speed (alias for wind)
+    "sst": "inferno",
+    "precip": "Blues",
     "anomaly": "RdBu_r",
-    "depth":   "Blues_r",
+    "depth": "Blues_r",
 }
 
 
@@ -76,13 +78,14 @@ INTENSITY_COLORS: dict[str, str] = {
 
 # --- Source-type colors (for multi-source comparison legends) ---
 SOURCE_COLORS: dict[str, str] = {
-    "pmw":        "#1f77b4",
-    "ir":         "#ff7f0e",
-    "era5":       "#2ca02c",
+    "pmw": "#1f77b4",
+    "ir": "#ff7f0e",
+    "era5": "#2ca02c",
     "best_track": "#d62728",
-    "dropsonde":  "#9467bd",
-    "argo":       "#8c564b",
-    "radar":      "#e377c2",
+    "dropsonde": "#9467bd",
+    "argo": "#8c564b",
+    "radar": "#e377c2",
+    "sar": "#17becf",  # C-band SAR wind speed (teal/cyan)
 }
 
 
@@ -97,39 +100,38 @@ def setup_style() -> None:
     # Check whether the user has opted out of the LaTeX renderer
     use_latex = os.environ.get("TCFUSE_NO_LATEX", "0") != "1"
 
-    plt.rcParams.update({
-        # --- Typography ---
-        "text.usetex":       use_latex,
-        "font.family":       "serif",
-        "font.serif":        ["Computer Modern Roman"],
-        "font.size":         8,
-        "axes.labelsize":    8,
-        "xtick.labelsize":   7,
-        "ytick.labelsize":   7,
-        "legend.fontsize":   7,
-        "axes.titlesize":    8,
-
-        # --- Lines and tick marks ---
-        "lines.linewidth":   1.0,
-        "axes.linewidth":    0.6,
-        "xtick.major.width": 0.6,
-        "ytick.major.width": 0.6,
-        "xtick.minor.width": 0.4,
-        "ytick.minor.width": 0.4,
-        "xtick.major.size":  3.0,
-        "ytick.major.size":  3.0,
-
-        # --- Axes appearance ---
-        "axes.spines.top":   False,
-        "axes.spines.right": False,
-        "axes.grid":         False,
-
-        # --- Output quality ---
-        "savefig.dpi":       300,
-        "savefig.bbox":      "tight",
-        "savefig.pad_inches": 0.01,
-        "figure.dpi":        100,
-    })
+    plt.rcParams.update(
+        {
+            # --- Typography ---
+            "text.usetex": use_latex,
+            "font.family": "serif",
+            "font.serif": ["Computer Modern Roman"],
+            "font.size": 8,
+            "axes.labelsize": 8,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "legend.fontsize": 7,
+            "axes.titlesize": 8,
+            # --- Lines and tick marks ---
+            "lines.linewidth": 1.0,
+            "axes.linewidth": 0.6,
+            "xtick.major.width": 0.6,
+            "ytick.major.width": 0.6,
+            "xtick.minor.width": 0.4,
+            "ytick.minor.width": 0.4,
+            "xtick.major.size": 3.0,
+            "ytick.major.size": 3.0,
+            # --- Axes appearance ---
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.grid": False,
+            # --- Output quality ---
+            "savefig.dpi": 300,
+            "savefig.bbox": "tight",
+            "savefig.pad_inches": 0.01,
+            "figure.dpi": 100,
+        }
+    )
 
 
 def save_fig(fig: plt.Figure, path: "Path | str", *, svg: bool = True) -> Path:

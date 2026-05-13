@@ -27,6 +27,7 @@ wandb: ${paths.scratch}/wandb
 # Jobs that write to these paths use the archive SLURM partition.
 archives:
   raw_tc_primed:        ${paths.store}/archives/raw/tc_primed.tar.gz
+  raw_cyclobs:          ${paths.store}/archives/raw/cyclobs.tar.gz
   preprocessed_sources: ${paths.store}/archives/preprocessed/sources  # dir; one .tar.gz per source
   preprocessed_data:    ${paths.store}/archives/preprocessed/assembled.tar.gz
   checkpoints:          ${paths.store}/archives/checkpoints  # dir; one .tar.gz per run ID

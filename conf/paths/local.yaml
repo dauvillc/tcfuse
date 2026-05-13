@@ -26,6 +26,7 @@ wandb: ${paths.scratch}/wandb
 # Archive paths (on local, store == scratch, and archive is disabled via setup config).
 archives:
   raw_tc_primed:        ${paths.scratch}/archives/raw/tc_primed.tar.gz
+  raw_cyclobs:          ${paths.scratch}/archives/raw/cyclobs.tar.gz
   preprocessed_sources: ${paths.scratch}/archives/preprocessed/sources
   preprocessed_data:    ${paths.scratch}/archives/preprocessed/assembled.tar.gz
   checkpoints:          ${paths.scratch}/archives/checkpoints
