@@ -1,0 +1,22 @@
+# @package _global_
+# Jean-Zay prepost partition — for data downloads and transfers that require
+# external network access (e.g. S3, HTTP).  Unlike regular compute nodes,
+# prepost nodes have outbound internet connectivity.
+# Max walltime: 20 h.  Account: xyw@cpu.
+
+defaults:
+  - override /paths: jz
+
+setup:
+  slurm_partition: prepost
+  slurm_account: "xyw@cpu"
+  slurm_ntasks_per_node: 1
+  cpus_per_task: 4          # downloads are network-I/O bound, not CPU bound
+  timeout_min: 1200         # 20 h ceiling on prepost
+  name: download_jz
+  slurm_signal_delay_s: 120
+  setup_commands:
+    - "module load pytorch-gpu/py3/2.8.0"
+
+workers: 16                 # concurrent S3 download threads
+archive: true

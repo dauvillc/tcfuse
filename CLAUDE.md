@@ -139,7 +139,17 @@ The framework is **architecture-agnostic at the backbone level**. The embedding 
 
 ## Jean-Zay cluster
 
-Use `/jz` for all cluster operations (storage layout, environment setup, W&B sync, SLURM, checkpoint/resume, preflight checks). GPU configs (`jz_gpu_v100` / `jz_gpu_a100` / `jz_gpu_h100` / `jz_cpu`) are defined in `conf/setup/jz_<hw>.yaml`; job submission uses `submitit.AutoExecutor`. Archival to STORE is automatic when `archive: true` (all `jz_*` configs) — see `src/tcfuse/utils/archive.py`.
+Use `/jz` for all cluster operations (storage layout, environment setup, W&B sync, SLURM, checkpoint/resume, preflight checks). GPU configs (`jz_gpu_v100` / `jz_gpu_a100` / `jz_gpu_h100` / `jz_cpu`) and CPU configs (`jz_cpu` / `jz_prepost`) are defined in `conf/setup/jz_<hw>.yaml`; job submission uses `submitit.AutoExecutor`. Archival to STORE is automatic when `archive: true` (all `jz_*` configs) — see `src/tcfuse/utils/archive.py`.
+
+**Setup configs quick reference:**
+
+| Config | Partition | Use case | CPUs | Max walltime |
+|---|---|---|---|---|
+| `jz_gpu_v100` | `gpu_p13` | Training — 4× V100 32 GB | 40 | 100 h |
+| `jz_gpu_a100` | `gpu_p5` | Training — 8× A100 80 GB | 64 | 20 h |
+| `jz_gpu_h100` | `gpu_p6` | Training — 4× H100 80 GB | 96 | 100 h |
+| `jz_cpu` | `prepost` | CPU preprocessing (no internet) | 40 | 20 h |
+| `jz_prepost` | `prepost` | Data downloads (internet access) | 4 | 20 h |
 
 ---
 

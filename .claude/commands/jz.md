@@ -199,7 +199,8 @@ ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && bash scripts/sl
 | `jz_gpu_v100` | `gpu_p13` | 4× V100 32 GB | 40 (Intel) | 100 h (qos_gpu-t4) |
 | `jz_gpu_a100` | `gpu_p5` | 8× A100 80 GB | 64 (AMD Milan) | **20 h** (no t4 QoS) |
 | `jz_gpu_h100` | `gpu_p6` | 4× H100 80 GB | 96 (Intel) | 100 h (qos_gpu_h100-t4) |
-| `jz_cpu` | `prepost` | Pre/post CPU nodes | 40 (Intel) | 20 h |
+| `jz_cpu` | `prepost` | Pre/post CPU nodes — heavy preprocessing | 40 (Intel) | 20 h |
+| `jz_prepost` | `prepost` | Pre/post CPU nodes — data downloads (internet access) | 4 (Intel) | 20 h |
 
 Override individual SLURM params on the CLI:
 ```bash
