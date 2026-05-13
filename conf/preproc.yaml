@@ -15,5 +15,5 @@ chunk_size: 200
 
 # Which seasons to use for val/test splits. All other seasons are used for training.
 splits:
-  val: [2021, 2023]
-  test: [2020, 2022]
+  val: [2019, 2021]
+  test: [2020, 2022, 2023]
