@@ -10,7 +10,7 @@ Examples
 ========
 # 1)  All 2015 Atlantic storms (local, runs directly)
 python scripts/preprocess/tc_primed/download_tc_primed.py \
-    submitit=false +year=28 +basin=AL
+    submitit=false +season=2015 +basin=AL
 
 # 2)  Everything in v01r01/final (≈1.6 TB - be sure you really want it!)
 python scripts/preprocess/tc_primed/download_tc_primed.py \
@@ -18,7 +18,7 @@ python scripts/preprocess/tc_primed/download_tc_primed.py \
 
 # 3)  On Jean-Zay — submits to the prepost partition (has network access)
 python scripts/preprocess/tc_primed/download_tc_primed.py \
-    setup=jz_prepost +year=28 +basin=AL
+    setup=jz_prepost +season=2015 +basin=AL
 """
 
 from __future__ import annotations
@@ -37,6 +37,9 @@ from botocore.client import Config
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
+from tcfuse.utils.archive import submit_archive_job
+from tcfuse.utils.submitit_utils import make_executor
+
 # One S3 client per thread — avoids connection-pool exhaustion under concurrent downloads
 _thread_local = threading.local()
 
@@ -46,8 +49,6 @@ def _s3_client() -> Any:
         _thread_local.client = boto3.client("s3", config=Config(signature_version=UNSIGNED))
     return _thread_local.client
 
-from tcfuse.utils.archive import submit_archive_job
-from tcfuse.utils.submitit_utils import make_executor
 
 BUCKET_NAME = "noaa-nesdis-tcprimed-pds"
 
@@ -127,20 +128,19 @@ class DownloadJob:
         # Destination root comes from the paths config
         tc_primed_root = Path(cfg["paths"]["raw_datasets"]["tc_primed"])
 
-        # Optional overrides: year (0-indexed from 1987), basin, workers
-        year: int | None = cfg.get("year", None)
+        # Optional overrides: season (calendar year, e.g. 2015), basin, workers
+        season: int | None = cfg.get("season", None)
         basin: str | None = cfg.get("basin", None)
         workers: int = int(cfg.get("workers", 8))
 
-        # Validate basin requires year
-        if basin is not None and year is None:
-            raise ValueError("'basin' override requires 'year' to also be set.")
+        # Validate basin requires season
+        if basin is not None and season is None:
+            raise ValueError("'basin' override requires 'season' to also be set.")
 
         # Construct the S3 prefix and local destination subdirectory
-        if year is not None:
-            absolute_year = 1987 + year
-            prefix = f"v01r01/final/{absolute_year}/"
-            dest_root = tc_primed_root / str(absolute_year)
+        if season is not None:
+            prefix = f"v01r01/final/{season}/"
+            dest_root = tc_primed_root / str(season)
         else:
             prefix = "v01r01/final/"
             dest_root = tc_primed_root
