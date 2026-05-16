@@ -40,13 +40,15 @@ from tcfuse.utils.archive import submit_archive_job
 
 _IBTRACS_SOURCE_NAME = "ibtracs_best_track"
 _IBTRACS_CHANNELS = [
-    "vmax_kt",
-    "mslp_hpa",
-    "rmw_nm",
-    "r34_ne_nm",
-    "r34_se_nm",
-    "r34_sw_nm",
-    "r34_nw_nm",
+    "usa_vmax_kt",
+    "wmo_vmax_kt",
+    "usa_mslp_hpa",
+    "wmo_mslp_hpa",
+    "usa_rmw_nm",
+    "usa_r34_ne_nm",
+    "usa_r34_se_nm",
+    "usa_r34_sw_nm",
+    "usa_r34_nw_nm",
 ]
 _ASSEMBLED_INDEX_COLUMNS = [
     "storm_id",
@@ -57,12 +59,18 @@ _ASSEMBLED_INDEX_COLUMNS = [
     "snapshot_time_utc",
     "lat",
     "lon",
-    "vmax_kt",
+    "usa_vmax_kt",
+    "wmo_vmax_kt",
 ]
 
 # ---------------------------------------------------------------------------
 # IBTrACS helpers
 # ---------------------------------------------------------------------------
+
+
+def _float_or_nan(value: Any) -> float:
+    """Return a float value, preserving missing IBTrACS entries as NaN."""
+    return float(value) if not pd.isna(value) else np.nan
 
 
 def load_ibtracs(
@@ -95,7 +103,7 @@ def load_ibtracs(
     )
 
     # Restrict to primary tracks; spurs and provisional tracks are excluded.
-    df = df[df["TRACK_TYPE"] == "main"].copy()
+    df = cast(pd.DataFrame, df[df["TRACK_TYPE"] == "main"].copy())
 
     # Parse timestamps to UTC-aware Timestamps.
     df["ISO_TIME"] = pd.to_datetime(df["ISO_TIME"], utc=True)
@@ -110,7 +118,7 @@ def load_ibtracs(
     ibtracs_by_sid: dict[str, pd.DataFrame] = {str(sid): grp for sid, grp in df.groupby("SID")}
 
     # Build reverse mapping: USA_ATCF_ID → SID (skip blank/NaN ATCF IDs).
-    atcf_id_col = df[["SID", "USA_ATCF_ID"]].dropna(subset=["USA_ATCF_ID"])
+    atcf_id_col = cast(pd.DataFrame, df[["SID", "USA_ATCF_ID"]]).dropna(subset=["USA_ATCF_ID"])
     atcf_id_col = atcf_id_col[atcf_id_col["USA_ATCF_ID"] != ""]
     # Each ATCF ID should map to exactly one SID; take the first occurrence.
     atcf_to_sid: dict[str, str] = dict(zip(atcf_id_col["USA_ATCF_ID"], atcf_id_col["SID"]))
@@ -145,52 +153,49 @@ def ibtracs_rows_to_sources(
 
     results: list[tuple[str, Source]] = []
     for _, row in storm_rows.iterrows():
-        lat = row["LAT"]
-        lon = row["LON"]
+        lat = cast(float, row["LAT"])
+        lon = cast(float, row["LON"])
+        iso_time = cast(pd.Timestamp, row["ISO_TIME"])
 
         # Skip rows where the storm centre position is missing.
         if pd.isna(lat) or pd.isna(lon):
             warnings.warn(
-                f"IBTrACS row for {storm_id} at {row['ISO_TIME']} has NaN lat/lon — skipped.",
+                f"IBTrACS row for {storm_id} at {iso_time} has NaN lat/lon — skipped.",
                 stacklevel=2,
             )
             continue
 
-        # Derive vmax_kt: prefer USA 1-min wind, fall back to WMO wind.
-        usa_wind = row.get("USA_WIND", np.nan)
-        wmo_wind = row.get("WMO_WIND", np.nan)
-        vmax_kt = (
-            float(usa_wind)
-            if not pd.isna(usa_wind)
-            else float(wmo_wind)
-            if not pd.isna(wmo_wind)
-            else np.nan
-        )
+        # Keep USA and WMO best-track definitions independent; never fall back
+        # from one provider to the other.
+        usa_vmax_kt = _float_or_nan(row.get("USA_WIND", np.nan))
+        wmo_vmax_kt = _float_or_nan(row.get("WMO_WIND", np.nan))
+        usa_mslp_hpa = _float_or_nan(row.get("USA_PRES", np.nan))
+        wmo_mslp_hpa = _float_or_nan(row.get("WMO_PRES", np.nan))
 
-        # Derive mslp_hpa: prefer USA pressure, fall back to WMO pressure.
-        usa_pres = row.get("USA_PRES", np.nan)
-        wmo_pres = row.get("WMO_PRES", np.nan)
-        mslp_hpa = (
-            float(usa_pres)
-            if not pd.isna(usa_pres)
-            else float(wmo_pres)
-            if not pd.isna(wmo_pres)
-            else np.nan
-        )
-
-        # Wind-structure parameters (NaN when not reported).
-        rmw_nm = float(row["USA_RMW"]) if not pd.isna(row.get("USA_RMW", np.nan)) else np.nan
-        r34_ne = float(row["USA_R34_NE"]) if not pd.isna(row.get("USA_R34_NE", np.nan)) else np.nan
-        r34_se = float(row["USA_R34_SE"]) if not pd.isna(row.get("USA_R34_SE", np.nan)) else np.nan
-        r34_sw = float(row["USA_R34_SW"]) if not pd.isna(row.get("USA_R34_SW", np.nan)) else np.nan
-        r34_nw = float(row["USA_R34_NW"]) if not pd.isna(row.get("USA_R34_NW", np.nan)) else np.nan
+        # USA wind-structure parameters are provider-specific and remain NaN
+        # when not reported.
+        usa_rmw_nm = _float_or_nan(row.get("USA_RMW", np.nan))
+        usa_r34_ne = _float_or_nan(row.get("USA_R34_NE", np.nan))
+        usa_r34_se = _float_or_nan(row.get("USA_R34_SE", np.nan))
+        usa_r34_sw = _float_or_nan(row.get("USA_R34_SW", np.nan))
+        usa_r34_nw = _float_or_nan(row.get("USA_R34_NW", np.nan))
 
         # Build tensors.
         values = torch.tensor(
-            [vmax_kt, mslp_hpa, rmw_nm, r34_ne, r34_se, r34_sw, r34_nw],
+            [
+                usa_vmax_kt,
+                wmo_vmax_kt,
+                usa_mslp_hpa,
+                wmo_mslp_hpa,
+                usa_rmw_nm,
+                usa_r34_ne,
+                usa_r34_se,
+                usa_r34_sw,
+                usa_r34_nw,
+            ],
             dtype=torch.float32,
-        )  # (7,)
-        time_unix_s = float(row["ISO_TIME"].timestamp())
+        )  # (9,)
+        time_unix_s = float(iso_time.timestamp())
         coords = torch.tensor(
             [time_unix_s, float(lat), float(lon)],
             dtype=torch.float64,
@@ -198,7 +203,7 @@ def ibtracs_rows_to_sources(
 
         # ISO 8601 key compatible with the rest of the pipeline.
         # Strip tzinfo to match the naive-UTC format used by other sources.
-        snapshot_time_utc = row["ISO_TIME"].replace(tzinfo=None).isoformat()
+        snapshot_time_utc = iso_time.replace(tzinfo=None).isoformat()
 
         source = Source(
             kind=SourceKind.SCALAR,
@@ -212,7 +217,10 @@ def ibtracs_rows_to_sources(
                 "snapshot_time_utc": snapshot_time_utc,
                 "lat": float(lat),
                 "lon": float(lon),
-                "vmax_kt": vmax_kt,
+                "usa_vmax_kt": usa_vmax_kt,
+                "wmo_vmax_kt": wmo_vmax_kt,
+                "usa_mslp_hpa": usa_mslp_hpa,
+                "wmo_mslp_hpa": wmo_mslp_hpa,
             },
         )
         results.append((snapshot_time_utc, source))
@@ -397,11 +405,12 @@ def build_assembled_index(
     """Build a dataset-wide index with one row per (storm_id, source_name, snapshot).
 
     Columns: ``storm_id``, ``basin``, ``season``, ``atcf_id``, ``source_name``,
-    ``snapshot_time_utc``, ``lat``, ``lon``, ``vmax_kt``.
+    ``snapshot_time_utc``, ``lat``, ``lon``, ``usa_vmax_kt``, ``wmo_vmax_kt``.
 
-    For ``ibtracs_best_track`` rows, ``lat``, ``lon``, and ``vmax_kt`` come
-    directly from IBTrACS.  For all other source rows, ``vmax_kt`` is left as
-    the value from the per-source index (NaN when absent — no join is performed).
+    For ``ibtracs_best_track`` rows, ``lat``, ``lon``, ``usa_vmax_kt``, and
+    ``wmo_vmax_kt`` come directly from IBTrACS.  For all other source rows,
+    best-track wind columns are left as NaN; no join or provider fallback is
+    performed.
 
     Args:
         multi_meta_index: Merged per-source snapshot index from
@@ -416,27 +425,25 @@ def build_assembled_index(
         DataFrame with schema ``_ASSEMBLED_INDEX_COLUMNS``, sorted by
         ``(storm_id, snapshot_time_utc)``.
     """
-    assembled_set = set(assembled_storm_ids)
+    assembled_set = list(assembled_storm_ids)
 
     # --- Part A: non-IBTrACS rows from the per-source index -------------------
     non_ibt = multi_meta_index[multi_meta_index["storm_id"].isin(assembled_set)].copy()
 
     # Add storm-level columns derived from ATCF ID format (BBCCYYYY).
-    non_ibt["basin"] = non_ibt["storm_id"].str[:2]
-    non_ibt["season"] = non_ibt["storm_id"].str[-4:].astype(int)
+    non_ibt["basin"] = cast(pd.Series, non_ibt["storm_id"]).str[:2]
+    non_ibt["season"] = cast(pd.Series, non_ibt["storm_id"]).str[-4:].astype(int)
 
     # atcf_id = the ATCF ID itself when matched in IBTrACS, else None.
-    non_ibt["atcf_id"] = non_ibt["storm_id"].where(
-        non_ibt["storm_id"].isin(atcf_to_sid), other=None
-    )
+    storm_id_series = cast(pd.Series, non_ibt["storm_id"])
+    non_ibt["atcf_id"] = storm_id_series.where(storm_id_series.isin(atcf_to_sid), other=None)
     # Replace ATCF ID with IBTrACS SID as the final storm_id.
-    non_ibt["storm_id"] = non_ibt["storm_id"].map(
-        lambda atcf: atcf_to_sid.get(str(atcf), str(atcf))
-    )
+    non_ibt["storm_id"] = storm_id_series.map(lambda atcf: atcf_to_sid.get(str(atcf), str(atcf)))
 
-    # Ensure vmax_kt column exists (may be absent in some source indexes).
-    if "vmax_kt" not in non_ibt.columns:
-        non_ibt["vmax_kt"] = np.nan
+    # Non-IBTrACS rows must not inherit generic per-source intensity metadata
+    # because USA and WMO best-track winds have distinct definitions.
+    non_ibt["usa_vmax_kt"] = np.nan
+    non_ibt["wmo_vmax_kt"] = np.nan
 
     # Ensure lat/lon columns exist.
     for col in ("lat", "lon"):
@@ -455,19 +462,13 @@ def build_assembled_index(
         basin = storm_id[:2]
         season = int(storm_id[-4:])
         for _, row in storm_df.sort_values("ISO_TIME").iterrows():
-            lat = row["LAT"]
-            lon = row["LON"]
+            lat = cast(float, row["LAT"])
+            lon = cast(float, row["LON"])
+            iso_time = cast(pd.Timestamp, row["ISO_TIME"])
             if pd.isna(lat) or pd.isna(lon):
                 continue
-            usa_wind = row.get("USA_WIND", np.nan)
-            wmo_wind = row.get("WMO_WIND", np.nan)
-            vmax_kt = (
-                float(usa_wind)
-                if not pd.isna(usa_wind)
-                else float(wmo_wind)
-                if not pd.isna(wmo_wind)
-                else np.nan
-            )
+            usa_vmax_kt = _float_or_nan(row.get("USA_WIND", np.nan))
+            wmo_vmax_kt = _float_or_nan(row.get("WMO_WIND", np.nan))
             ibt_rows_list.append(
                 {
                     "storm_id": ibtracs_sid,
@@ -475,18 +476,21 @@ def build_assembled_index(
                     "season": season,
                     "atcf_id": atcf_id_val,
                     "source_name": _IBTRACS_SOURCE_NAME,
-                    "snapshot_time_utc": row["ISO_TIME"].replace(tzinfo=None).isoformat(),
+                    "snapshot_time_utc": iso_time.replace(tzinfo=None).isoformat(),
                     "lat": float(lat),
                     "lon": float(lon),
-                    "vmax_kt": vmax_kt,
+                    "usa_vmax_kt": usa_vmax_kt,
+                    "wmo_vmax_kt": wmo_vmax_kt,
                 }
             )
 
     ibt_df = pd.DataFrame(ibt_rows_list, columns=_ASSEMBLED_INDEX_COLUMNS)
 
     # --- Combine and finalise -------------------------------------------------
+    non_ibt_df = cast(pd.DataFrame, non_ibt[_ASSEMBLED_INDEX_COLUMNS])
+    ibt_df = pd.DataFrame(ibt_rows_list, columns=_ASSEMBLED_INDEX_COLUMNS)
     index_df = pd.concat(
-        [non_ibt[_ASSEMBLED_INDEX_COLUMNS], ibt_df],
+        [non_ibt_df, ibt_df],
         ignore_index=True,
     )
     index_df = index_df.sort_values(["storm_id", "snapshot_time_utc"]).reset_index(drop=True)

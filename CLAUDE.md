@@ -36,6 +36,7 @@ Every source, regardless of its dimensionality, is represented as a set of **(va
 - Coordinates are stored **alongside** values, not inferred from array indices.
 - A source may have **missing values** (NaN-masked); the framework must handle this gracefully.
 - The number of sources per sample is **variable**. No fixed-size source list.
+- IBTrACS USA and WMO best-track quantities are **distinct definitions**; store them in separate channels/columns and preserve NaN rather than falling back or coalescing across providers.
 
 ---
 

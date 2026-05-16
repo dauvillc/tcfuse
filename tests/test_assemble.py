@@ -183,27 +183,36 @@ class TestIbtracsRowsToSources:
     def test_values_shape(self) -> None:
         df = _make_ibtracs_df(_make_ibtracs_row())
         _, source = ibtracs_rows_to_sources(df, "2016AL10", "AL")[0]
-        assert source.values.shape == (7,)
+        assert source.values.shape == (9,)
 
     def test_coords_shape(self) -> None:
         df = _make_ibtracs_df(_make_ibtracs_row())
         _, source = ibtracs_rows_to_sources(df, "2016AL10", "AL")[0]
         assert source.coords.shape == (3,)
 
-    def test_vmax_from_usa_wind(self) -> None:
+    def test_usa_and_wmo_vmax_are_both_present(self) -> None:
         df = _make_ibtracs_df(_make_ibtracs_row(usa_wind=80.0, wmo_wind=70.0))
         _, source = ibtracs_rows_to_sources(df, "2016AL10", "AL")[0]
         assert float(source.values[0]) == pytest.approx(80.0)
+        assert float(source.values[1]) == pytest.approx(70.0)
 
-    def test_vmax_falls_back_to_wmo_wind(self) -> None:
+    def test_usa_vmax_stays_nan_when_missing_even_if_wmo_exists(self) -> None:
         df = _make_ibtracs_df(_make_ibtracs_row(usa_wind=None, wmo_wind=70.0))
         _, source = ibtracs_rows_to_sources(df, "2016AL10", "AL")[0]
-        assert float(source.values[0]) == pytest.approx(70.0)
+        assert np.isnan(float(source.values[0]))
+        assert float(source.values[1]) == pytest.approx(70.0)
 
-    def test_vmax_nan_when_both_missing(self) -> None:
+    def test_wmo_vmax_stays_nan_when_missing_even_if_usa_exists(self) -> None:
+        df = _make_ibtracs_df(_make_ibtracs_row(usa_wind=80.0, wmo_wind=None))
+        _, source = ibtracs_rows_to_sources(df, "2016AL10", "AL")[0]
+        assert float(source.values[0]) == pytest.approx(80.0)
+        assert np.isnan(float(source.values[1]))
+
+    def test_usa_and_wmo_vmax_nan_when_both_missing(self) -> None:
         df = _make_ibtracs_df(_make_ibtracs_row(usa_wind=None, wmo_wind=None))
         _, source = ibtracs_rows_to_sources(df, "2016AL10", "AL")[0]
         assert np.isnan(float(source.values[0]))
+        assert np.isnan(float(source.values[1]))
 
     def test_row_with_nan_lat_is_skipped(self) -> None:
         df = _make_ibtracs_df(
@@ -295,22 +304,22 @@ class TestBuildAssembledIndex:
         result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["EP052021"])
         assert result["atcf_id"].isna().all()
 
-    def test_ibtracs_rows_have_vmax_kt(self) -> None:
+    def test_ibtracs_rows_have_explicit_vmax_columns(self) -> None:
         meta_idx = self._make_multi_meta_index()
         ibtracs_by_sid, atcf_to_sid = self._make_ibtracs_fixtures()
         result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["AL102016"])
         ibt_rows = result[result["source_name"] == _IBTRACS_SOURCE_NAME]
-        assert ibt_rows["vmax_kt"].notna().all()
+        assert ibt_rows["usa_vmax_kt"].notna().all()
+        assert ibt_rows["wmo_vmax_kt"].notna().all()
 
-    def test_non_ibtracs_vmax_kt_not_filled(self) -> None:
-        # Non-ibtracs row without vmax_kt in the source index must remain NaN.
+    def test_non_ibtracs_explicit_vmax_columns_not_filled(self) -> None:
+        # Non-IBTrACS rows must not receive best-track wind values implicitly.
         meta_idx = self._make_multi_meta_index()
-        # Ensure vmax_kt is absent from the source index.
-        assert "vmax_kt" not in meta_idx.columns
         ibtracs_by_sid, atcf_to_sid = self._make_ibtracs_fixtures()
         result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["AL102016"])
         pmw_rows = result[result["source_name"] == "pmw_ssmi"]
-        assert pmw_rows["vmax_kt"].isna().all()
+        assert pmw_rows["usa_vmax_kt"].isna().all()
+        assert pmw_rows["wmo_vmax_kt"].isna().all()
 
     def test_output_columns(self) -> None:
         from scripts.preprocess.assemble import _ASSEMBLED_INDEX_COLUMNS
