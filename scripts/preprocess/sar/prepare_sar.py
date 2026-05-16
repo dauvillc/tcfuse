@@ -80,7 +80,7 @@ def process_sar_file(
     storm_id: str = file_info["sid"]  # already in ATCF format (reformatted in main)
     basin: str = file_info["basin"]
     season: str = file_info["season"]
-    acq_time: pd.Timestamp = pd.Timestamp(file_info["acquisition_start_time"])
+    acq_time: pd.Timestamp = cast(pd.Timestamp, pd.Timestamp(file_info["acquisition_start_time"]))
     time_unix_s = float(acq_time.timestamp())
     storm_center = file_info["track_point"]  # WKT string
     from shapely.geometry import Point
@@ -210,8 +210,10 @@ def main(raw_cfg: DictConfig) -> None:
 
     files = [cyclobs_dir / url.split("/")[-1] for url in acq_df["data_url"]]
     # Convert to plain dicts so rows are picklable by ProcessPoolExecutor
+    columns = [str(column) for column in acq_df.columns]
     file_infos: list[dict[str, Any]] = [
-        {str(k): v for k, v in row.items()} for row in acq_df.to_dict("records")
+        dict(zip(columns, row, strict=True))
+        for row in acq_df.itertuples(index=False, name=None)
     ]
 
     print(f"Processing {len(files)} SAR acquisitions…")
