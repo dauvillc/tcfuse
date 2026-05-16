@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "tcfuse"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tcfuse", "scripts"]
@@ -48,13 +48,18 @@ known-first-party = ["src"]
 quote-style = "double"
 indent-style = "space"
 
-[tool.pyright]
-include = ["src", "scripts"]
+[tool.basedpyright]
+include = ["src", "scripts", "tests"]
 exclude = ["notebooks", "figures", "**/__pycache__"]
 pythonVersion = "3.12"
-typeCheckingMode = "basic"
+typeCheckingMode = "standard"
 extraPaths = ["src"]
+baselineFile = ".basedpyright/baseline.json"
+
+# Keep unknown-type reports quiet while scientific Python stubs remain noisy.
+# Tighten these one by one once pandas/numpy/torch call sites are typed locally.
 reportUnknownVariableType = "none"
 reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
 reportUnknownParameterType = "none"
+reportPrivateImportUsage = "none"

@@ -1,0 +1,11 @@
+# Dependencies needed by CI to resolve imports during static type checking.
+# Jean-Zay provides these base packages through environment modules instead.
+
+-r requirements-jz.txt
+
+numpy
+scipy
+matplotlib
+pillow
+torch
+torchvision

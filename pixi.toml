@@ -30,7 +30,8 @@ boto3 = ">=1.42.91,<2"
 dask = ">=2026.3.0,<2027"
 polars = ">=1.40.0,<2"
 scipy = ">=1.17.1,<2"
-pyright = ">=1.1.409,<2"
+basedpyright = ">=1.39.4,<2"
+pre-commit = ">=4.6.0,<5"
 
 [pypi-dependencies]
 tcfuse = { path = ".", editable = true }
@@ -51,3 +52,4 @@ test = "pytest tests/"
 lint = "ruff check src/ tests/ scripts/"
 format = "ruff format src/ tests/ scripts/"
 format-check = "ruff format --check src/ tests/ scripts/"
+typecheck = { cmd = "basedpyright", env = { LANG = "C", LC_ALL = "C" } }

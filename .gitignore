@@ -14,9 +14,13 @@ wheels/
 .venv
 
 # IDE
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 .idea/
-.github/
+.github/*
+!.github/workflows/
+!.github/workflows/*.yml
+!.github/workflows/*.yaml
 .ruff_cache/
 
 # Output directories
