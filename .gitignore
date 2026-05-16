@@ -23,6 +23,7 @@ wheels/
 outputs/
 logs/
 submitit/
+figures/
 
 # PyTorch Lightning
 lightning_logs/
