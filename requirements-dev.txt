@@ -1,5 +1,7 @@
 # Local development tools.
-# Runtime and Jean-Zay dependencies live in requirements-jz.txt.
+# Runtime dependencies live in requirements.txt.
 
 basedpyright
 pre-commit
+pytest
+ruff>=0.15.11
