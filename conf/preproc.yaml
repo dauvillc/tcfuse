@@ -17,3 +17,11 @@ chunk_size: 200
 splits:
   val: [2019, 2021]
   test: [2020, 2022, 2023]
+
+# Best-track window samples built by scripts/preprocess/build_splits.py.
+window_index:
+  source_name: ibtracs_best_track
+  leads_hours: [0, 6, 12, 18, 24, 30]
+  required_leads_hours: [0, 6, 30]
+  required_channels: [usa_vmax_kt]
+  required_meta: [lat, lon]

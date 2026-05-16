@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Compute per-channel normalization statistics (mean, std) for every source in the
-assembled dataset, and produce histogram plots of each channel's distribution.
+"""Compute per-channel normalization statistics for every source in training storms.
 
-Statistics are computed **exclusively on training-split snapshots** (those listed in
-``{preprocessed_data}/train.parquet``) to prevent data leakage from the validation and
-test sets.  Run ``scripts/preprocess/build_splits.py`` first.
+Statistics are computed **exclusively from source snapshots belonging to storms that
+appear in the training window index**.  ``train.parquet`` is produced by
+``scripts/preprocess/build_splits.py`` and contains one row per model sample, while
+``index.parquet`` remains the canonical one-row-per-source-snapshot table.
 
 Because the full assembled dataset cannot fit in memory, statistics are computed with
 Welford's online algorithm using batched parallel updates.  Histogram samples are
@@ -65,6 +65,52 @@ def _compact_time(snapshot_time_utc: str) -> str:
         Compact string without separators, e.g. ``"20160912T010942Z"``.
     """
     return pd.Timestamp(snapshot_time_utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def load_training_snapshot_index(assembled_root: Path) -> pd.DataFrame:
+    """Load canonical snapshot rows for storms present in the training split.
+
+    Args:
+        assembled_root: Root directory containing ``index.parquet`` and
+            ``train.parquet``.
+
+    Returns:
+        DataFrame with one row per source snapshot from training storms.
+    """
+    train_path = assembled_root / "train.parquet"
+    if not train_path.exists():
+        raise FileNotFoundError(
+            f"Training split not found at {train_path}. "
+            "Run scripts/preprocess/build_splits.py first."
+        )
+
+    print(f"Loading training window index from {train_path} …")
+    train_samples = pd.read_parquet(train_path)
+    if "storm_id" not in train_samples.columns:
+        raise ValueError(f"Training split at {train_path} must contain a storm_id column.")
+
+    # Backward compatibility: older split files already contained snapshot rows.
+    if {"source_name", "snapshot_time_utc"}.issubset(train_samples.columns):
+        return train_samples
+
+    index_path = assembled_root / "index.parquet"
+    if not index_path.exists():
+        raise FileNotFoundError(
+            f"Assembled index not found at {index_path}. Run scripts/preprocess/assemble.py first."
+        )
+
+    print(f"Loading canonical snapshot index from {index_path} …")
+    snapshot_index = pd.read_parquet(index_path)
+    train_storm_ids = set(train_samples["storm_id"].astype(str))
+    training_snapshots = snapshot_index[
+        snapshot_index["storm_id"].astype(str).isin(train_storm_ids)
+    ].copy()
+
+    # Multiple samples from one storm reference the same source snapshots; keep
+    # each snapshot exactly once for normalization.
+    return training_snapshots.drop_duplicates(
+        subset=["storm_id", "source_name", "snapshot_time_utc"]
+    ).reset_index(drop=True)
 
 
 def _flatten_valid(
@@ -423,17 +469,8 @@ def main(raw_cfg: DictConfig) -> None:
     out_dir = assembled_root / "normalization"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Normalization must only see training data — load train.parquet produced by build_splits.py.
-    train_path = assembled_root / "train.parquet"
-    if not train_path.exists():
-        raise FileNotFoundError(
-            f"Training split not found at {train_path}. "
-            "Run scripts/preprocess/build_splits.py first."
-        )
-
-    # Load the training-split index and group rows by source name.
-    print(f"Loading training split from {train_path} …")
-    index = pd.read_parquet(train_path)
+    # Load source snapshots belonging to storms present in the training samples.
+    index = load_training_snapshot_index(assembled_root)
     groups: dict[str, pd.DataFrame] = {str(k): v for k, v in index.groupby("source_name")}
     print(f"  Found {len(groups)} source(s): {sorted(groups)}")
 

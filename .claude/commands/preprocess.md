@@ -120,8 +120,8 @@ Use `StormData.path(assembled_root, storm_id)` to compute canonical paths.
 **IBTrACS injection:** `assemble.py` automatically injects one SCALAR source per best-track
 observation time for every storm matched in IBTrACS:
 - `source_name = "ibtracs_best_track"`
-- `kind = SCALAR`, channels: `[vmax_kt, mslp_hpa, rmw_nm, r34_ne_nm, r34_se_nm, r34_sw_nm, r34_nw_nm]`
-- USA_WIND / USA_PRES values preferred; falls back to WMO_WIND / WMO_PRES
+- `kind = SCALAR`, channels: `[usa_vmax_kt, wmo_vmax_kt, usa_mslp_hpa, wmo_mslp_hpa, usa_rmw_nm, usa_r34_ne_nm, usa_r34_se_nm, usa_r34_sw_nm, usa_r34_nw_nm]`
+- USA and WMO quantities are kept as distinct channels; missing values remain NaN.
 
 **`StormData` sources dict key:** `(source_name, snapshot_time_utc)` where
 `snapshot_time_utc` is the isoformat string as it appears in per-source `index.parquet`.
@@ -129,7 +129,7 @@ observation time for every storm matched in IBTrACS:
 **Assembled index.parquet schema:**
 ```
 storm_id, basin, season, atcf_id,
-source_name, snapshot_time_utc, lat, lon, vmax_kt
+source_name, snapshot_time_utc, lat, lon, usa_vmax_kt, wmo_vmax_kt
 ```
 One row per (storm, source_name, snapshot). `ibtracs_best_track` rows are included.
 
@@ -232,10 +232,15 @@ python scripts/preprocess/build_splits.py
 python scripts/preprocess/build_splits.py paths=jz
 ```
 
-This reads the assembled `index.parquet` (which carries a `season` column) and assigns
-each row to a split based on the season lists in `conf/preproc.yaml`:
-- **val**:   seasons in `cfg.splits.val`   (default: 2021, 2022)
-- **test**:  seasons in `cfg.splits.test`  (default: 2020, 2023)
+This reads the assembled `index.parquet` and builds one model sample per valid
+`ibtracs_best_track` window. By default, each sample spans lead hours
+`[0, 6, 12, 18, 24, 30]`; finite `usa_vmax_kt`, `lat`, and `lon` are required at
+`+0h`, `+6h`, and `+30h`, while intermediate leads may be missing or NaN.
+
+The resulting sample rows are assigned to splits based on the season lists in
+`conf/preproc.yaml`:
+- **val**:   seasons in `cfg.splits.val`
+- **test**:  seasons in `cfg.splits.test`
 - **train**: all remaining seasons
 
 The `season` column holds a single value per storm lifetime (not per-snapshot), so a
@@ -245,16 +250,22 @@ Output files:
 
 ```
 ${paths.preprocessed_data}/
+├── index.parquet       # canonical source-snapshot index
 ├── train.parquet
 ├── val.parquet
 └── test.parquet
 ```
 
+`train.parquet`, `val.parquet`, and `test.parquet` are model-sample window
+indices, not source-snapshot indices.
+
 ### Step 7 — Compute normalization statistics
 
 After splits are built, compute per-channel mean and std for every source using an online
-Welford algorithm.  **Only training-split snapshots** (from `train.parquet`) are used to
-prevent leakage from val/test sets.  Results are used by the data transforms layer during training.
+Welford algorithm.  `compute_normalization.py` reads the training window index,
+derives the training storms, then filters the canonical assembled `index.parquet` to
+source snapshots from those storms. This prevents leakage from val/test seasons.
+Results are used by the data transforms layer during training.
 
 ```bash
 # Local run (sequential, one source at a time)

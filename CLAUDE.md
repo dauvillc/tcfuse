@@ -58,8 +58,9 @@ Use `/preprocess` for the full dataset inventory (including deferred datasets) a
 Use `/preprocess` for the full format spec and dataset inventory. Quick reference:
 - **Stage 1** (`cfg.paths.preprocessed_sources`): one HDF5 per source snapshot — `Source.path(sources_root, source_name, storm_id, time)`
 - **Stage 2** (`cfg.paths.preprocessed_data`): one HDF5 per storm — `StormData.path(assembled_root, storm_id)`
+- **Window splits** (`train.parquet`, `val.parquet`, `test.parquet`): one model sample per best-track window, built from the assembled `index.parquet`
 - I/O API: `Source`, `StormData`, `SourceMetadata`, `MultisourceMetadata` in `src/tcfuse/data/sources/`
-- Pipeline order: `assemble.py` → `build_splits.py` → `compute_normalization.py` (splits before normalization to prevent leakage)
+- Pipeline order: `assemble.py` → `build_splits.py` (best-track window sample indices) → `compute_normalization.py` (training storms only)
 
 ---
 
