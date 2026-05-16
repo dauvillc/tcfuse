@@ -10,7 +10,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Load the JZ prebuilt PyTorch environment
 module load pytorch-gpu/py3/2.8.0
 
-# Install extra packages into ~/.local (available on compute nodes via $HOME/.local)
+# Install the generated Pixi-derived overlay into ~/.local.
+# These packages are available on compute nodes via $HOME/.local.
 echo "[setup] Installing extra packages..."
 pip install --user -r "$REPO_ROOT/requirements-jz.txt"
 

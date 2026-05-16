@@ -163,7 +163,7 @@ module load arch/a100 && module load pytorch-gpu/py3/2.8.0   # A100
 module load arch/h100 && module load pytorch-gpu/py3/2.8.0   # H100
 ```
 
-Compute nodes have **no internet access**. All pip installs, W&B auth, and data downloads must happen on the login node.
+Compute nodes have **no internet access**. All pip installs, W&B auth, and data downloads must happen on the login node. Use the generated `requirements-jz.txt` overlay for pip installs on Jean-Zay, and regenerate it locally with `pixi run export-jz-requirements` after changing `pixi.toml`.
 
 ---
 

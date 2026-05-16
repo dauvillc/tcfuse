@@ -53,3 +53,5 @@ lint = "ruff check src/ tests/ scripts/"
 format = "ruff format src/ tests/ scripts/"
 format-check = "ruff format --check src/ tests/ scripts/"
 typecheck = { cmd = "basedpyright", env = { LANG = "C", LC_ALL = "C" } }
+export-jz-requirements = "python scripts/export_jz_requirements.py"
+check-jz-requirements = "python scripts/export_jz_requirements.py --check"

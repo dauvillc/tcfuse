@@ -1,11 +1,12 @@
+# This file is generated from pixi.toml by scripts/export_jz_requirements.py.
+# Do not edit it by hand; run: pixi run export-jz-requirements
 # Jean-Zay-specific packages to pip install --user after loading modules.
 # The pytorch-gpu/py3/2.8.0 module already provides: torch, torchvision,
 # numpy, scipy, matplotlib, Pillow, and CUDA libraries.
-# For non-Jean-Zay environments, use requirements.txt instead.
 # Run: pip install --user -r requirements-jz.txt
 
 # ML / training
-lightning>=2.5.6,<3
+lightning==2.5.6
 timm
 einops
 
@@ -23,9 +24,9 @@ zarr
 h5py
 netcdf4
 pandas
-pyresample
+pyresample>=1.35.0,<2
 cartopy
 cmocean
-boto3
-dask
-polars
+boto3>=1.42.91,<2
+dask>=2026.3.0,<2027
+polars>=1.40.0,<2

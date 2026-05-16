@@ -1,0 +1,50 @@
+---
+description: Core project context and engineering rules for TC multi-source fusion
+alwaysApply: true
+---
+
+# TC-Fuse Core Context
+
+This project builds a coordinate-aware ML framework for tropical cyclone analysis and forecasting by fusing heterogeneous observation sources.
+
+Primary tasks, in order:
+- Rapid intensification forecasting at +6 h to +48 h.
+- High-resolution inner-core wind and pressure reconstruction.
+- Microwave image interpolation from sparse multi-source satellite passes.
+- Track forecasting through downstream fine-tuning.
+
+## Data Abstraction
+
+The fundamental unit is a source: measurements of the same physical quantity from the same instrument or model, at the same nominal time, sharing a coordinate system.
+
+Represent every source as `(value, coordinate)` pairs:
+- Scalar sources: values `(C,)`, coordinates `(time, lat, lon)`.
+- Profile sources: values `(L, C)`, coordinates `(time, lat, lon, altitude/depth)`.
+- Field sources: values `(H, W, C)`, coordinates `(time, lat grid, lon grid)`.
+
+Never violate these constraints:
+- Coordinates are continuous physical quantities, never learned bin embeddings.
+- Coordinates are stored alongside values, not inferred from array indices.
+- Missing values are allowed and must be handled gracefully.
+- The number of sources per sample is variable.
+
+## Repository Conventions
+
+- Use `conf/` for Hydra configuration and `cfg.paths.*` for all paths.
+- Assemble full run configs only in `conf/experiment/`.
+- Never import anything from `notebooks/` into `src/`.
+- Keep source embedders unit-testable with synthetic tensors only.
+- Preserve the preprocessing order: `assemble.py`, `build_splits.py`, then `compute_normalization.py`.
+- Pixi is the source of truth for local development and CI dependencies. Use `pixi add` or `pixi add --pypi` for dependency changes, and run checks through Pixi tasks.
+- `requirements-jz.txt` is generated from `pixi.toml` for Jean-Zay only. Regenerate it with `pixi run export-jz-requirements`; do not edit it by hand.
+- Do not recreate `requirements.txt`, `requirements-ci.txt`, or `requirements-dev.txt`; CI uses Pixi directly.
+
+## Coding Rules
+
+- Use type hints on all function signatures.
+- Add docstrings to public classes and functions.
+- Put configurable hyperparameters in `conf/`, not in code.
+- Avoid magic numbers in `src/`; use named constants or config values.
+- Document tensor shapes in docstrings or comments, for example `# (B, L, C)`.
+- Add short comments above logical code blocks when they clarify intent.
+- Ask before guessing unresolved design choices such as tensor layout, coordinate normalization, masking, or task head interfaces.

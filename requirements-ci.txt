@@ -1,3 +1,0 @@
-# Dependencies needed by CI to resolve imports during static type checking.
-
--r requirements.txt

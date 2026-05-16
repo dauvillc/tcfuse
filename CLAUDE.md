@@ -99,6 +99,12 @@ project_root/
 
 **Core stack:** Python 3.10+, PyTorch, PyTorch Lightning, Hydra (config), Weights & Biases (logging).
 
+**Package management:**
+- Pixi is the source of truth for local development and CI. Add or update dependencies in `pixi.toml` with `pixi add` / `pixi add --pypi`, not by editing requirement files by hand.
+- Use Pixi tasks for routine checks: `pixi run typecheck`, `pixi run lint`, `pixi run test`, and `pixi run format-check`.
+- `requirements-jz.txt` is generated from `pixi.toml` for Jean-Zay only, where Pixi is not used because the environment is module-based. Regenerate it with `pixi run export-jz-requirements` after dependency changes.
+- Do not recreate `requirements.txt`, `requirements-ci.txt`, or `requirements-dev.txt`; CI uses Pixi directly.
+
 **Coding rules — always follow these:**
 - Type hints on all function signatures.
 - Docstrings on all public classes and functions (one-line summary + args/returns for non-trivial ones).
