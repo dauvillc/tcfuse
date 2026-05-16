@@ -3,8 +3,9 @@
 
 Reads all per-source snapshot files produced by the source-specific preprocessing
 scripts (prepare_pmw, prepare_infrared, prepare_radar, …) and merges them into a
-single ``{assembled_data}/{storm_id}.h5`` file per tropical cyclone.  The assembled
-files are consumed by the ML dataloader, which opens exactly one file per sample.
+single ``{assembled_data}/storm_data/{storm_id}.h5`` file per tropical cyclone.
+The assembled files are consumed by the ML dataloader, which opens exactly one
+file per sample.
 
 Additionally, IBTrACS best-track data (``ibtracs_best_track`` source) is injected
 into every assembled storm for which a matching ATCF ID can be found in IBTrACS.
@@ -19,11 +20,11 @@ from __future__ import annotations
 
 import logging
 import warnings
-from concurrent.futures import ProcessPoolExecutor
-from itertools import repeat
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from pathlib import Path
 from typing import Any, cast
 
+import h5py
 import hydra
 import numpy as np
 import pandas as pd
@@ -62,6 +63,12 @@ _ASSEMBLED_INDEX_COLUMNS = [
     "usa_vmax_kt",
     "wmo_vmax_kt",
 ]
+_SOURCE_KIND_GROUPS: dict[str, SourceKind] = {
+    "scalar": SourceKind.SCALAR,
+    "profile": SourceKind.PROFILE,
+    "field": SourceKind.FIELD,
+}
+_ROOT_ATTRS = {"storm_id", "basin", "season", "atcf_id"}
 
 # ---------------------------------------------------------------------------
 # IBTrACS helpers
@@ -103,7 +110,8 @@ def load_ibtracs(
     )
 
     # Restrict to primary tracks; spurs and provisional tracks are excluded.
-    df = cast(pd.DataFrame, df[df["TRACK_TYPE"] == "main"].copy())
+    track_type = cast(pd.Series, df["TRACK_TYPE"]).astype(str).str.strip().str.lower()
+    df = cast(pd.DataFrame, df[track_type == "main"].copy())
 
     # Parse timestamps to UTC-aware Timestamps.
     df["ISO_TIME"] = pd.to_datetime(df["ISO_TIME"], utc=True)
@@ -233,6 +241,83 @@ def ibtracs_rows_to_sources(
 # ---------------------------------------------------------------------------
 
 
+def _to_compact_time(snapshot_time_utc: str) -> str:
+    """Convert an isoformat timestamp to the compact HDF5 group name."""
+    return pd.Timestamp(snapshot_time_utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _find_single_source_group(source_file: h5py.File) -> tuple[h5py.Group, SourceKind]:
+    """Return the single source group and kind from a per-source HDF5 file."""
+    for kind_group_name, kind in _SOURCE_KIND_GROUPS.items():
+        if kind_group_name not in source_file:
+            continue
+        kind_group = source_file[kind_group_name]
+        if not isinstance(kind_group, h5py.Group):
+            continue
+        for group in kind_group.values():
+            if isinstance(group, h5py.Group):
+                return group, kind
+    raise ValueError("No source group found in HDF5 file.")
+
+
+def _set_snapshot_attrs(
+    snap_group: h5py.Group,
+    kind: SourceKind,
+    snapshot_time_utc: str,
+    meta: dict[str, Any],
+) -> None:
+    """Write assembled snapshot attributes shared by copied and injected sources."""
+    snap_group.attrs["kind"] = kind.name
+    snap_group.attrs["snapshot_time_utc"] = snapshot_time_utc
+    for key, value in meta.items():
+        if key in _ROOT_ATTRS or key == "snapshot_time_utc":
+            continue
+        try:
+            snap_group.attrs[key] = value
+        except TypeError:
+            warnings.warn(
+                f"Could not write meta key '{key}' as HDF5 attr: {type(value)}",
+                stacklevel=2,
+            )
+
+
+def _copy_snapshot_to_assembled(
+    source_path: Path,
+    dest_file: h5py.File,
+    source_name: str,
+    snapshot_time_utc: str,
+) -> None:
+    """Copy one per-source snapshot into an open assembled storm HDF5 file."""
+    compact_time = _to_compact_time(snapshot_time_utc)
+    source_group = dest_file.require_group(source_name)
+    if compact_time in source_group:
+        del source_group[compact_time]
+
+    with h5py.File(source_path, "r") as source_file:
+        src_group, kind = _find_single_source_group(source_file)
+        source_file.copy(src_group, source_group, name=compact_time)
+        snap_group = source_group[compact_time]
+        if not isinstance(snap_group, h5py.Group):
+            raise TypeError(f"Copied snapshot is not an HDF5 group: {source_path}")
+        _set_snapshot_attrs(snap_group, kind, snapshot_time_utc, dict(source_file.attrs))
+
+
+def _write_source_to_assembled(
+    source: Source,
+    dest_file: h5py.File,
+    source_name: str,
+    snapshot_time_utc: str,
+) -> None:
+    """Write one in-memory Source into an open assembled storm HDF5 file."""
+    compact_time = _to_compact_time(snapshot_time_utc)
+    source_group = dest_file.require_group(source_name)
+    if compact_time in source_group:
+        del source_group[compact_time]
+    snap_group = source_group.create_group(compact_time)
+    source.to_hdf5_group(snap_group)
+    _set_snapshot_attrs(snap_group, source.kind, snapshot_time_utc, source.meta)
+
+
 def assemble_storm(
     storm_id: str,
     rows: pd.DataFrame,
@@ -241,13 +326,14 @@ def assemble_storm(
     ibtracs_by_sid: dict[str, pd.DataFrame],
     atcf_to_sid: dict[str, str],
 ) -> str | None:
-    """Load all available sources for one storm and write the assembled HDF5 file.
+    """Stream all available sources for one storm into an assembled HDF5 file.
 
     Iterates over every index row for ``storm_id`` (one row per source snapshot),
-    loads the corresponding HDF5 snapshot from disk, and writes a single
-    ``{assembled_root}/{storm_id}.h5`` containing all sources.  IBTrACS
-    best-track snapshots are injected automatically when a matching ATCF ID is
-    found.
+    copies the corresponding HDF5 snapshot from disk, and writes a single
+    ``{assembled_root}/storm_data/{storm_id}.h5`` containing all sources.
+    Disk-backed snapshots are copied directly to avoid holding a full storm's
+    tensors in memory.  IBTrACS best-track snapshots are injected automatically
+    when a matching ATCF ID is found.
 
     Missing snapshot files (present in the index but absent on disk) are silently
     skipped with a warning so that a partially downloaded dataset does not block
@@ -283,47 +369,65 @@ def assemble_storm(
     basin = storm_id[:2]
     season = int(storm_id[-4:])
 
-    # Load each snapshot from its individual HDF5 file.
-    sources: dict[tuple[str, str], Source] = {}
-    for _, row in rows.iterrows():
-        file_path = Path(str(row["file_path"]))
-        if not file_path.exists():
-            warnings.warn(
-                f"Snapshot file missing, skipping: {file_path}",
-                stacklevel=2,
-            )
-            continue
-        source = Source.from_disk(file_path)
-        key = (str(row["source_name"]), str(row["snapshot_time_utc"]))
-        sources[key] = source
-
-    # Inject IBTrACS best-track sources when a matching SID was found.
+    # Prepare tiny in-memory IBTrACS sources, if available.
     atcf_id: str | None = None
+    ibtracs_sources: list[tuple[str, Source]] = []
     if sid is not None:
         storm_rows = ibtracs_by_sid[sid]
         # Read atcf_id from the table (storm_id already equals USA_ATCF_ID).
         atcf_id = str(storm_rows["USA_ATCF_ID"].iloc[0]).strip()
         ibtracs_sources = ibtracs_rows_to_sources(storm_rows, final_storm_id, basin)
-        for snapshot_time_utc, source in ibtracs_sources:
-            sources[(_IBTRACS_SOURCE_NAME, snapshot_time_utc)] = source
     else:
         logging.warning(
             "IBTrACS: no ATCF match for %s; ibtracs_best_track sources will be absent.",
             storm_id,
         )
 
-    # Nothing to write if no source snapshots at all.
-    if not sources:
+    # Avoid creating empty assembled files when every source snapshot is missing.
+    has_disk_snapshot = any(Path(str(row["file_path"])).exists() for _, row in rows.iterrows())
+    if not has_disk_snapshot and not ibtracs_sources:
         return None
 
-    storm_data = StormData(
-        storm_id=final_storm_id,
-        basin=basin,
-        season=season,
-        sources=sources,
-        atcf_id=atcf_id,
-    )
-    storm_data.write(assembled_root)
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    written_snapshots = 0
+    with h5py.File(dest_path, "w") as dest_file:
+        # Write storm-level constants as root attributes.
+        dest_file.attrs["storm_id"] = final_storm_id
+        dest_file.attrs["basin"] = basin
+        dest_file.attrs["season"] = season
+        if atcf_id is not None:
+            dest_file.attrs["atcf_id"] = atcf_id
+
+        # Copy source snapshots one at a time without materializing the storm.
+        for _, row in rows.iterrows():
+            file_path = Path(str(row["file_path"]))
+            if not file_path.exists():
+                warnings.warn(
+                    f"Snapshot file missing, skipping: {file_path}",
+                    stacklevel=2,
+                )
+                continue
+            _copy_snapshot_to_assembled(
+                file_path,
+                dest_file,
+                str(row["source_name"]),
+                str(row["snapshot_time_utc"]),
+            )
+            written_snapshots += 1
+
+        # Inject IBTrACS best-track sources after disk-backed snapshots.
+        for snapshot_time_utc, source in ibtracs_sources:
+            _write_source_to_assembled(
+                source,
+                dest_file,
+                _IBTRACS_SOURCE_NAME,
+                snapshot_time_utc,
+            )
+            written_snapshots += 1
+
+    if written_snapshots == 0:
+        dest_path.unlink(missing_ok=True)
+        return None
     return storm_id
 
 
@@ -356,7 +460,8 @@ def _assemble_storms_batch(
         ``storm_ids`` (``storm_id`` on success, ``None`` on skip/failure).
     """
     # Pre-group the index by storm_id for fast per-storm lookup.
-    grouped = {sid: grp for sid, grp in index.groupby("storm_id") if sid in set(storm_ids)}
+    storm_id_set = set(storm_ids)
+    grouped = {sid: grp for sid, grp in index.groupby("storm_id") if sid in storm_id_set}
 
     # Sequential fallback for debugging or when num_workers == 1.
     if num_workers <= 1:
@@ -372,23 +477,44 @@ def _assemble_storms_batch(
             for sid in tqdm(storm_ids, desc="assemble")
         ]
 
-    with ProcessPoolExecutor(max_workers=num_workers) as pool:
-        return list(
-            tqdm(
-                pool.map(
-                    assemble_storm,
-                    storm_ids,
-                    [grouped[sid] for sid in storm_ids],
-                    repeat(assembled_root),
-                    repeat(skip_existing),
-                    repeat(ibtracs_by_sid),
-                    repeat(atcf_to_sid),
-                    chunksize=max(1, len(storm_ids) // (num_workers * 4)),
-                ),
-                total=len(storm_ids),
-                desc="assemble",
+    results: list[str | None] = [None] * len(storm_ids)
+    pending: dict[Future[str | None], int] = {}
+    storm_iter = iter(enumerate(storm_ids))
+    max_pending = max(1, num_workers * 2)
+
+    def submit_next(pool: ProcessPoolExecutor) -> bool:
+        """Submit one storm to the pool if any remain."""
+        try:
+            idx, sid = next(storm_iter)
+        except StopIteration:
+            return False
+        pending[
+            pool.submit(
+                assemble_storm,
+                sid,
+                grouped[sid],
+                assembled_root,
+                skip_existing,
+                ibtracs_by_sid,
+                atcf_to_sid,
             )
-        )
+        ] = idx
+        return True
+
+    with ProcessPoolExecutor(max_workers=num_workers) as pool:
+        for _ in range(min(max_pending, len(storm_ids))):
+            submit_next(pool)
+
+        with tqdm(total=len(storm_ids), desc="assemble") as progress:
+            while pending:
+                done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                for future in done:
+                    idx = pending.pop(future)
+                    results[idx] = future.result()
+                    progress.update(1)
+                    submit_next(pool)
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -483,8 +609,6 @@ def build_assembled_index(
                     "wmo_vmax_kt": wmo_vmax_kt,
                 }
             )
-
-    ibt_df = pd.DataFrame(ibt_rows_list, columns=_ASSEMBLED_INDEX_COLUMNS)
 
     # --- Combine and finalise -------------------------------------------------
     non_ibt_df = cast(pd.DataFrame, non_ibt[_ASSEMBLED_INDEX_COLUMNS])

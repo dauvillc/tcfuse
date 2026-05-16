@@ -34,6 +34,12 @@ _GROUP_TO_KIND: dict[str, SourceKind] = {v: k for k, v in _KIND_TO_GROUP.items()
 _FLOAT_COMPRESSION = {"compression": "gzip", "compression_opts": 4}
 
 
+def _as_numpy_dtype(tensor: Tensor, dtype: np.dtype[Any]) -> np.ndarray:
+    """Return a CPU NumPy array, casting only when the dtype changes."""
+    array = tensor.detach().cpu().numpy()
+    return array if array.dtype == dtype else array.astype(dtype)
+
+
 @dataclass
 class Source:
     """A single observation source: values paired with explicit spatio-temporal coordinates.
@@ -146,20 +152,20 @@ class Source:
         """
         group.create_dataset(
             "values",
-            data=self.values.detach().cpu().numpy().astype(np.float32),
+            data=_as_numpy_dtype(self.values, np.dtype(np.float32)),
             **_FLOAT_COMPRESSION,
         )
         # FIELD coords stored as float32 (lat/lon precision sufficient); others float64.
-        coord_dtype = np.float32 if self.kind is SourceKind.FIELD else np.float64
+        coord_dtype = np.dtype(np.float32 if self.kind is SourceKind.FIELD else np.float64)
         group.create_dataset(
             "coords",
-            data=self.coords.detach().cpu().numpy().astype(coord_dtype),
+            data=_as_numpy_dtype(self.coords, coord_dtype),
             **_FLOAT_COMPRESSION,
         )
         if self.mask is not None:
             group.create_dataset(
                 "mask",
-                data=self.mask.detach().cpu().numpy().astype(bool),
+                data=_as_numpy_dtype(self.mask, np.dtype(bool)),
             )
         group.attrs["source_name"] = self.source_name
         group.attrs["channels"] = json.dumps(self.channels)

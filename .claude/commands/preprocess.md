@@ -91,9 +91,10 @@ Config key: `cfg.paths.preprocessed_data`
 
 ```
 ${paths.preprocessed_data}/
-├── {ibtracs_sid}.h5    # one file per storm, e.g. 2016228N14275.h5
-│                       # falls back to ATCF ID when no IBTrACS match
-└── index.parquet       # global assembled index (all storms × all sources)
+├── storm_data/
+│   └── {ibtracs_sid}.h5    # one file per storm, e.g. 2016228N14275.h5
+│                           # falls back to ATCF ID when no IBTrACS match
+└── index.parquet           # global assembled index (all storms × all sources)
 ```
 
 Each HDF5 file holds **all sources for one storm**, written by `StormData.write(assembled_root)`.
@@ -210,7 +211,7 @@ import pandas as pd
 assembled_root = Path("$SCRATCH/tcfuse/data/preprocessed/assembled")
 
 # Spot-check one assembled storm
-storm_id = next(assembled_root.glob("*.h5")).stem
+storm_id = next((assembled_root / "storm_data").glob("*.h5")).stem
 sd = StormData.from_disk(assembled_root, storm_id)
 print(sd.storm_id, sd.basin, sd.season)
 print({k: v.values.shape for k, v in sd.sources.items()})

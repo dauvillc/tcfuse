@@ -30,7 +30,7 @@ Missing sources are absent from the HDF5 file; do not create empty groups.
 
 ## Stage 2: Assembled Storm Files
 
-Write one HDF5 file per storm under `cfg.paths.preprocessed_data`.
+Write one HDF5 file per storm under `cfg.paths.preprocessed_data/storm_data`.
 
 Use:
 - `StormData.write(assembled_root)` for output.

@@ -15,6 +15,7 @@ from tcfuse.data.sources.source import Source, SourceKind
 
 # HDF5 attribute keys written at the root level of each assembled file.
 _ROOT_ATTRS = ("storm_id", "basin", "season", "atcf_id")
+_STORM_DATA_DIR = "storm_data"
 
 
 def _to_compact_time(snapshot_time_utc: str) -> str:
@@ -71,9 +72,9 @@ class StormData:
             storm_id: Storm identifier, e.g. ``"2016AL10"``.
 
         Returns:
-            ``{assembled_root}/{storm_id}.h5``
+            ``{assembled_root}/storm_data/{storm_id}.h5``
         """
-        return assembled_root / f"{storm_id}.h5"
+        return assembled_root / _STORM_DATA_DIR / f"{storm_id}.h5"
 
     # ------------------------------------------------------------------
     # HDF5 I/O
@@ -82,7 +83,7 @@ class StormData:
     def write(self, assembled_root: Path) -> None:
         """Write all sources to a single assembled HDF5 file.
 
-        Creates ``{assembled_root}/{storm_id}.h5`` with the following layout::
+        Creates ``{assembled_root}/storm_data/{storm_id}.h5`` with the following layout::
 
             /
             ├── attrs: {storm_id, basin, season}

@@ -5,23 +5,22 @@ All tests use synthetic DataFrames — no real IBTrACS file is required.
 
 from __future__ import annotations
 
-import io
-import textwrap
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
-
 from scripts.preprocess.assemble import (
     _IBTRACS_CHANNELS,
     _IBTRACS_SOURCE_NAME,
+    assemble_storm,
     build_assembled_index,
     ibtracs_rows_to_sources,
     load_ibtracs,
 )
-from tcfuse.data.sources import SourceKind
 
+from tcfuse.data.sources import SourceKind, StormData
+from tests.test_sources import make_field_source
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -71,6 +70,55 @@ def _make_ibtracs_df(*rows: dict) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# assemble_storm
+# ---------------------------------------------------------------------------
+
+
+class TestAssembleStorm:
+    def test_streams_disk_snapshot_into_assembled_file(self, tmp_path: Path) -> None:
+        snapshot_time = "2016-10-05T00:00:00+00:00"
+        source = make_field_source(H=2, W=3, C=1, source_name="pmw_ssmi")
+        source.meta = {
+            "storm_id": "AL102016",
+            "basin": "AL",
+            "snapshot_time_utc": snapshot_time,
+            "lat": 15.0,
+            "lon": -60.0,
+        }
+        source_path = tmp_path / "pmw_ssmi.h5"
+        source.write(source_path)
+        rows = pd.DataFrame(
+            [
+                {
+                    "storm_id": "AL102016",
+                    "source_name": "pmw_ssmi",
+                    "snapshot_time_utc": snapshot_time,
+                    "file_path": str(source_path),
+                }
+            ]
+        )
+        assembled_root = tmp_path / "assembled"
+
+        result = assemble_storm(
+            "AL102016",
+            rows,
+            assembled_root,
+            skip_existing=False,
+            ibtracs_by_sid={},
+            atcf_to_sid={},
+        )
+
+        assert result == "AL102016"
+        assert (assembled_root / "storm_data" / "AL102016.h5").exists()
+        assert not (assembled_root / "AL102016.h5").exists()
+        storm = StormData.from_disk(assembled_root, "AL102016")
+        loaded = storm.sources[("pmw_ssmi", snapshot_time)]
+        assert loaded.kind is SourceKind.FIELD
+        assert loaded.values.shape == source.values.shape
+        assert float(loaded.meta["lat"]) == pytest.approx(15.0)
+
+
+# ---------------------------------------------------------------------------
 # load_ibtracs
 # ---------------------------------------------------------------------------
 
@@ -78,9 +126,20 @@ def _make_ibtracs_df(*rows: dict) -> pd.DataFrame:
 def _write_ibtracs_csv(tmp_path: Path, data_rows: list[dict]) -> Path:
     """Write a minimal IBTrACS-like CSV (header + units row + data rows)."""
     cols = [
-        "SID", "USA_ATCF_ID", "ISO_TIME", "LAT", "LON",
-        "USA_WIND", "WMO_WIND", "USA_PRES", "WMO_PRES",
-        "USA_RMW", "USA_R34_NE", "USA_R34_SE", "USA_R34_SW", "USA_R34_NW",
+        "SID",
+        "USA_ATCF_ID",
+        "ISO_TIME",
+        "LAT",
+        "LON",
+        "USA_WIND",
+        "WMO_WIND",
+        "USA_PRES",
+        "WMO_PRES",
+        "USA_RMW",
+        "USA_R34_NE",
+        "USA_R34_SE",
+        "USA_R34_SW",
+        "USA_R34_NW",
         "TRACK_TYPE",
     ]
     # Units row (row index 1 in the file after the header)
@@ -172,10 +231,12 @@ class TestIbtracsRowsToSources:
         _, source = ibtracs_rows_to_sources(df, "2016AL10", "AL")[0]
         assert source.values.dtype == source.values.dtype  # always true
         import torch
+
         assert source.values.dtype == torch.float32
 
     def test_coords_dtype_is_float64(self) -> None:
         import torch
+
         df = _make_ibtracs_df(_make_ibtracs_row())
         _, source = ibtracs_rows_to_sources(df, "2016AL10", "AL")[0]
         assert source.coords.dtype == torch.float64
@@ -258,21 +319,21 @@ class TestIbtracsRowsToSources:
 
 class TestBuildAssembledIndex:
     def _make_multi_meta_index(self, storm_id: str = "AL102016") -> pd.DataFrame:
-        return pd.DataFrame([
-            {
-                "storm_id": storm_id,
-                "source_name": "pmw_ssmi",
-                "snapshot_time_utc": "2016-10-05T00:00:00+00:00",
-                "lat": 15.0,
-                "lon": -60.0,
-                "file_path": "/data/pmw_ssmi/snap.h5",
-            }
-        ])
+        return pd.DataFrame(
+            [
+                {
+                    "storm_id": storm_id,
+                    "source_name": "pmw_ssmi",
+                    "snapshot_time_utc": "2016-10-05T00:00:00+00:00",
+                    "lat": 15.0,
+                    "lon": -60.0,
+                    "file_path": "/data/pmw_ssmi/snap.h5",
+                }
+            ]
+        )
 
     def _make_ibtracs_fixtures(self) -> tuple[dict, dict]:
-        rows = _make_ibtracs_df(
-            _make_ibtracs_row(sid="2016292N14270", atcf_id="AL102016")
-        )
+        rows = _make_ibtracs_df(_make_ibtracs_row(sid="2016292N14270", atcf_id="AL102016"))
         ibtracs_by_sid = {"2016292N14270": rows}
         atcf_to_sid = {"AL102016": "2016292N14270"}
         return ibtracs_by_sid, atcf_to_sid
@@ -323,6 +384,7 @@ class TestBuildAssembledIndex:
 
     def test_output_columns(self) -> None:
         from scripts.preprocess.assemble import _ASSEMBLED_INDEX_COLUMNS
+
         meta_idx = self._make_multi_meta_index()
         ibtracs_by_sid, atcf_to_sid = self._make_ibtracs_fixtures()
         result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["AL102016"])

@@ -48,7 +48,7 @@ class TestStormDataPath:
     def test_path_structure(self) -> None:
         root = Path("/data/assembled")
         p = StormData.path(root, "2016AL10")
-        assert p == Path("/data/assembled/2016AL10.h5")
+        assert p == Path("/data/assembled/storm_data/2016AL10.h5")
 
     def test_path_includes_storm_id_as_stem(self) -> None:
         p = StormData.path(Path("/out"), "2023EP05")
