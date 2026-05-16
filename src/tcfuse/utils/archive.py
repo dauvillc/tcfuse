@@ -87,7 +87,7 @@ def submit_archive_job(
             "cpus_per_task": 1,
             "slurm_ntasks_per_node": 1,
             "name": job_name,
-            "setup_commands": _ARCHIVE_SETUP_COMMANDS,
+            "slurm_setup": _ARCHIVE_SETUP_COMMANDS,
         },
     }
 
