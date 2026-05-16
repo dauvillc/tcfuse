@@ -123,7 +123,7 @@ def build_window_index(
 
     # Parse timestamps once so sorting and lead matching use a consistent timezone.
     best_track["_time"] = best_track["snapshot_time_utc"].map(_parse_time)
-    best_track = best_track.sort_values(["storm_id", "_time"]).reset_index(drop=True)
+    best_track = cast(Any, best_track).sort_values(["storm_id", "_time"]).reset_index(drop=True)
 
     sample_rows: list[dict[str, Any]] = []
     for storm_id_value, storm_rows in best_track.groupby("storm_id", sort=True):
