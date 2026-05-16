@@ -47,3 +47,14 @@ known-first-party = ["src"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[tool.pyright]
+include = ["src", "scripts"]
+exclude = ["notebooks", "figures", "**/__pycache__"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+extraPaths = ["src"]
+reportUnknownVariableType = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownParameterType = "none"
