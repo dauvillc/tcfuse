@@ -10,11 +10,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from scripts.preprocess.assemble import (
-    _IBTRACS_CHANNELS,
-    _IBTRACS_SOURCE_NAME,
-    assemble_storm,
-    build_assembled_index,
+from scripts.preprocess.assemble import assemble_storm, build_assembled_index
+from tcfuse.data.ibtracs import (
+    IBTRACS_CHANNELS,
+    IBTRACS_SOURCE_NAME,
     ibtracs_rows_to_sources,
     load_ibtracs,
 )
@@ -219,12 +218,12 @@ class TestIbtracsRowsToSources:
     def test_source_name(self) -> None:
         df = _make_ibtracs_df(_make_ibtracs_row())
         _, source = ibtracs_rows_to_sources(df, "2016AL10", "AL")[0]
-        assert source.source_name == _IBTRACS_SOURCE_NAME
+        assert source.source_name == IBTRACS_SOURCE_NAME
 
     def test_channels_match_constant(self) -> None:
         df = _make_ibtracs_df(_make_ibtracs_row())
         _, source = ibtracs_rows_to_sources(df, "2016AL10", "AL")[0]
-        assert source.channels == _IBTRACS_CHANNELS
+        assert source.channels == IBTRACS_CHANNELS
 
     def test_values_dtype_is_float32(self) -> None:
         df = _make_ibtracs_df(_make_ibtracs_row())
@@ -318,81 +317,103 @@ class TestIbtracsRowsToSources:
 
 
 class TestBuildAssembledIndex:
-    def _make_multi_meta_index(self, storm_id: str = "AL102016") -> pd.DataFrame:
-        return pd.DataFrame(
-            [
-                {
-                    "storm_id": storm_id,
-                    "source_name": "pmw_ssmi",
-                    "snapshot_time_utc": "2016-10-05T00:00:00+00:00",
-                    "lat": 15.0,
-                    "lon": -60.0,
-                    "file_path": "/data/pmw_ssmi/snap.h5",
-                }
-            ]
-        )
-
-    def _make_ibtracs_fixtures(self) -> tuple[dict, dict]:
+    def _make_ibtracs_fixtures(self) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
         rows = _make_ibtracs_df(_make_ibtracs_row(sid="2016292N14270", atcf_id="AL102016"))
         ibtracs_by_sid = {"2016292N14270": rows}
         atcf_to_sid = {"AL102016": "2016292N14270"}
         return ibtracs_by_sid, atcf_to_sid
 
-    def test_ibtracs_rows_present(self) -> None:
-        meta_idx = self._make_multi_meta_index()
-        ibtracs_by_sid, atcf_to_sid = self._make_ibtracs_fixtures()
-        result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["AL102016"])
-        assert _IBTRACS_SOURCE_NAME in result["source_name"].values
+    def _assemble_fixture(
+        self,
+        tmp_path: Path,
+        storm_id: str = "AL102016",
+        *,
+        with_ibtracs: bool = True,
+    ) -> tuple[pd.DataFrame, dict[str, str], Path]:
+        snapshot_time = "2016-10-05T00:00:00+00:00"
+        source = make_field_source(H=2, W=3, C=1, source_name="pmw_ssmi")
+        source.meta = {
+            "storm_id": storm_id,
+            "basin": storm_id[:2],
+            "snapshot_time_utc": snapshot_time,
+            "lat": 15.0,
+            "lon": -60.0,
+        }
+        source_path = tmp_path / "pmw_ssmi.h5"
+        source.write(source_path)
+        meta_idx = pd.DataFrame(
+            [
+                {
+                    "storm_id": storm_id,
+                    "source_name": "pmw_ssmi",
+                    "snapshot_time_utc": snapshot_time,
+                    "lat": 15.0,
+                    "lon": -60.0,
+                    "file_path": str(source_path),
+                }
+            ]
+        )
+        ibtracs_by_sid: dict[str, pd.DataFrame] = {}
+        atcf_to_sid: dict[str, str] = {}
+        if with_ibtracs:
+            ibtracs_by_sid, atcf_to_sid = self._make_ibtracs_fixtures()
 
-    def test_non_ibtracs_rows_present(self) -> None:
-        meta_idx = self._make_multi_meta_index()
-        ibtracs_by_sid, atcf_to_sid = self._make_ibtracs_fixtures()
-        result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["AL102016"])
+        assembled_root = tmp_path / "assembled"
+        assemble_storm(
+            storm_id,
+            meta_idx,
+            assembled_root,
+            skip_existing=False,
+            ibtracs_by_sid=ibtracs_by_sid,
+            atcf_to_sid=atcf_to_sid,
+        )
+        return meta_idx, atcf_to_sid, assembled_root
+
+    def test_ibtracs_rows_present(self, tmp_path: Path) -> None:
+        meta_idx, atcf_to_sid, assembled_root = self._assemble_fixture(tmp_path)
+        result = build_assembled_index(meta_idx, atcf_to_sid, ["AL102016"], assembled_root)
+        assert IBTRACS_SOURCE_NAME in result["source_name"].values
+
+    def test_non_ibtracs_rows_present(self, tmp_path: Path) -> None:
+        meta_idx, atcf_to_sid, assembled_root = self._assemble_fixture(tmp_path)
+        result = build_assembled_index(meta_idx, atcf_to_sid, ["AL102016"], assembled_root)
         assert "pmw_ssmi" in result["source_name"].values
 
-    def test_atcf_id_populated_from_table(self) -> None:
-        meta_idx = self._make_multi_meta_index()
-        ibtracs_by_sid, atcf_to_sid = self._make_ibtracs_fixtures()
-        result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["AL102016"])
-        # All rows for matched storms should have the ATCF ID from the table.
+    def test_atcf_id_populated_from_table(self, tmp_path: Path) -> None:
+        meta_idx, atcf_to_sid, assembled_root = self._assemble_fixture(tmp_path)
+        result = build_assembled_index(meta_idx, atcf_to_sid, ["AL102016"], assembled_root)
         assert (result["atcf_id"] == "AL102016").all()
 
-    def test_unmatched_storm_has_null_atcf_id(self) -> None:
-        # Storm EP05 has no IBTrACS match → atcf_id must be None/NaN.
-        meta_idx = self._make_multi_meta_index(storm_id="EP052021")
-        ibtracs_by_sid: dict = {}
-        atcf_to_sid: dict = {}
-        result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["EP052021"])
+    def test_unmatched_storm_has_null_atcf_id(self, tmp_path: Path) -> None:
+        meta_idx, atcf_to_sid, assembled_root = self._assemble_fixture(
+            tmp_path, storm_id="EP052021", with_ibtracs=False
+        )
+        result = build_assembled_index(meta_idx, atcf_to_sid, ["EP052021"], assembled_root)
         assert result["atcf_id"].isna().all()
 
-    def test_ibtracs_rows_have_explicit_vmax_columns(self) -> None:
-        meta_idx = self._make_multi_meta_index()
-        ibtracs_by_sid, atcf_to_sid = self._make_ibtracs_fixtures()
-        result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["AL102016"])
-        ibt_rows = result[result["source_name"] == _IBTRACS_SOURCE_NAME]
+    def test_ibtracs_rows_have_explicit_vmax_columns(self, tmp_path: Path) -> None:
+        meta_idx, atcf_to_sid, assembled_root = self._assemble_fixture(tmp_path)
+        result = build_assembled_index(meta_idx, atcf_to_sid, ["AL102016"], assembled_root)
+        ibt_rows = result[result["source_name"] == IBTRACS_SOURCE_NAME]
         assert ibt_rows["usa_vmax_kt"].notna().all()
         assert ibt_rows["wmo_vmax_kt"].notna().all()
 
-    def test_non_ibtracs_explicit_vmax_columns_not_filled(self) -> None:
-        # Non-IBTrACS rows must not receive best-track wind values implicitly.
-        meta_idx = self._make_multi_meta_index()
-        ibtracs_by_sid, atcf_to_sid = self._make_ibtracs_fixtures()
-        result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["AL102016"])
+    def test_non_ibtracs_explicit_vmax_columns_not_filled(self, tmp_path: Path) -> None:
+        meta_idx, atcf_to_sid, assembled_root = self._assemble_fixture(tmp_path)
+        result = build_assembled_index(meta_idx, atcf_to_sid, ["AL102016"], assembled_root)
         pmw_rows = result[result["source_name"] == "pmw_ssmi"]
         assert pmw_rows["usa_vmax_kt"].isna().all()
         assert pmw_rows["wmo_vmax_kt"].isna().all()
 
-    def test_output_columns(self) -> None:
+    def test_output_columns(self, tmp_path: Path) -> None:
         from scripts.preprocess.assemble import _ASSEMBLED_INDEX_COLUMNS
 
-        meta_idx = self._make_multi_meta_index()
-        ibtracs_by_sid, atcf_to_sid = self._make_ibtracs_fixtures()
-        result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["AL102016"])
+        meta_idx, atcf_to_sid, assembled_root = self._assemble_fixture(tmp_path)
+        result = build_assembled_index(meta_idx, atcf_to_sid, ["AL102016"], assembled_root)
         assert list(result.columns) == _ASSEMBLED_INDEX_COLUMNS
 
-    def test_season_and_basin_derived(self) -> None:
-        meta_idx = self._make_multi_meta_index()
-        ibtracs_by_sid, atcf_to_sid = self._make_ibtracs_fixtures()
-        result = build_assembled_index(meta_idx, ibtracs_by_sid, atcf_to_sid, ["AL102016"])
+    def test_season_and_basin_derived(self, tmp_path: Path) -> None:
+        meta_idx, atcf_to_sid, assembled_root = self._assemble_fixture(tmp_path)
+        result = build_assembled_index(meta_idx, atcf_to_sid, ["AL102016"], assembled_root)
         assert (result["basin"] == "AL").all()
         assert (result["season"] == 2016).all()

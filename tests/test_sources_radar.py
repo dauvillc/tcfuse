@@ -3,10 +3,8 @@
 import numpy as np
 import pytest
 import torch
-from scripts.preprocess.tc_primed.prepare_radar import (
-    _get_regridding_resolution,
-    _read_radar_swath,
-)
+from scripts.preprocess.tc_primed.prepare_radar import _read_radar_swath
+from scripts.preprocess.tc_primed.regrid_utils import get_regridding_resolution
 
 from tcfuse.data.sources import Source, SourceKind
 
@@ -21,7 +19,7 @@ class TestGetRegriddingResolution:
                 "KuKaGMI": [5.04, 5.04, 5.04, 5.04],
             }
         }
-        result = _get_regridding_resolution("GMI_GPM", "KuKaGMI", ifovs)
+        result = get_regridding_resolution("GMI_GPM", "KuKaGMI", ifovs)
         assert result == 5.04
 
     def test_dict_ifov_values(self):
@@ -31,7 +29,7 @@ class TestGetRegriddingResolution:
                 "KuTMI": [5.0, 5.0, 5.0, 5.0],
             }
         }
-        result = _get_regridding_resolution("TMI_TRMM", "KuTMI", ifovs)
+        result = get_regridding_resolution("TMI_TRMM", "KuTMI", ifovs)
         assert result == 5.0
 
     def test_dict_ifov_with_varying_values(self):
@@ -45,7 +43,7 @@ class TestGetRegriddingResolution:
                 }
             }
         }
-        result = _get_regridding_resolution("TEST_SAT", "TEST_SWATH", ifovs)
+        result = get_regridding_resolution("TEST_SAT", "TEST_SWATH", ifovs)
         assert result == 5.0
 
 
