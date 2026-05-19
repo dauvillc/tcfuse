@@ -299,6 +299,8 @@ def _process_sensat_files(
     ifovs: dict,
     sources_root: Path,
     num_workers: int,
+    skip_existing: bool = False,
+    max_age_hours: float | None = None,
 ) -> list[dict[str, Any] | None]:
     """Process all PMW files for one sensat using ProcessPoolExecutor.
 
@@ -312,12 +314,17 @@ def _process_sensat_files(
         sources_root: Root directory for preprocessed sources
             (``cfg.paths.preprocessed_sources``).
         num_workers: Number of parallel worker processes.
+        skip_existing: Forwarded to ``process_pmw_file``.
+        max_age_hours: Forwarded to ``process_pmw_file``.
 
     Returns:
         List of index row dicts (None entries for discarded snapshots).
     """
     if num_workers <= 1:
-        return [process_pmw_file(f, sensat, ifovs, sources_root) for f in tqdm(files, desc=sensat)]
+        return [
+            process_pmw_file(f, sensat, ifovs, sources_root, skip_existing, max_age_hours)
+            for f in tqdm(files, desc=sensat)
+        ]
     with ProcessPoolExecutor(max_workers=num_workers) as pool:
         return list(
             tqdm(
@@ -327,6 +334,8 @@ def _process_sensat_files(
                     repeat(sensat),
                     repeat(ifovs),
                     repeat(sources_root),
+                    repeat(skip_existing),
+                    repeat(max_age_hours),
                     chunksize=max(1, len(files) // (num_workers * 4)),
                 ),
                 total=len(files),
@@ -354,6 +363,10 @@ def main(raw_cfg: DictConfig) -> None:
 
     launch_local = not bool(cfg.get("submitit", False))
     num_workers = int(cfg.get("num_workers", 4))
+    skip_existing = bool(cfg.get("skip_existing", False))
+    max_age_hours: float | None = cfg.get("max_age_hours", None)
+    if max_age_hours is not None:
+        max_age_hours = float(max_age_hours)
 
     # Collect rows per source name so each source gets its own index.parquet.
     rows_by_source: dict[str, list[dict[str, Any]]] = {}
@@ -368,13 +381,17 @@ def main(raw_cfg: DictConfig) -> None:
                 continue
             print(f"Processing {sensat} ({len(files)} files)…")
             results: list[dict[str, Any] | None] = _process_sensat_files(
-                files, sensat, ifovs, sources_root, num_workers
+                files, sensat, ifovs, sources_root, num_workers, skip_existing, max_age_hours
             )
             valid = [r for r in results if r is not None]
             discarded = len(results) - len(valid)
             if discarded:
                 pct = 100.0 * discarded / max(len(results), 1)
                 print(f"  Discarded {discarded}/{len(results)} ({pct:.1f}%)")
+            if not valid:
+                if results:
+                    print(f"  All snapshots discarded for {sensat}; skipping source")
+                continue
             source_name = f"pmw_{sensat.lower()}"
             swath_37, vars_37 = SENSOR_VARIABLES[sensor]["37"]
             swath_89, vars_89 = SENSOR_VARIABLES[sensor]["89"]
@@ -398,7 +415,14 @@ def main(raw_cfg: DictConfig) -> None:
                 continue
             print(f"Submitting {sensat} ({len(files)} files)…")
             jobs[sensat] = slurm_executor.submit(
-                _process_sensat_files, files, sensat, ifovs, sources_root, num_workers
+                _process_sensat_files,
+                files,
+                sensat,
+                ifovs,
+                sources_root,
+                num_workers,
+                skip_existing,
+                max_age_hours,
             )
         for sensat, job in tqdm(jobs.items(), desc="collecting results"):
             results = job.result()
@@ -407,6 +431,10 @@ def main(raw_cfg: DictConfig) -> None:
             if discarded:
                 pct = 100.0 * discarded / max(len(results), 1)
                 print(f"  {sensat}: discarded {discarded}/{len(results)} ({pct:.1f}%)")
+            if not valid:
+                if results:
+                    print(f"  {sensat}: all snapshots discarded; skipping source")
+                continue
             sensor = sensat.split("_")[0]
             source_name = f"pmw_{sensat.lower()}"
             swath_37, vars_37 = SENSOR_VARIABLES[sensor]["37"]
@@ -422,6 +450,8 @@ def main(raw_cfg: DictConfig) -> None:
 
     if rows_by_source:
         for source_name, rows in rows_by_source.items():
+            if not rows:
+                continue
             index_df = pd.DataFrame(rows)
             index_path = sources_root / source_name / "index.parquet"
             index_df.to_parquet(index_path, index=False)
