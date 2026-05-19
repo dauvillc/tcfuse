@@ -239,8 +239,8 @@ def process_pmw_file(
     src_h, src_w = lats.shape
     time_broadcast = np.full((src_h, src_w), time_unix_s, dtype=np.float32)
     coords_np = np.stack([time_broadcast, lats, lons], axis=-1)  # (H, W, 3)
-    # A pixel is valid only when all channels are non-NaN
-    mask_np = ~np.isnan(values_np).any(axis=-1)  # (H, W)
+    # Availability is tracked per channel: True where the value is finite.
+    mask_np = np.isfinite(values_np)  # (H, W, C)
 
     # Per-channel IFOVs (km) for both frequency bands.
     char_vars: dict[str, Any] = {

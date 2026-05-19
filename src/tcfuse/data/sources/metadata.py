@@ -100,8 +100,6 @@ class SourceMetadata:
 
         source_kind = SourceKind[raw["kind"].upper()]
         index = pd.read_parquet(sources_root / source_name / "index.parquet")
-        # Backward-compatible: older metadata.yaml files written before char_vars was introduced.
-        char_vars: dict[str, Any] = raw.get("char_vars") or {}
 
         return cls(
             name=raw["name"],
@@ -109,7 +107,7 @@ class SourceMetadata:
             kind=source_kind,
             channels=raw["channels"],
             index=index,
-            char_vars=char_vars,
+            char_vars=raw["char_vars"],
         )
 
 

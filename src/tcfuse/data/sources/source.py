@@ -61,8 +61,11 @@ class Source:
         source_name: Human-readable source identifier, e.g. "pmw_amsr2" or "era5_surface".
         channels: Names of each channel in the last axis of ``values``, in order.
             Length must equal ``values.shape[-1]``.
-        mask: Boolean mask of valid (non-missing) entries; True = valid.
-            Same leading shape as values. If None, all entries are assumed valid.
+        mask: Per-value availability mask; True = finite/available, False = missing.
+            Must have the same shape as ``values``:
+            - SCALAR:  (C,)
+            - PROFILE: (L, C)
+            - FIELD:   (H, W, C)
         char_vars: Instrument-level descriptor variables that are constant across all
             snapshots of this source (e.g. ``{"ifov": {"tb_89.0h": [7.2, 4.4, 7.2, 4.4]}}``).
             Values must be JSON-serialisable (lists, dicts, scalars).
@@ -73,12 +76,13 @@ class Source:
     coords: Tensor
     source_name: str
     channels: list[str]
-    mask: Tensor | None = None
+    mask: Tensor
     meta: dict[str, Any] = dataclasses.field(default_factory=dict)
     char_vars: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate shape consistency between values, coords, and mask."""
+        self.mask = self.mask.to(dtype=torch.bool)
         self._validate()
 
     def _validate(self) -> None:
@@ -107,9 +111,9 @@ class Source:
                     f"FIELD coords must be (H, W, 3), got {c.shape} for values {v.shape}"
                 )
 
-        if self.mask is not None and self.mask.shape != v.shape[: self.mask.ndim]:
+        if self.mask.shape != v.shape:
             raise ValueError(
-                f"mask leading shape {self.mask.shape} incompatible with values {v.shape}"
+                f"mask shape {self.mask.shape} must match values shape {v.shape}"
             )
 
     @property
@@ -131,7 +135,7 @@ class Source:
             coords=self.coords.to(device),
             source_name=self.source_name,
             channels=self.channels,
-            mask=self.mask.to(device) if self.mask is not None else None,
+            mask=self.mask.to(device),
             meta=self.meta,
             char_vars=self.char_vars,
         )
@@ -145,7 +149,7 @@ class Source:
 
         The group should already be a sub-group named by ``source_name``
         (created by the caller).  Datasets ``values`` and ``coords`` are
-        always written; ``mask`` is written only when present.
+        always written; ``mask`` is the per-value availability mask.
 
         Args:
             group: Open, writable h5py Group for this source.
@@ -162,11 +166,10 @@ class Source:
             data=_as_numpy_dtype(self.coords, coord_dtype),
             **_FLOAT_COMPRESSION,
         )
-        if self.mask is not None:
-            group.create_dataset(
-                "mask",
-                data=_as_numpy_dtype(self.mask, np.dtype(bool)),
-            )
+        group.create_dataset(
+            "mask",
+            data=_as_numpy_dtype(self.mask, np.dtype(bool)),
+        )
         group.attrs["source_name"] = self.source_name
         group.attrs["channels"] = json.dumps(self.channels)
         # Instrument-level descriptors (same for every snapshot of this source).
@@ -186,13 +189,12 @@ class Source:
         values = torch.from_numpy(np.array(group["values"], dtype=np.float32))
         coord_dtype = np.float32 if kind is SourceKind.FIELD else np.float64
         coords = torch.from_numpy(np.array(group["coords"], dtype=coord_dtype))
-        mask: torch.Tensor | None = None
-        if "mask" in group:
-            mask = torch.from_numpy(np.array(group["mask"], dtype=bool))
+        if "mask" not in group:
+            raise ValueError("Source HDF5 group is missing mandatory 'mask' dataset.")
+        mask = torch.from_numpy(np.array(group["mask"], dtype=bool))
         source_name = str(group.attrs["source_name"])
         channels: list[str] = json.loads(str(group.attrs["channels"]))
-        # Backward-compatible: older snapshots written before char_vars was introduced.
-        char_vars: dict[str, Any] = json.loads(str(group.attrs.get("char_vars", "{}")))
+        char_vars: dict[str, Any] = json.loads(str(group.attrs["char_vars"]))
         return cls(
             kind=kind,
             values=values,

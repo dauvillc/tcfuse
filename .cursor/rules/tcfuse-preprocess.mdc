@@ -60,7 +60,7 @@ Run preprocessing in this order:
 
 Build splits before normalization to avoid validation/test leakage. Normalization
 statistics must use only snapshots from storms present in the training window index
-and must ignore masked or non-finite values.
+and must ignore unavailable or non-finite values using the per-value `Source.mask`.
 
 ## Adding A Dataset Preprocessor
 

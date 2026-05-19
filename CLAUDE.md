@@ -34,7 +34,7 @@ Every source, regardless of its dimensionality, is represented as a set of **(va
 **Hard constraints — never violate these:**
 - Coordinates are always **continuous and physical** (degrees, seconds since epoch, meters). No learned bin embeddings for coordinates.
 - Coordinates are stored **alongside** values, not inferred from array indices.
-- A source may have **missing values** (NaN-masked); the framework must handle this gracefully.
+- A source may have **missing values**; every `Source` carries a per-value availability mask with the same shape as `values`, where `True` means finite/available and `False` means NaN/missing.
 - The number of sources per sample is **variable**. No fixed-size source list.
 - IBTrACS USA and WMO best-track quantities are **distinct definitions**; store them in separate channels/columns and preserve NaN rather than falling back or coalescing across providers.
 

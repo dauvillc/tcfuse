@@ -161,7 +161,7 @@ def process_ir_file(
     coords_np = np.stack(
         [time_broadcast, lat2d.astype(np.float32), lon2d.astype(np.float32)], axis=-1
     )  # (H, W, 3)
-    mask_np = ~np.isnan(irwin)  # (H, W)
+    mask_np = np.isfinite(values_np)  # (H, W, 1)
 
     meta: dict[str, Any] = {
         "storm_id": storm_id,

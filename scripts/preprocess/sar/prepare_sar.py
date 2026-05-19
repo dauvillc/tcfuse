@@ -72,7 +72,11 @@ def process_sar_file(
     # Normalise longitudes to [-180, 180]
     lon_1d = (lon_1d + 180) % 360 - 180
 
-    # Skip if all wind speed values are missing
+    # Convert quality-invalid measurements to NaN before deriving availability.
+    wind_speed = np.asarray(wind_speed, dtype=np.float32)
+    wind_speed[mask_flag != 0] = np.nan
+
+    # Skip if all wind speed values are missing.
     if np.all(np.isnan(wind_speed)):
         return None
 
@@ -99,8 +103,8 @@ def process_sar_file(
     # values: (H, W, 1) float32
     values_np = wind_speed[:, :, np.newaxis].astype(np.float32)
 
-    # mask: True where valid (mask_flag == 0) and wind_speed is not NaN
-    mask_np = (mask_flag == 0) & ~np.isnan(wind_speed)  # (H, W)
+    # Availability is tracked per channel: True where the value is finite.
+    mask_np = np.isfinite(values_np)  # (H, W, 1)
 
     # coords: (H, W, 3) = [time_unix_s (broadcast), lat, lon]
     time_broadcast = np.full((h, w), time_unix_s, dtype=np.float32)

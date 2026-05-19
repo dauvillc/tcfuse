@@ -219,6 +219,7 @@ def ibtracs_rows_to_sources(
             coords=coords,
             source_name=_IBTRACS_SOURCE_NAME,
             channels=_IBTRACS_CHANNELS,
+            mask=torch.isfinite(values),
             meta={
                 "storm_id": storm_id,
                 "basin": basin,

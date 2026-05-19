@@ -138,21 +138,22 @@ class TestStormDataRoundTrip:
 
     def test_mask_preserved(self) -> None:
         src = make_field_source(H=6, W=6, C=2)
-        mask = torch.ones(6, 6, dtype=torch.bool)
-        mask[2, 3] = False
+        mask = torch.ones(6, 6, 2, dtype=torch.bool)
+        mask[2, 3, 1] = False
         src.mask = mask
         result = _write_read(_make_storm_data({("pmw_ssmi", _TIME_0): src}))
         recovered = result.sources[("pmw_ssmi", _TIME_0)]
         assert recovered.mask is not None
-        assert not recovered.mask[2, 3]
-        assert recovered.mask[0, 0]
+        assert not recovered.mask[2, 3, 1]
+        assert recovered.mask[0, 0, 0]
 
-    def test_no_mask_when_none(self) -> None:
+    def test_explicit_mask_round_trips_for_unmasked_values(self) -> None:
         src = make_scalar_source()
-        assert src.mask is None
+        assert src.mask is not None
         result = _write_read(_make_storm_data({("best_track", _TIME_0): src}))
         recovered = result.sources[("best_track", _TIME_0)]
-        assert recovered.mask is None
+        assert recovered.mask is not None
+        assert recovered.mask.shape == recovered.values.shape
 
     def test_source_kind_preserved_field(self) -> None:
         result = _write_read(_make_storm_data({("pmw_ssmi", _TIME_0): make_field_source()}))

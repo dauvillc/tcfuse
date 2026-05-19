@@ -136,9 +136,9 @@ def plot_sar_wind(
     lats = coords[..., 1]  # (H, W)
     lons = coords[..., 2]  # (H, W)
 
-    # Apply validity mask: invalid pixels → NaN so pcolormesh skips them
+    # Apply per-value availability mask: invalid pixels -> NaN so pcolormesh skips them.
     if source.mask is not None:
-        mask = source.mask.detach().cpu().numpy()  # (H, W), True = valid
+        mask = source.mask.detach().cpu().numpy()[..., 0]  # (H, W), True = valid
         values = np.where(mask, values, np.nan)
 
     # Use source_name as default title

@@ -10,6 +10,8 @@ import math
 import tempfile
 from pathlib import Path
 
+import h5py
+import numpy as np
 import pytest
 import torch
 
@@ -165,11 +167,41 @@ class TestMaskRoundTrip:
         assert not result.mask[3, 0]
         assert result.mask[0, 0]
 
-    def test_no_mask_when_none(self) -> None:
+    def test_explicit_mask_round_trips_for_unmasked_values(self) -> None:
         src = make_scalar_source()
-        assert src.mask is None
+        assert src.mask is not None
         result = _write_read(src)
-        assert result.mask is None
+        assert result.mask is not None
+        assert result.mask.shape == result.values.shape
+        assert torch.equal(result.mask, torch.isfinite(result.values))
+
+    def test_mask_always_written(self) -> None:
+        src = make_scalar_source()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "test.h5"
+            src.write(path)
+            with h5py.File(path, "r") as f:
+                assert "mask" in f["scalar"][src.source_name]
+
+    def test_missing_mask_raises_when_reading_legacy_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "legacy.h5"
+            with h5py.File(path, "w") as f:
+                group = f.create_group("scalar/best_track")
+                group.create_dataset(
+                    "values",
+                    data=np.array([1.0, np.nan, 3.0], dtype=np.float32),
+                )
+                group.create_dataset(
+                    "coords",
+                    data=np.array([0.0, 25.0, -80.0], dtype=np.float64),
+                )
+                group.attrs["source_name"] = "best_track"
+                group.attrs["channels"] = '["a", "b", "c"]'
+                group.attrs["char_vars"] = "{}"
+
+            with pytest.raises(ValueError, match="missing mandatory 'mask'"):
+                Source.from_disk(path)
 
 
 # ---------------------------------------------------------------------------

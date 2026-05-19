@@ -89,10 +89,6 @@ def load_training_snapshot_index(assembled_root: Path) -> pd.DataFrame:
     if "storm_id" not in train_samples.columns:
         raise ValueError(f"Training split at {train_path} must contain a storm_id column.")
 
-    # Backward compatibility: older split files already contained snapshot rows.
-    if {"source_name", "snapshot_time_utc"}.issubset(train_samples.columns):
-        return train_samples
-
     index_path = assembled_root / "index.parquet"
     if not index_path.exists():
         raise FileNotFoundError(
@@ -113,45 +109,46 @@ def load_training_snapshot_index(assembled_root: Path) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
-def _flatten_valid(
+def _flatten_values_and_mask(
     values: np.ndarray,
-    mask: np.ndarray | None,
+    mask: np.ndarray,
     kind: SourceKind,
-) -> np.ndarray:
-    """Flatten a source snapshot to a 2-D array of valid (unmasked, finite) values.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Flatten a source snapshot to values and per-value availability arrays.
 
     Args:
         values: Raw values array.  Shape ``(C,)`` for SCALAR, ``(L, C)`` for PROFILE,
             ``(H, W, C)`` for FIELD.
-        mask: Boolean validity mask or None.  Shape ``(L,)`` for PROFILE, ``(H, W)``
-            for FIELD.  True means valid.  Ignored for SCALAR.
+        mask: Boolean per-value availability mask. Same shape as ``values``;
+            True means available.
         kind: Source dimensionality.
 
     Returns:
-        Float32 array of shape ``(N_valid, C)`` containing only valid, finite rows.
-        May be empty (shape ``(0, C)``) if no valid pixels exist.
+        Tuple ``(flat_values, flat_mask)`` where both arrays have shape ``(N, C)``.
     """
-    # --- Reshape to (N, C) depending on source kind ---
+    # Reshape values to (N, C) depending on source kind.
     if kind == SourceKind.SCALAR:
-        # Shape (C,) → (1, C); scalars have no spatial mask.
         flat = values.reshape(1, -1).astype(np.float32)
-        return flat[np.all(np.isfinite(flat), axis=1)]
-
-    if kind == SourceKind.PROFILE:
-        # Shape (L, C); mask is (L,) if present.
+    elif kind == SourceKind.PROFILE:
         flat = values.astype(np.float32)
-        if mask is not None:
-            flat = flat[mask.astype(bool)]
-
     else:  # FIELD
-        # Shape (H, W, C) → (H*W, C); mask is (H, W) if present.
         h, w, c = values.shape
         flat = values.reshape(h * w, c).astype(np.float32)
-        if mask is not None:
-            flat = flat[mask.reshape(h * w).astype(bool)]
 
-    # Remove rows that contain any non-finite value.
-    return flat[np.all(np.isfinite(flat), axis=1)]
+    if mask.shape != values.shape:
+        raise ValueError(
+            f"mask shape {mask.shape} must match values shape {values.shape} "
+            f"for {kind.name} source"
+        )
+
+    if kind == SourceKind.SCALAR:
+        flat_mask = mask.reshape(1, -1).astype(bool)
+    elif kind == SourceKind.PROFILE:
+        flat_mask = mask.astype(bool)
+    else:  # FIELD
+        flat_mask = mask.reshape(flat.shape).astype(bool)
+
+    return flat, flat_mask & np.isfinite(flat)
 
 
 def _welford_update(
@@ -399,21 +396,25 @@ def process_source(
 
                 # Read values and optional mask as numpy arrays.
                 values: np.ndarray = cast(h5py.Dataset, grp["values"])[:]
-                mask: np.ndarray | None = (
-                    cast(h5py.Dataset, grp["mask"])[:] if "mask" in grp else None
-                )
+                if "mask" not in grp:
+                    raise ValueError(
+                        f"{storm_id}/{compact}/{source_name} is missing mandatory mask dataset."
+                    )
+                mask: np.ndarray = cast(h5py.Dataset, grp["mask"])[:]
         except Exception as exc:
             print(f"  [WARN] Failed to read {storm_id}/{compact}: {exc}")
             continue
 
-        # Flatten to (N_valid, C), excluding masked and non-finite pixels.
-        flat = _flatten_valid(values, mask, kind)
-        if flat.shape[0] == 0:
+        # Flatten to (N, C), preserving per-channel availability.
+        flat_values, flat_mask = _flatten_values_and_mask(values, mask, kind)
+        if flat_values.shape[0] == 0:
             continue
 
         # Update Welford accumulators and histogram reservoir for each channel.
         for ci in range(c):
-            col = flat[:, ci]
+            col = flat_values[:, ci][flat_mask[:, ci]]
+            if len(col) == 0:
+                continue
             counts[ci], means[ci], m2s[ci] = _welford_update(counts[ci], means[ci], m2s[ci], col)
             _reservoir_add(samples[ci], col)
 

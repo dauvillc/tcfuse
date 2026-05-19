@@ -98,12 +98,12 @@ def _footprint_from_source(
     # A pixel is valid if any of its C channels is finite (not NaN).
     valid = np.any(np.isfinite(values_np), axis=-1)  # (H, W) bool
 
-    # Combine with the explicit mask when present (True = valid).
+    # Combine with per-value availability when present (True = available).
     if source.mask is not None:
         mask_np = source.mask.detach().cpu().numpy()
         # Collapse channel dimension if mask has shape (H, W, C).
         if mask_np.ndim == 3:
-            mask_np = np.all(mask_np, axis=-1)  # (H, W)
+            mask_np = np.any(mask_np, axis=-1)  # (H, W)
         valid = valid & mask_np
 
     lats = coords_np[valid, 1]  # (N,)

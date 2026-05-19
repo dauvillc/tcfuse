@@ -91,7 +91,7 @@ class StormData:
                 └── {compact_snapshot_time}/
                     ├── values      float32, gzip-4
                     ├── coords      float32 (FIELD) or float64 (others), gzip-4
-                    ├── [mask]      bool (only when Source.mask is not None)
+                    ├── mask        bool, same shape as values (per-value availability)
                     └── attrs:
                         ├── source_name        str
                         ├── channels           JSON list

@@ -154,8 +154,8 @@ class TestRadarSourceConstruction:
         lons = torch.linspace(-60, 60, W).unsqueeze(0).expand(H, W).float()
         coords = torch.stack([times, lats, lons], dim=-1)  # (H, W, 3)
 
-        # Create mask: all valid
-        mask = torch.ones(H, W, dtype=torch.bool)
+        # Create per-value availability mask: all valid.
+        mask = torch.ones(H, W, C, dtype=torch.bool)
 
         channels = ["precip_rate", "precip_sigma", "precip_type"]
 
@@ -171,7 +171,7 @@ class TestRadarSourceConstruction:
         assert source.kind == SourceKind.FIELD
         assert source.values.shape == (H, W, C)
         assert source.coords.shape == (H, W, 3)
-        assert source.mask.shape == (H, W)
+        assert source.mask.shape == (H, W, C)
         assert source.n_tokens == H * W
         assert source.channels == channels
 
@@ -188,8 +188,8 @@ class TestRadarSourceConstruction:
         lons = torch.arange(W, dtype=torch.float32).unsqueeze(0).expand(H, W)
         coords = torch.stack([times, lats, lons], dim=-1)
 
-        # Mask: pixel valid if no channel is NaN
-        mask = ~torch.isnan(values).any(dim=-1)
+        # Per-value availability mask: each channel is masked independently.
+        mask = torch.isfinite(values)
 
         source = Source(
             kind=SourceKind.FIELD,
@@ -200,12 +200,14 @@ class TestRadarSourceConstruction:
             mask=mask,
         )
 
-        # Check that (0,0) and (2,3) are marked invalid
-        assert source.mask[0, 0] == False
-        assert source.mask[2, 3] == False
-        # Check that other pixels are valid
-        assert source.mask[0, 1] == True
-        assert source.mask[4, 4] == True
+        # Check only the NaN channels are marked invalid.
+        assert source.mask[0, 0, 0] == False
+        assert source.mask[0, 0, 1] == True
+        assert source.mask[2, 3, 1] == False
+        assert source.mask[2, 3, 2] == True
+        # Check that other pixels are valid.
+        assert source.mask[0, 1, 0] == True
+        assert source.mask[4, 4, 2] == True
 
     def test_radar_source_n_tokens(self):
         """Test token count for FIELD source."""
@@ -222,6 +224,7 @@ class TestRadarSourceConstruction:
             coords=coords,
             source_name="radar_test",
             channels=["a", "b", "c"],
+            mask=torch.isfinite(values),
         )
 
         assert source.n_tokens == H * W
