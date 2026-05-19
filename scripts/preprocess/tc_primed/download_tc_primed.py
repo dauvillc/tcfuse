@@ -32,25 +32,26 @@ from typing import Any, cast
 
 import boto3
 import hydra
-from botocore import UNSIGNED
-from botocore.client import Config
+from botocore.handlers import disable_signing
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
 from tcfuse.utils.archive import submit_archive_job
 from tcfuse.utils.submitit_utils import make_executor
 
+S3_REGION = "us-east-1"
+BUCKET_NAME = "noaa-nesdis-tcprimed-pds"
+
 
 def _s3_client() -> Any:
-    # One client per thread — avoids connection-pool exhaustion; stored on the thread
-    # object directly so it is never captured by cloudpickle when submitit serializes the job.
-    t = threading.current_thread()
-    if not hasattr(t, "_s3_client"):
-        t._s3_client = boto3.client("s3", config=Config(signature_version=UNSIGNED))  # type: ignore[attr-defined]
-    return t._s3_client  # type: ignore[attr-defined]
-
-
-BUCKET_NAME = "noaa-nesdis-tcprimed-pds"
+    """Return a thread-local unsigned S3 client for the public TC-PRIMED bucket."""
+    thread = threading.current_thread()
+    client = getattr(thread, "_tcfuse_s3_client", None)
+    if client is None:
+        client = boto3.client("s3", region_name=S3_REGION)
+        client.meta.events.register("choose-signer.s3.*", disable_signing)
+        setattr(thread, "_tcfuse_s3_client", client)
+    return client
 
 
 def list_keys(prefix: str) -> list[tuple[str, int]]:
@@ -62,8 +63,7 @@ def list_keys(prefix: str) -> list[tuple[str, int]]:
     Returns:
         List of (key, size_bytes) tuples.
     """
-    s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
-    paginator = s3.get_paginator("list_objects_v2")
+    paginator = _s3_client().get_paginator("list_objects_v2")
 
     objects: list[tuple[str, int]] = []
     # Live counter — S3 listing can take tens of seconds for large prefixes
