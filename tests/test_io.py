@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import tempfile
 from pathlib import Path
+from typing import cast
 
 import h5py
 import numpy as np
@@ -181,7 +182,9 @@ class TestMaskRoundTrip:
             path = Path(tmpdir) / "test.h5"
             src.write(path)
             with h5py.File(path, "r") as f:
-                assert "mask" in f["scalar"][src.source_name]
+                scalar_group = cast(h5py.Group, f["scalar"])
+                source_group = cast(h5py.Group, scalar_group[src.source_name])
+                assert "mask" in source_group
 
     def test_missing_mask_raises_when_reading_legacy_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
