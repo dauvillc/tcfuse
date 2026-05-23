@@ -23,6 +23,11 @@ preprocessed_data: ${paths.scratch}/data/preprocessed/assembled/
 checkpoints: ${paths.scratch}/checkpoints
 wandb: ${paths.scratch}/wandb
 
+# Root directory for prediction runs.
+# Each run lives at ${paths.predictions}/<run_id>/ with manifest.yaml,
+# index.parquet, ibtracs.parquet, and samples/<sample_id>.h5.
+predictions: ${paths.scratch}/predictions
+
 # Archive paths (on local, store == scratch, and archive is disabled via setup config).
 archives:
   raw_tc_primed:        ${paths.scratch}/archives/raw/tc_primed.tar.gz
@@ -30,3 +35,4 @@ archives:
   preprocessed_sources: ${paths.scratch}/archives/preprocessed/sources
   preprocessed_data:    ${paths.scratch}/archives/preprocessed/assembled.tar.gz
   checkpoints:          ${paths.scratch}/archives/checkpoints
+  predictions:          ${paths.scratch}/archives/predictions
