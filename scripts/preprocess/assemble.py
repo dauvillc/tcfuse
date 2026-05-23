@@ -25,6 +25,7 @@ from tcfuse.data.ibtracs import (
 )
 from tcfuse.data.sources import MultisourceMetadata, Source, SourceKind, StormData
 from tcfuse.utils.archive import submit_archive_job
+from tcfuse.utils.time import to_compact_time
 
 _ASSEMBLED_INDEX_COLUMNS = [
     "storm_id",
@@ -44,11 +45,6 @@ _SOURCE_KIND_GROUPS: dict[str, SourceKind] = {
     "field": SourceKind.FIELD,
 }
 _ROOT_ATTRS = {"storm_id", "basin", "season", "atcf_id"}
-
-
-def _to_compact_time(snapshot_time_utc: str) -> str:
-    """Convert an isoformat timestamp to the compact HDF5 group name."""
-    return pd.Timestamp(snapshot_time_utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _find_single_source_group(source_file: h5py.File) -> tuple[h5py.Group, SourceKind]:
@@ -87,7 +83,7 @@ def _copy_snapshot_to_assembled(
     snapshot_time_utc: str,
 ) -> None:
     """Copy one per-source snapshot into an open assembled storm HDF5 file."""
-    compact_time = _to_compact_time(snapshot_time_utc)
+    compact_time = to_compact_time(snapshot_time_utc)
     source_group = dest_file.require_group(source_name)
     if compact_time in source_group:
         del source_group[compact_time]
@@ -108,7 +104,7 @@ def _write_source_to_assembled(
     snapshot_time_utc: str,
 ) -> None:
     """Write one in-memory Source into an open assembled storm HDF5 file."""
-    compact_time = _to_compact_time(snapshot_time_utc)
+    compact_time = to_compact_time(snapshot_time_utc)
     source_group = dest_file.require_group(source_name)
     if compact_time in source_group:
         del source_group[compact_time]

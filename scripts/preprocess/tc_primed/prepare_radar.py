@@ -29,6 +29,7 @@ from scripts.preprocess.utils.runner import (
     submit_slurm_jobs,
 )
 from tcfuse.data.sources import Source, SourceKind
+from tcfuse.utils.time import to_compact_time
 
 SENSAT_VARIABLES: dict[str, tuple[str, list[str]]] = {
     "GMI_GPM": (
@@ -74,7 +75,7 @@ def process_radar_file(
         storm_lon = meta["storm_lon"]
 
         overpass_time = pd.Timestamp(time_unix_s, unit="s")
-        overpass_time_utc = overpass_time.strftime("%Y%m%dT%H%M%SZ")
+        overpass_time_utc = to_compact_time(time_unix_s, unit="s")
         dest_path = Source.path(sources_root, source_name, storm_id, overpass_time_utc)
         if should_skip_existing(dest_path, skip_existing):
             return None

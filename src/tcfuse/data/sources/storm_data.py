@@ -9,26 +9,13 @@ from pathlib import Path
 from typing import Any
 
 import h5py
-import pandas as pd
 
 from tcfuse.data.sources.source import Source, SourceKind
+from tcfuse.utils.time import to_compact_time
 
 # HDF5 attribute keys written at the root level of each assembled file.
 _ROOT_ATTRS = ("storm_id", "basin", "season", "atcf_id")
 _STORM_DATA_DIR = "storm_data"
-
-
-def _to_compact_time(snapshot_time_utc: str) -> str:
-    """Convert an isoformat timestamp to a compact, HDF5-safe group name.
-
-    Args:
-        snapshot_time_utc: ISO 8601 timestamp, e.g. ``"2016-09-12T01:09:42+00:00"``.
-
-    Returns:
-        Compact string without separators or timezone offset,
-        e.g. ``"20160912T010942Z"``.
-    """
-    return pd.Timestamp(snapshot_time_utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 @dataclass
@@ -116,7 +103,7 @@ class StormData:
 
             # Write each (source_name, snapshot_time_utc) snapshot.
             for (source_name, snapshot_time_utc), source in self.sources.items():
-                compact_time = _to_compact_time(snapshot_time_utc)
+                compact_time = to_compact_time(snapshot_time_utc)
                 snap_group = f.require_group(f"{source_name}/{compact_time}")
 
                 # Delegate tensor serialization to the existing Source method.

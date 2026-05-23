@@ -24,6 +24,7 @@ from scripts.preprocess.utils.runner import (
     resolve_preproc_cfg,
 )
 from tcfuse.data.sources import Source, SourceKind
+from tcfuse.utils.time import to_compact_time
 
 IR_FLAG_TO_SOURCE: list[str | None] = [None, "ir_tcirar", "ir_hursat"]
 IR_SOURCE_IFOVS: dict[str, float] = {"ir_tcirar": 4.0, "ir_hursat": 8.0}
@@ -67,7 +68,7 @@ def process_ir_file(
             return None
 
         overpass_time = pd.Timestamp(time_unix_s, unit="s")
-        overpass_time_utc = overpass_time.strftime("%Y%m%dT%H%M%SZ")
+        overpass_time_utc = to_compact_time(time_unix_s, unit="s")
         dest_path = Source.path(sources_root, source_name, storm_id, overpass_time_utc)
         if should_skip_existing(dest_path, skip_existing):
             return None

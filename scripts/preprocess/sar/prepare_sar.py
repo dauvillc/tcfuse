@@ -22,6 +22,7 @@ from scripts.preprocess.utils.runner import (
     resolve_preproc_cfg,
 )
 from tcfuse.data.sources import Source, SourceKind
+from tcfuse.utils.time import to_compact_time
 
 SOURCE_NAME = "sar_cband"
 CHANNELS = ["wind_speed"]
@@ -51,7 +52,7 @@ def process_sar_file(
     storm_lat, storm_lon = parse_wkt_point(str(file_info["track_point"]))
     storm_lon = (storm_lon + 180) % 360 - 180
 
-    snapshot_time_utc = acq_time.strftime("%Y%m%dT%H%M%SZ")
+    snapshot_time_utc = to_compact_time(acq_time)
     dest_path = Source.path(sources_root, SOURCE_NAME, storm_id, snapshot_time_utc)
     if should_skip_existing(dest_path, skip_existing):
         return None

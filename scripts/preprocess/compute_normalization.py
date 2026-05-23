@@ -19,15 +19,11 @@ from scripts.preprocess.utils.runner import resolve_preproc_cfg
 from tcfuse.data.sources.metadata import MultisourceMetadata
 from tcfuse.data.sources.source import SourceKind
 from tcfuse.data.sources.storm_data import StormData
+from tcfuse.utils.time import to_compact_time
 
 # ---------------------------------------------------------------------------
 # Utility helpers
 # ---------------------------------------------------------------------------
-
-
-def _compact_time(snapshot_time_utc: str) -> str:
-    """Convert an isoformat timestamp to the compact HDF5 group key."""
-    return pd.Timestamp(snapshot_time_utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def load_training_snapshot_index(assembled_root: Path) -> pd.DataFrame:
@@ -127,7 +123,7 @@ def process_source(
     for _, row in rows.iterrows():
         storm_id = str(row["storm_id"])
         snap_time = str(row["snapshot_time_utc"])
-        compact = _compact_time(snap_time)
+        compact = to_compact_time(snap_time)
         storm_path = StormData.path(assembled_root, storm_id)
         if not storm_path.exists():
             continue
@@ -158,7 +154,7 @@ def process_source(
     for _, row in tqdm(rows.iterrows(), total=len(rows), desc=source_name, leave=False):
         storm_id = str(row["storm_id"])
         snap_time = str(row["snapshot_time_utc"])
-        compact = _compact_time(snap_time)
+        compact = to_compact_time(snap_time)
         storm_path = StormData.path(assembled_root, storm_id)
         if not storm_path.exists():
             continue

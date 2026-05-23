@@ -31,6 +31,8 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
+from tcfuse.utils.time import to_compact_time
+
 
 def _parse_time(value: Any) -> pd.Timestamp:
     """Parse a timestamp value as UTC for exact lead-time matching."""
@@ -143,7 +145,7 @@ def build_window_index(
                 continue
 
             anchor_row = rows_by_time[anchor_time]
-            sample_id = f"{storm_id}_{anchor_time.strftime('%Y%m%dT%H%M%SZ')}"
+            sample_id = f"{storm_id}_{to_compact_time(anchor_time)}"
             sample: dict[str, Any] = {
                 "sample_id": sample_id,
                 "storm_id": storm_id,
