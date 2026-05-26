@@ -2,7 +2,52 @@
 
 from collections import defaultdict
 from itertools import chain
+from numbers import Real
 from pathlib import Path
+from typing import Any
+
+import yaml
+
+TC_PRIMED_IFOVS_YAML = Path(__file__).resolve().parent / "tc_primed_ifovs.yaml"
+IFOV_COMPONENT_COUNT = 4
+
+
+def _validate_ifov_entry(path: str, value: object) -> None:
+    """Raise ValueError if an IFOV entry is not a length-4 list of numbers."""
+    if not isinstance(value, list):
+        raise ValueError(f"IFOV entry at {path} must be a list, got {type(value).__name__}")
+    if len(value) != IFOV_COMPONENT_COUNT:
+        raise ValueError(
+            f"IFOV entry at {path} must have {IFOV_COMPONENT_COUNT} components, got {len(value)}"
+        )
+    if not all(isinstance(component, Real) for component in value):
+        raise ValueError(f"IFOV entry at {path} must contain numeric values")
+
+
+def _validate_ifovs_table(ifovs: dict[str, Any]) -> None:
+    """Validate SENSAT → SWATH → VAR → [4 floats] structure."""
+    for sensat, swaths in ifovs.items():
+        if not isinstance(swaths, dict):
+            raise ValueError(
+                f"IFOV swaths for {sensat} must be a dict, got {type(swaths).__name__}"
+            )
+        for swath, variables in swaths.items():
+            swath_path = f"{sensat}/{swath}"
+            if not isinstance(variables, dict):
+                raise ValueError(
+                    f"IFOV variables at {swath_path} must be a dict, got {type(variables).__name__}"
+                )
+            for var_name, ifov_values in variables.items():
+                _validate_ifov_entry(f"{swath_path}/{var_name}", ifov_values)
+
+
+def load_tc_primed_ifovs() -> dict[str, dict[str, dict[str, list[float]]]]:
+    """Load IFOV table from the repo; keys are SENSAT → SWATH → VAR → [4 floats]."""
+    with open(TC_PRIMED_IFOVS_YAML) as f:
+        raw: dict[str, Any] = yaml.safe_load(f)
+    ifovs = {key: value for key, value in raw.items() if not key.startswith("_")}
+    _validate_ifovs_table(ifovs)
+    return ifovs
 
 
 def should_skip_existing(dest_path: Path, skip_existing: bool) -> bool:
@@ -30,8 +75,6 @@ def list_tc_primed_storm_files(
     """List TC-PRIMED files per storm, split into overpass and environment files."""
     storm_files: dict[tuple[str, str, str], list[Path]] = {}
     for year in tc_primed_path.iterdir():
-        if year.stem == "tc_primed_ifovs":
-            continue
         if include_seasons is not None and int(year.stem) not in include_seasons:
             continue
         for basin in year.iterdir():

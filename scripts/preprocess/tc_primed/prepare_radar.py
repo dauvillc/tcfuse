@@ -10,7 +10,6 @@ import hydra
 import numpy as np
 import pandas as pd
 import torch
-import yaml
 from netCDF4 import Dataset
 from omegaconf import DictConfig
 
@@ -18,6 +17,7 @@ from scripts.preprocess.tc_primed.regrid_utils import get_regridding_resolution
 from scripts.preprocess.tc_primed.tc_primed_meta import read_tc_primed_overpass_meta
 from scripts.preprocess.tc_primed.utils import (
     list_tc_primed_overpass_files_by_sensat,
+    load_tc_primed_ifovs,
     should_skip_existing,
 )
 from scripts.preprocess.utils.regridding import ResamplingError, regrid
@@ -33,7 +33,7 @@ from tcfuse.utils.time import to_compact_time
 
 SENSAT_VARIABLES: dict[str, tuple[str, list[str]]] = {
     "GMI_GPM": (
-        "KuKaGMI",
+        "KuGMI",
         ["nearSurfPrecipTotRate", "nearSurfPrecipTotRateSigma", "mainprecipitationType"],
     ),
     "TMI_TRMM": (
@@ -162,13 +162,14 @@ def main(raw_cfg: DictConfig) -> None:
     num_workers = int(cfg.get("num_workers", 4))
     skip_existing = bool(cfg.get("skip_existing", False))
 
-    with open(tc_primed_path / "tc_primed_ifovs.yaml") as f:
-        ifovs: dict = yaml.safe_load(f)
+    ifovs = load_tc_primed_ifovs()
 
     radar_files = list_tc_primed_overpass_files_by_sensat(
         tc_primed_path, include_seasons=cfg.get("include_seasons")
     )
-    supported = {sensat: files for sensat, files in radar_files.items() if sensat in SENSAT_VARIABLES}
+    supported = {
+        sensat: files for sensat, files in radar_files.items() if sensat in SENSAT_VARIABLES
+    }
 
     def run_all() -> None:
         for sensat, files in supported.items():

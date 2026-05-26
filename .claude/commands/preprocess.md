@@ -93,8 +93,7 @@ Config key: `cfg.paths.preprocessed_data`
 ${paths.preprocessed_data}/
 ├── storm_data/
 │   └── {ibtracs_sid}.h5    # one file per storm, e.g. 2016228N14275.h5
-│                           # falls back to ATCF ID when no IBTrACS match
-└── index.parquet           # global assembled index (all storms × all sources)
+└── index.parquet           # global assembled index (USA ATCF–tracked storms only)
 ```
 
 Each HDF5 file holds **all sources for one storm**, written by `StormData.write(assembled_root)`.
@@ -118,8 +117,13 @@ Use `StormData.path(assembled_root, storm_id)` to compute canonical paths.
             └── [lat, lon, vmax_kt, …]  from Source.meta
 ```
 
-**IBTrACS injection:** `assemble.py` automatically injects one SCALAR source per best-track
-observation time for every storm matched in IBTrACS:
+**ATCF-only filtering:** `assemble.py` requires the IBTrACS CSV at
+`cfg.paths.raw_datasets.ibtracs` and assembles only storms whose Stage-1 `storm_id`
+has a non-empty `USA_ATCF_ID` in IBTrACS (USA agency tracking). Storms without an
+ATCF match are skipped entirely.
+
+**IBTrACS injection:** For each retained storm, `assemble.py` injects one SCALAR source per best-track
+observation time:
 - `source_name = "ibtracs_best_track"`
 - `kind = SCALAR`, channels: `[usa_vmax_kt, wmo_vmax_kt, usa_mslp_hpa, wmo_mslp_hpa, usa_rmw_nm, usa_r34_ne_nm, usa_r34_se_nm, usa_r34_sw_nm, usa_r34_nw_nm]`
 - USA and WMO quantities are kept as distinct channels; missing values remain NaN.
@@ -189,6 +193,9 @@ print(df["source_name"].value_counts())
 
 ### Step 5 — Run assembly
 
+Requires IBTrACS at `cfg.paths.raw_datasets.ibtracs`. Only storms with a USA ATCF ID
+in IBTrACS are assembled; others are skipped.
+
 ```bash
 # Local debug run (no SLURM)
 python scripts/preprocess/assemble.py submitit=false num_workers=4
@@ -200,6 +207,10 @@ python scripts/preprocess/assemble.py paths=jz setup=jz_cpu
 Key options:
 - `skip_existing=true` — resume a partial run without rewriting existing storm files
 - `chunk_size=200` — number of storms per SLURM job (SLURM mode only)
+
+Re-running assembly does not delete previously assembled storm files that no longer
+pass the ATCF filter; use `skip_existing=false` or remove stale `storm_data/*.h5`
+before `build_splits.py` for a clean refresh.
 
 Validate Stage 2 output:
 

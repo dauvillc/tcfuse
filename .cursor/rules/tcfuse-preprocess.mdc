@@ -38,7 +38,8 @@ Use:
 - `StormData.path(assembled_root, storm_id)` for canonical paths.
 
 `StormData.sources` is keyed by `(source_name, snapshot_time_utc)`.
-`assemble.py` injects `ibtracs_best_track` as a scalar source when IBTrACS is matched.
+`assemble.py` requires IBTrACS and assembles only storms with a USA ATCF ID; it injects
+`ibtracs_best_track` as a scalar source for each retained storm.
 `index.parquet` remains the canonical assembled snapshot index with one row per
 `(storm_id, source_name, snapshot_time_utc)`.
 

@@ -11,13 +11,13 @@ import numpy as np
 import pandas as pd
 import pytest
 from scripts.preprocess.assemble import assemble_storm, build_assembled_index
+
 from tcfuse.data.ibtracs import (
     IBTRACS_CHANNELS,
     IBTRACS_SOURCE_NAME,
     ibtracs_rows_to_sources,
     load_ibtracs,
 )
-
 from tcfuse.data.sources import SourceKind, StormData
 from tests.test_sources import make_field_source
 
@@ -74,12 +74,22 @@ def _make_ibtracs_df(*rows: dict) -> pd.DataFrame:
 
 
 class TestAssembleStorm:
-    def test_streams_disk_snapshot_into_assembled_file(self, tmp_path: Path) -> None:
+    _IBTRACS_SID = "2016292N14270"
+    _ATCF_ID = "AL102016"
+
+    @classmethod
+    def _atcf_fixtures(cls) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
+        rows = _make_ibtracs_df(_make_ibtracs_row(sid=cls._IBTRACS_SID, atcf_id=cls._ATCF_ID))
+        ibtracs_by_sid = {cls._IBTRACS_SID: rows}
+        atcf_to_sid = {cls._ATCF_ID: cls._IBTRACS_SID}
+        return ibtracs_by_sid, atcf_to_sid
+
+    def _make_snapshot_rows(self, tmp_path: Path, storm_id: str) -> tuple[Path, pd.DataFrame]:
         snapshot_time = "2016-10-05T00:00:00+00:00"
         source = make_field_source(H=2, W=3, C=1, source_name="pmw_ssmi")
         source.meta = {
-            "storm_id": "AL102016",
-            "basin": "AL",
+            "storm_id": storm_id,
+            "basin": storm_id[:2],
             "snapshot_time_utc": snapshot_time,
             "lat": 15.0,
             "lon": -60.0,
@@ -89,32 +99,72 @@ class TestAssembleStorm:
         rows = pd.DataFrame(
             [
                 {
-                    "storm_id": "AL102016",
+                    "storm_id": storm_id,
                     "source_name": "pmw_ssmi",
                     "snapshot_time_utc": snapshot_time,
                     "file_path": str(source_path),
                 }
             ]
         )
+        return source_path, rows
+
+    def test_streams_disk_snapshot_into_assembled_file(self, tmp_path: Path) -> None:
+        _, rows = self._make_snapshot_rows(tmp_path, self._ATCF_ID)
         assembled_root = tmp_path / "assembled"
+        ibtracs_by_sid, atcf_to_sid = self._atcf_fixtures()
 
         result = assemble_storm(
-            "AL102016",
+            self._ATCF_ID,
             rows,
             assembled_root,
             skip_existing=False,
-            ibtracs_by_sid={},
-            atcf_to_sid={},
+            ibtracs_by_sid=ibtracs_by_sid,
+            atcf_to_sid=atcf_to_sid,
         )
 
-        assert result == "AL102016"
-        assert (assembled_root / "storm_data" / "AL102016.h5").exists()
-        assert not (assembled_root / "AL102016.h5").exists()
-        storm = StormData.from_disk(assembled_root, "AL102016")
-        loaded = storm.sources[("pmw_ssmi", snapshot_time)]
+        assert result == self._ATCF_ID
+        assert (assembled_root / "storm_data" / f"{self._IBTRACS_SID}.h5").exists()
+        assert not (assembled_root / "storm_data" / f"{self._ATCF_ID}.h5").exists()
+        storm = StormData.from_disk(assembled_root, self._IBTRACS_SID)
+        loaded = storm.sources[("pmw_ssmi", "2016-10-05T00:00:00+00:00")]
         assert loaded.kind is SourceKind.FIELD
-        assert loaded.values.shape == source.values.shape
+        assert loaded.values.shape == make_field_source(H=2, W=3, C=1).values.shape
         assert float(loaded.meta["lat"]) == pytest.approx(15.0)
+        assert storm.atcf_id == self._ATCF_ID
+
+    def test_skips_storm_without_atcf_match(self, tmp_path: Path) -> None:
+        _, rows = self._make_snapshot_rows(tmp_path, "EP052021")
+        assembled_root = tmp_path / "assembled"
+        ibtracs_by_sid, atcf_to_sid = self._atcf_fixtures()
+
+        result = assemble_storm(
+            "EP052021",
+            rows,
+            assembled_root,
+            skip_existing=False,
+            ibtracs_by_sid=ibtracs_by_sid,
+            atcf_to_sid=atcf_to_sid,
+        )
+
+        assert result is None
+        assert not (assembled_root / "storm_data").exists()
+
+    def test_keeps_storm_with_atcf_match(self, tmp_path: Path) -> None:
+        _, rows = self._make_snapshot_rows(tmp_path, self._ATCF_ID)
+        assembled_root = tmp_path / "assembled"
+        ibtracs_by_sid, atcf_to_sid = self._atcf_fixtures()
+
+        result = assemble_storm(
+            self._ATCF_ID,
+            rows,
+            assembled_root,
+            skip_existing=False,
+            ibtracs_by_sid=ibtracs_by_sid,
+            atcf_to_sid=atcf_to_sid,
+        )
+
+        assert result == self._ATCF_ID
+        assert (assembled_root / "storm_data" / f"{self._IBTRACS_SID}.h5").exists()
 
 
 # ---------------------------------------------------------------------------

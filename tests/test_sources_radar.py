@@ -5,34 +5,60 @@ import pytest
 import torch
 from scripts.preprocess.tc_primed.prepare_radar import _read_radar_swath
 from scripts.preprocess.tc_primed.regrid_utils import get_regridding_resolution
+from scripts.preprocess.tc_primed.utils import _validate_ifovs_table, load_tc_primed_ifovs
 
 from tcfuse.data.sources import Source, SourceKind
+
+
+class TestLoadTcPrimedIfovs:
+    """Test loading and validating the repo IFOV lookup table."""
+
+    def test_load_returns_radar_entries(self) -> None:
+        """Loaded table includes nested VAR entries for radar swaths."""
+        ifovs = load_tc_primed_ifovs()
+        assert len(ifovs) > 0
+        gmi_kuka = ifovs["GMI_GPM"]["KuKaGMI"]["nearSurfPrecipTotRate"]
+        assert len(gmi_kuka) == 4
+        assert gmi_kuka == [5.04, 5.04, 5.04, 5.57]
+
+    def test_validate_rejects_bare_swath_list(self) -> None:
+        """Swath-level list entries are rejected by the schema validator."""
+        with pytest.raises(ValueError, match="must be a dict"):
+            _validate_ifovs_table({"TEST_SAT": {"KuTMI": [5.0, 5.0, 5.0, 5.0]}})
 
 
 class TestGetRegriddingResolution:
     """Test IFOV resolution extraction."""
 
-    def test_list_ifov_values(self):
-        """Test extracting minimum IFOV from a list."""
+    def test_uniform_var_ifov_values(self) -> None:
+        """Minimum IFOV is taken across variables when all share the same values."""
         ifovs = {
             "GMI_GPM": {
-                "KuKaGMI": [5.04, 5.04, 5.04, 5.04],
+                "KuKaGMI": {
+                    "nearSurfPrecipTotRate": [5.04, 5.04, 5.04, 5.04],
+                    "nearSurfPrecipTotRateSigma": [5.04, 5.04, 5.04, 5.04],
+                    "mainprecipitationType": [5.04, 5.04, 5.04, 5.04],
+                }
             }
         }
         result = get_regridding_resolution("GMI_GPM", "KuKaGMI", ifovs)
         assert result == 5.04
 
-    def test_dict_ifov_values(self):
-        """Test extracting minimum IFOV from a per-channel dict."""
+    def test_radar_var_ifov_values(self) -> None:
+        """Minimum IFOV is taken from per-variable radar entries."""
         ifovs = {
             "TMI_TRMM": {
-                "KuTMI": [5.0, 5.0, 5.0, 5.0],
+                "KuTMI": {
+                    "nearSurfPrecipTotRate": [5.0, 5.0, 5.0, 5.0],
+                    "nearSurfPrecipTotRateSigma": [5.0, 5.0, 5.0, 5.0],
+                    "mainprecipitationType": [5.0, 5.0, 5.0, 5.0],
+                }
             }
         }
         result = get_regridding_resolution("TMI_TRMM", "KuTMI", ifovs)
         assert result == 5.0
 
-    def test_dict_ifov_with_varying_values(self):
+    def test_dict_ifov_with_varying_values(self) -> None:
         """Test that minimum is taken across different channel IFOVs."""
         ifovs = {
             "TEST_SAT": {
@@ -45,6 +71,12 @@ class TestGetRegriddingResolution:
         }
         result = get_regridding_resolution("TEST_SAT", "TEST_SWATH", ifovs)
         assert result == 5.0
+
+    def test_rejects_bare_swath_list(self) -> None:
+        """Swath-level list entries raise TypeError."""
+        ifovs = {"GMI_GPM": {"KuKaGMI": [5.04, 5.04, 5.04, 5.04]}}
+        with pytest.raises(TypeError, match="must be VAR"):
+            get_regridding_resolution("GMI_GPM", "KuKaGMI", ifovs)
 
 
 class TestRadarSwathReader:

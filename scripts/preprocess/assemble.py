@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import logging
 from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat
 from pathlib import Path
@@ -122,8 +121,11 @@ def assemble_storm(
     atcf_to_sid: dict[str, str],
 ) -> str | None:
     """Stream all available sources for one storm into an assembled HDF5 file."""
-    sid = atcf_to_sid.get(storm_id)
-    final_storm_id = sid if sid is not None else storm_id
+    if storm_id not in atcf_to_sid:
+        return None
+
+    sid = atcf_to_sid[storm_id]
+    final_storm_id = sid
     dest_path = StormData.path(assembled_root, final_storm_id)
 
     if skip_existing and dest_path.exists():
@@ -132,17 +134,9 @@ def assemble_storm(
     basin = storm_id[:2]
     season = int(storm_id[-4:])
 
-    atcf_id: str | None = None
-    ibtracs_sources: list[tuple[str, Source]] = []
-    if sid is not None:
-        storm_rows = ibtracs_by_sid[sid]
-        atcf_id = str(storm_rows["USA_ATCF_ID"].iloc[0]).strip()
-        ibtracs_sources = ibtracs_rows_to_sources(storm_rows, final_storm_id, basin)
-    else:
-        logging.warning(
-            "IBTrACS: no ATCF match for %s; ibtracs_best_track sources will be absent.",
-            storm_id,
-        )
+    storm_rows = ibtracs_by_sid[sid]
+    atcf_id = str(storm_rows["USA_ATCF_ID"].iloc[0]).strip()
+    ibtracs_sources = ibtracs_rows_to_sources(storm_rows, final_storm_id, basin)
 
     if rows.empty and not ibtracs_sources:
         return None
@@ -153,8 +147,7 @@ def assemble_storm(
         dest_file.attrs["storm_id"] = final_storm_id
         dest_file.attrs["basin"] = basin
         dest_file.attrs["season"] = season
-        if atcf_id is not None:
-            dest_file.attrs["atcf_id"] = atcf_id
+        dest_file.attrs["atcf_id"] = atcf_id
 
         for _, row in rows.iterrows():
             file_path = Path(str(row["file_path"]))
@@ -325,18 +318,16 @@ def main(raw_cfg: DictConfig) -> None:
 
     ibtracs_path = Path(cfg["paths"]["raw_datasets"]["ibtracs"])
     if not ibtracs_path.exists():
-        print(
-            f"WARNING: IBTrACS CSV not found at {ibtracs_path}. "
-            "ibtracs_best_track sources will be absent from all storms."
+        raise FileNotFoundError(
+            f"IBTrACS CSV not found at {ibtracs_path}. "
+            "Assembly requires IBTrACS to filter storms with a USA ATCF ID."
         )
-        ibtracs_by_sid: dict[str, pd.DataFrame] = {}
-        atcf_to_sid: dict[str, str] = {}
-    else:
-        print(f"Loading IBTrACS from {ibtracs_path} …")
-        ibtracs_by_sid, atcf_to_sid = load_ibtracs(ibtracs_path)
-        print(
-            f"Loaded {len(ibtracs_by_sid)} storms from IBTrACS ({len(atcf_to_sid)} ATCF-tracked)."
-        )
+
+    print(f"Loading IBTrACS from {ibtracs_path} …")
+    ibtracs_by_sid, atcf_to_sid = load_ibtracs(ibtracs_path)
+    print(
+        f"Loaded {len(ibtracs_by_sid)} storms from IBTrACS ({len(atcf_to_sid)} ATCF-tracked)."
+    )
 
     print(f"Loading source metadata from {sources_root} …")
     multi_meta = MultisourceMetadata.from_disk(sources_root)
@@ -345,11 +336,20 @@ def main(raw_cfg: DictConfig) -> None:
         return
 
     index = multi_meta.index
-    storm_ids = sorted(index["storm_id"].unique())
+    all_storm_ids = sorted(index["storm_id"].unique())
+    storm_ids = [sid for sid in all_storm_ids if sid in atcf_to_sid]
+    n_filtered = len(all_storm_ids) - len(storm_ids)
     print(
-        f"Found {len(storm_ids)} storms across {len(multi_meta)} sources "
+        f"Found {len(all_storm_ids)} storms across {len(multi_meta)} sources "
         f"({len(index)} total snapshots)."
     )
+    print(
+        f"Keeping {len(storm_ids)} storms with USA ATCF ID in IBTrACS "
+        f"(skipped {n_filtered} without ATCF match)."
+    )
+    if not storm_ids:
+        print("No ATCF-tracked storms to assemble. Nothing to do.")
+        return
 
     if cfg.get("submitit", False):
         from tcfuse.utils.submitit_utils import make_executor
