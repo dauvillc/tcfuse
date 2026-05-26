@@ -44,6 +44,8 @@ Every source, regardless of its dimensionality, is represented as a set of **(va
 
 Use `/preprocess` for the full dataset inventory (including deferred datasets) and preprocessing workflow.
 
+Use `/predictions` for forecast output storage (`PredictionRun`, `SamplePrediction`, `ibtracs.parquet`, per-window sample HDF5 under `cfg.paths.predictions`).
+
 | Dataset | Content | Location |
 |---|---|---|
 | **TC-PRIMED v01r01** | PMW (11 sensors), IR, ERA5, DPR, best-track. 1987–2024, 3,552 storms | `TODO: $SCRATCH/tc_primed/` |
@@ -164,14 +166,16 @@ Use `/jz` for all cluster operations (storage layout, environment setup, W&B syn
 ## Workflow rules for Claude Code
 
 1. **Read this file first** at the start of every session, before reading any other file or writing any code.
-2. **Plan before implementing.** For any non-trivial task, propose a plan (module structure, interface, test strategy) and wait for approval before writing code.
-3. **One module at a time.** Implement and test one component fully before moving to the next.
-4. **Update this file** when any of the following happens:
+2. **Prediction I/O:** Before any work on forecast outputs, prediction runs, evaluation of model outputs, or files under `src/tcfuse/data/predictions/`, read `.cursor/skills/tcfuse-predictions/SKILL.md` or invoke `/predictions`. Do not load all prediction Python modules by default.
+3. **Plan before implementing.** For any non-trivial task, propose a plan (module structure, interface, test strategy) and wait for approval before writing code.
+4. **One module at a time.** Implement and test one component fully before moving to the next.
+5. **Update this file** when any of the following happens:
    - A new source type or embedding convention is decided → update the data abstraction table
    - A new architecture is added → update the architecture section
    - A new SLURM script is written → add it to the scripts table
    - A new dataset path is confirmed → update the dataset table
    - A new W&B convention is established → update the logging section
-5. **Ask, don't guess** on design decisions not covered by this file. Especially: tensor layout, coordinate normalization strategy, masking implementation, task head interface.
-6. **Prefer explicit over implicit.** If a function's behavior depends on the presence or absence of a source, make that conditional explicit in the code and documented in the docstring.
-7. **Tests are not optional.** Every new embedding module ships with a unit test using a synthetic `(B, N, C)` tensor. Every data loader change ships with a test that runs on a 10-sample subset.
+   - Prediction storage convention or on-disk layout changes → update `.cursor/skills/tcfuse-predictions/` and `.claude/commands/predictions.md` if triggers or behavior rules change
+6. **Ask, don't guess** on design decisions not covered by this file. Especially: tensor layout, coordinate normalization strategy, masking implementation, task head interface.
+7. **Prefer explicit over implicit.** If a function's behavior depends on the presence or absence of a source, make that conditional explicit in the code and documented in the docstring.
+8. **Tests are not optional.** Every new embedding module ships with a unit test using a synthetic `(B, N, C)` tensor. Every data loader change ships with a test that runs on a 10-sample subset.

@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c \"\nimport json, sys, re\ndata = json.load(sys.stdin)\nf = data.get('tool_input', {}).get('file_path', '')\nif not f: sys.exit(0)\nif re.search(r'/src/|/scripts/|/conf/', f) and not re.search(r'CLAUDE\\\\.md|\\\\.claude/commands/', f):\n    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse', 'additionalContext': f'Pipeline file edited: {f} — check if CLAUDE.md or .claude/commands/ skill files need updating.'}}))\n\" 2>/dev/null || true",
+            "command": "python3 -c \"\nimport json, sys, re\ndata = json.load(sys.stdin)\nf = data.get('tool_input', {}).get('file_path', '')\nif not f: sys.exit(0)\nif re.search(r'/src/tcfuse/data/predictions/', f):\n    msg = f'Prediction module edited: {f} — check if .cursor/skills/tcfuse-predictions/ and .claude/commands/predictions.md need updating.'\n    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse', 'additionalContext': msg}}))\nelif re.search(r'/src/|/scripts/|/conf/', f) and not re.search(r'CLAUDE\\\\.md|\\\\.claude/commands/', f):\n    msg = f'Pipeline file edited: {f} — check if CLAUDE.md or .claude/commands/ skill files need updating.'\n    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse', 'additionalContext': msg}}))\n\" 2>/dev/null || true",
             "statusMessage": "Checking if docs need updating..."
           }
         ]
