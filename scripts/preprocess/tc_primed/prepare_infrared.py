@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Preprocess geostationary infrared data from TC-PRIMED into the standard HDF5 format."""
+"""Stage 1 — preprocess geostationary infrared snapshots from TC-PRIMED."""
 
 from __future__ import annotations
 
+import warnings
 from itertools import chain
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,7 @@ from scripts.preprocess.tc_primed.utils import list_tc_primed_storm_files, shoul
 from scripts.preprocess.utils.runner import (
     finalize_source,
     launch_local_or_slurm,
-    make_index_row,
+    load_translation,
     map_files,
     resolve_preproc_cfg,
 )
@@ -48,35 +49,44 @@ def _read_ir_data(ir_grp: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 def process_ir_file(
     file: str | Path,
     sources_root: Path,
+    atcf_to_sid: dict[str, str],
     skip_existing: bool = False,
-) -> dict[str, Any] | None:
-    """Process one TC-PRIMED overpass file and write a standard HDF5 IR snapshot."""
+) -> bool:
+    """Process one TC-PRIMED overpass file and write a standard HDF5 IR snapshot.
+
+    Returns ``True`` when a snapshot was written or kept, ``False`` otherwise.
+    """
     with Dataset(str(file)) as raw:
         meta = read_tc_primed_overpass_meta(raw)
-        storm_id = meta["storm_id"]
-        basin = meta["basin"]
+        atcf_id = meta["storm_id"]
         time_unix_s = meta["time_unix_s"]
-        storm_lat = meta["storm_lat"]
-        storm_lon = meta["storm_lon"]
 
         if "infrared" not in raw.groups:
-            return None
+            return False
         ir_grp = raw["infrared"]
         flag = int(ir_grp["infrared_availability_flag"][0])
         source_name = IR_FLAG_TO_SOURCE[flag] if flag < len(IR_FLAG_TO_SOURCE) else None
         if source_name is None:
-            return None
+            return False
+
+        sid = atcf_to_sid.get(atcf_id)
+        if sid is None:
+            warnings.warn(
+                f"No IBTrACS SID for ATCF {atcf_id!r} — discarding {file}",
+                stacklevel=2,
+            )
+            return False
 
         overpass_time = pd.Timestamp(time_unix_s, unit="s")
         overpass_time_utc = to_compact_time(time_unix_s, unit="s")
-        dest_path = Source.path(sources_root, source_name, storm_id, overpass_time_utc)
+        dest_path = Source.path(sources_root, source_name, sid, overpass_time_utc)
         if should_skip_existing(dest_path, skip_existing):
-            return None
+            return True
 
         irwin, lat2d, lon2d = _read_ir_data(ir_grp)
 
     if np.all(np.isnan(irwin)):
-        return None
+        return False
 
     h, w = irwin.shape
     values_np = irwin[..., np.newaxis].astype(np.float32)
@@ -94,36 +104,27 @@ def process_ir_file(
         channels=["irwin"],
         mask=torch.from_numpy(mask_np),
         meta={
-            "storm_id": storm_id,
-            "basin": basin,
+            "storm_id": sid,
             "snapshot_time_utc": overpass_time.isoformat(),
-            "lat": storm_lat,
-            "lon": storm_lon,
         },
     )
     source.write(dest_path)
-
-    return make_index_row(
-        storm_id,
-        overpass_time.isoformat(),
-        storm_lat,
-        storm_lon,
-        source_name,
-        dest_path,
-    )
+    return True
 
 
 def _process_all_files(
     files: list[Path],
     sources_root: Path,
+    atcf_to_sid: dict[str, str],
     num_workers: int,
     skip_existing: bool,
-) -> list[dict[str, Any] | None]:
+) -> list[bool | None]:
     """Process all overpass files for IR extraction."""
     return map_files(
         process_ir_file,
         files,
         sources_root,
+        atcf_to_sid,
         skip_existing,
         num_workers=num_workers,
         desc="ir",
@@ -139,6 +140,8 @@ def main(raw_cfg: DictConfig) -> None:
     num_workers = int(cfg.get("num_workers", 4))
     skip_existing = bool(cfg.get("skip_existing", False))
 
+    atcf_to_sid = load_translation(sources_root)
+
     overpass_files_by_storm, _ = list_tc_primed_storm_files(
         tc_primed_path, include_seasons=cfg.get("include_seasons")
     )
@@ -148,8 +151,12 @@ def main(raw_cfg: DictConfig) -> None:
     launch_local_or_slurm(
         cfg,
         "prepare_infrared",
-        lambda: _process_all_files(all_files, sources_root, num_workers, skip_existing),
-        lambda: _process_all_files(all_files, sources_root, num_workers, skip_existing),
+        lambda: _process_all_files(
+            all_files, sources_root, atcf_to_sid, num_workers, skip_existing
+        ),
+        lambda: _process_all_files(
+            all_files, sources_root, atcf_to_sid, num_workers, skip_existing
+        ),
     )
 
     written = 0

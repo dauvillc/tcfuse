@@ -224,5 +224,3 @@ class TestChannelsRoundTrip:
         src = make_field_source(C=4, source_name="pmw_amsr2")
         result = _write_read(src)
         assert result.channels == src.channels
-
-

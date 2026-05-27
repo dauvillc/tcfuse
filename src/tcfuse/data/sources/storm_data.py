@@ -14,7 +14,7 @@ from tcfuse.data.sources.source import Source, SourceKind
 from tcfuse.utils.time import to_compact_time
 
 # HDF5 attribute keys written at the root level of each assembled file.
-_ROOT_ATTRS = ("storm_id", "basin", "season", "atcf_id")
+_ROOT_ATTRS = ("storm_id", "basin", "subbasin", "season", "atcf_id")
 _STORM_DATA_DIR = "storm_data"
 
 
@@ -27,20 +27,23 @@ class StormData:
     The ``snapshot_time_utc`` key is the isoformat string as it appears in the
     per-source ``index.parquet`` files.
 
-    ``season`` is the TC season year (e.g. 2016).  It is the primary axis used
+    ``season`` is the TC season year (e.g. 2016). It is the primary axis used
     for train/val/test splits.
 
     Args:
-        storm_id: Storm identifier, e.g. ``"2016AL10"``.
+        storm_id: IBTrACS SID, e.g. ``"2016292N14270"``.
         basin: Ocean basin code, e.g. ``"AL"``.
-        season: TC season year, e.g. ``2016``.  Derived from ``storm_id[:4]``.
+        subbasin: IBTrACS sub-basin code, e.g. ``"GM"``.
+        season: TC season year, e.g. 2016.
         sources: Mapping from ``(source_name, snapshot_time_utc)`` to the
             corresponding :class:`~tcfuse.data.sources.source.Source`.
-            Both FIELD, PROFILE, and SCALAR sources may coexist.
+            FIELD, PROFILE, and SCALAR sources may coexist.
+        atcf_id: USA ATCF identifier when available (e.g. ``"AL102016"``).
     """
 
     storm_id: str
     basin: str
+    subbasin: str
     season: int
     sources: dict[tuple[str, str], Source] = dataclasses.field(default_factory=dict)
     atcf_id: str | None = None
@@ -56,7 +59,7 @@ class StormData:
         Args:
             assembled_root: Root directory for assembled storm files
                 (``cfg.paths.preprocessed_data``).
-            storm_id: Storm identifier, e.g. ``"2016AL10"``.
+            storm_id: IBTrACS SID, e.g. ``"2016292N14270"``.
 
         Returns:
             ``{assembled_root}/storm_data/{storm_id}.h5``
@@ -73,7 +76,7 @@ class StormData:
         Creates ``{assembled_root}/storm_data/{storm_id}.h5`` with the following layout::
 
             /
-            ├── attrs: {storm_id, basin, season}
+            ├── attrs: {storm_id, basin, subbasin, season, atcf_id?}
             └── {source_name}/
                 └── {compact_snapshot_time}/
                     ├── values      float32, gzip-4
@@ -84,7 +87,7 @@ class StormData:
                         ├── channels           JSON list
                         ├── kind               "SCALAR" | "PROFILE" | "FIELD"
                         ├── snapshot_time_utc  isoformat str (for round-trip key recovery)
-                        └── [other meta]       lat, lon, vmax_kt, … from Source.meta
+                        └── [other meta]       lat, lon, … from Source.meta
 
         Args:
             assembled_root: Root directory for assembled storm files
@@ -94,34 +97,26 @@ class StormData:
         dest.parent.mkdir(parents=True, exist_ok=True)
 
         with h5py.File(dest, "w") as f:
-            # Write storm-level constants as root attributes.
             f.attrs["storm_id"] = self.storm_id
             f.attrs["basin"] = self.basin
+            f.attrs["subbasin"] = self.subbasin
             f.attrs["season"] = self.season
             if self.atcf_id is not None:
                 f.attrs["atcf_id"] = self.atcf_id
 
-            # Write each (source_name, snapshot_time_utc) snapshot.
             for (source_name, snapshot_time_utc), source in self.sources.items():
                 compact_time = to_compact_time(snapshot_time_utc)
                 snap_group = f.require_group(f"{source_name}/{compact_time}")
 
-                # Delegate tensor serialization to the existing Source method.
                 source.to_hdf5_group(snap_group)
-
-                # Add kind so from_disk can reconstruct SourceKind without extra structure.
                 snap_group.attrs["kind"] = source.kind.name
-
-                # Store the original isoformat timestamp for exact key round-trip.
                 snap_group.attrs["snapshot_time_utc"] = snapshot_time_utc
 
-                # Write any remaining Source.meta entries as snapshot-level attrs.
                 for key, value in source.meta.items():
                     if key not in _ROOT_ATTRS and key != "snapshot_time_utc":
                         try:
                             snap_group.attrs[key] = value
                         except TypeError:
-                            # Skip values that h5py cannot serialise as attributes.
                             warnings.warn(
                                 f"Could not write meta key '{key}' as HDF5 attr: {type(value)}",
                                 stacklevel=2,
@@ -136,24 +131,26 @@ class StormData:
         with the per-source ``index.parquet`` index.
 
         Args:
-            assembled_root: Root directory for assembled storm files
-                (``cfg.paths.preprocessed_data``).
-            storm_id: Storm identifier, e.g. ``"2016AL10"``.
+            assembled_root: Root directory for assembled storm files.
+            storm_id: IBTrACS SID, e.g. ``"2016292N14270"``.
 
         Returns:
             :class:`StormData` with all sources loaded into CPU tensors.
+
+        Raises:
+            KeyError: When the file is missing any of the mandatory root attrs
+                (``storm_id``, ``basin``, ``subbasin``, ``season``).
         """
         path = StormData.path(assembled_root, storm_id)
         sources: dict[tuple[str, str], Source] = {}
 
         with h5py.File(path, "r") as f:
-            # Read storm-level constants from root attrs.
             loaded_storm_id = str(f.attrs["storm_id"])
             basin = str(f.attrs["basin"])
+            subbasin = str(f.attrs["subbasin"])
             season = int(f.attrs["season"])
             atcf_id: str | None = str(f.attrs["atcf_id"]) if "atcf_id" in f.attrs else None
 
-            # Iterate source_name groups, then compact_time sub-groups.
             for source_name, source_group in f.items():
                 if not isinstance(source_group, h5py.Group):
                     continue
@@ -161,16 +158,10 @@ class StormData:
                     if not isinstance(snap_group, h5py.Group):
                         continue
 
-                    # Recover SourceKind from the stored attr.
                     kind = SourceKind[str(snap_group.attrs["kind"])]
-
-                    # Reconstruct tensors from the snapshot group.
                     source = Source.from_hdf5_group(snap_group, kind)
-
-                    # Recover snapshot_time_utc in its original isoformat.
                     snapshot_time_utc = str(snap_group.attrs["snapshot_time_utc"])
 
-                    # Populate Source.meta from any remaining snapshot attrs.
                     meta: dict[str, Any] = {
                         "storm_id": loaded_storm_id,
                         "basin": basin,
@@ -187,6 +178,7 @@ class StormData:
         return cls(
             storm_id=loaded_storm_id,
             basin=basin,
+            subbasin=subbasin,
             season=season,
             sources=sources,
             atcf_id=atcf_id,
@@ -196,16 +188,16 @@ class StormData:
     def read_meta(assembled_root: Path, storm_id: str) -> dict[str, Any]:
         """Read only root-level attributes without loading any tensors.
 
-        Returns ``{storm_id, basin, season}`` and, when present, ``atcf_id`` —
-        the storm-level constants stored at the root of the assembled HDF5 file.
+        Returns ``{storm_id, basin, subbasin, season}`` and, when present,
+        ``atcf_id`` — the storm-level constants stored at the root of the
+        assembled HDF5 file.
 
         Args:
-            assembled_root: Root directory for assembled storm files
-                (``cfg.paths.preprocessed_data``).
-            storm_id: Storm identifier, e.g. ``"2016AL10"``.
+            assembled_root: Root directory for assembled storm files.
+            storm_id: IBTrACS SID, e.g. ``"2016292N14270"``.
 
         Returns:
-            Dict with keys ``"storm_id"``, ``"basin"``, and ``"season"``.
+            Dict of root-level HDF5 attributes.
         """
         path = StormData.path(assembled_root, storm_id)
         with h5py.File(path, "r") as f:

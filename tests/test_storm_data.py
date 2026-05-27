@@ -21,6 +21,7 @@ from tests.test_sources import make_field_source, make_profile_source, make_scal
 
 _STORM_ID = "2016AL10"
 _BASIN = "AL"
+_SUBBASIN = "GM"
 _SEASON = 2016
 _TIME_0 = "2016-09-12T01:09:42+00:00"
 _TIME_1 = "2016-09-14T15:30:12+00:00"
@@ -28,7 +29,13 @@ _TIME_1 = "2016-09-14T15:30:12+00:00"
 
 def _make_storm_data(sources: dict[tuple[str, str], Source]) -> StormData:
     """Convenience constructor for test StormData objects."""
-    return StormData(storm_id=_STORM_ID, basin=_BASIN, season=_SEASON, sources=sources)
+    return StormData(
+        storm_id=_STORM_ID,
+        basin=_BASIN,
+        subbasin=_SUBBASIN,
+        season=_SEASON,
+        sources=sources,
+    )
 
 
 def _write_read(storm_data: StormData) -> StormData:
@@ -92,6 +99,7 @@ class TestStormDataConstruction:
         sd = _make_storm_data({})
         assert sd.season == _SEASON
         assert sd.basin == _BASIN
+        assert sd.subbasin == _SUBBASIN
 
 
 # ---------------------------------------------------------------------------
@@ -234,17 +242,18 @@ class TestReadMeta:
             meta = StormData.read_meta(assembled_root, _STORM_ID)
         assert meta["storm_id"] == _STORM_ID
         assert meta["basin"] == _BASIN
+        assert meta["subbasin"] == _SUBBASIN
         assert int(meta["season"]) == _SEASON
 
     def test_read_meta_does_not_load_tensors(self) -> None:
         # read_meta should be fast / not require source data to be read.
-        # We verify it returns only the three root-level keys.
+        # We verify it returns only the root-level keys.
         sd = _make_storm_data({("pmw_ssmi", _TIME_0): make_field_source(H=64, W=64, C=4)})
         with tempfile.TemporaryDirectory() as tmpdir:
             assembled_root = Path(tmpdir)
             sd.write(assembled_root)
             meta = StormData.read_meta(assembled_root, _STORM_ID)
-        assert set(meta.keys()) == {"storm_id", "basin", "season"}
+        assert set(meta.keys()) == {"storm_id", "basin", "subbasin", "season"}
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +266,7 @@ class TestAtcfId:
         sd = StormData(
             storm_id=_STORM_ID,
             basin=_BASIN,
+            subbasin=_SUBBASIN,
             season=_SEASON,
             sources={("best_track", _TIME_0): make_scalar_source()},
             atcf_id="AL102016",
@@ -273,6 +283,7 @@ class TestAtcfId:
         sd = StormData(
             storm_id=_STORM_ID,
             basin=_BASIN,
+            subbasin=_SUBBASIN,
             season=_SEASON,
             sources={("best_track", _TIME_0): make_scalar_source()},
             atcf_id="AL102016",

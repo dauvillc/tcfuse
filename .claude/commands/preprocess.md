@@ -13,11 +13,11 @@ Forecast output storage (predictions, not preprocessing) lives in [`/predictions
 
 ## Agent behavior rules
 
-1. **Read the skill file first.** Do not guess Stage 1 / Stage 2 layouts, IBTrACS injection rules, or the assembled `index.parquet` schema.
-2. **Pipeline order is fixed:** per-source preprocessors → `assemble.py` → `build_splits.py` → `compute_normalization.py`. Build splits before normalization to avoid validation/test leakage.
-3. **Use `cfg.paths.*` for all paths.** Never hardcode filesystem paths; `paths.raw_datasets.<name>` for raw, `paths.preprocessed_sources` for Stage 1, `paths.preprocessed_data` for Stage 2.
-4. **Preserve missing-data semantics.** Sources may have NaN values; rely on `Source.mask` and never silently fill USA/WMO best-track quantities across providers.
-5. **Keep docs in sync:** when a Stage 1/Stage 2 schema, the assembled index, or a script under `scripts/preprocess/` changes, update `.cursor/skills/tcfuse-preprocess/SKILL.md` and this command file together; update the dataset table in `.cursor/rules/tcfuse-core.mdc` when a new dataset path is confirmed.
+1. **Read the skill file first.** Do not guess Stage 0 outputs, Stage 1 / Stage 2 layouts, IBTrACS injection rules, or the concatenated assembled `index.parquet` schema.
+2. **Pipeline order is fixed:** `prepare_ibtracs.py` (Stage 0) → per-source preprocessors (Stage 1) → `assemble.py` (Stage 2) → `build_splits.py` then `compute_normalization.py` (Stage 3). Stage 0 must run first because every Stage 1 worker consumes its `atcf_to_sid.csv`. Build splits before normalization to avoid validation/test leakage.
+3. **Use `cfg.paths.*` for all paths.** Never hardcode filesystem paths; `paths.raw_datasets.<name>` for raw, `paths.preprocessed_sources` for Stage 0/1, `paths.preprocessed_data` for Stage 2/3.
+4. **Preserve missing-data semantics.** Sources may have NaN values; rely on `Source.mask` and never silently fill USA/WMO best-track quantities across providers. Discard files whose ATCF ID is not in the Stage 0 translation table — never invent a SID.
+5. **Keep docs in sync:** when a Stage 0/1/2 schema, the assembled index, or a script under `scripts/preprocess/` changes, update `.cursor/skills/tcfuse-preprocess/SKILL.md` and this command file together; update the dataset table in `.cursor/rules/tcfuse-core.mdc` when a new dataset path is confirmed.
 
 ---
 
@@ -25,9 +25,12 @@ Forecast output storage (predictions, not preprocessing) lives in [`/predictions
 
 | Need | Start here (in SKILL.md) |
 |---|---|
+| Pipeline overview | "Pipeline at a glance" |
 | Dataset inventory + status | "Dataset inventory" |
+| Stage 0 IBTrACS prep + ATCF→SID translation | "Stage 0 — IBTrACS preprocessing" |
 | Stage 1 per-source HDF5 layout | "Stage 1 — Per-source format" |
 | Stage 2 assembled per-storm layout | "Stage 2 — Assembled format" |
+| Run Stage 0 IBTrACS prep | "Running the preprocessor" step 1 |
 | Run a per-source preprocessor (local or JZ) | "Running the preprocessor" steps 2–3 |
 | Run assembly | "Running the preprocessor" step 5 |
 | Build train/val/test window splits | "Running the preprocessor" step 6 |

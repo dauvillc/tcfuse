@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Preprocess passive microwave (PMW) data from TC-PRIMED into the standard HDF5 format."""
+"""Stage 1 — preprocess passive microwave (PMW) snapshots from TC-PRIMED."""
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,7 @@ from scripts.preprocess.tc_primed.utils import (
 from scripts.preprocess.utils.regridding import ResamplingError, regrid
 from scripts.preprocess.utils.runner import (
     finalize_source,
-    make_index_row,
+    load_translation,
     map_files,
     resolve_preproc_cfg,
     submit_slurm_jobs,
@@ -56,9 +57,14 @@ def process_pmw_file(
     sensat: str,
     ifovs: dict,
     sources_root: Path,
+    atcf_to_sid: dict[str, str],
     skip_existing: bool = False,
-) -> dict[str, Any] | None:
-    """Process one TC-PRIMED overpass file and write a standard HDF5 snapshot."""
+) -> bool:
+    """Process one TC-PRIMED overpass file and write a standard HDF5 snapshot.
+
+    Returns ``True`` when a snapshot was written or kept, ``False`` when the
+    file was discarded (missing data, unknown ATCF, etc.).
+    """
     sensor = sensat.split("_")[0]
     swath_37, vars_37 = SENSOR_VARIABLES[sensor]["37"]
     swath_89, vars_89 = SENSOR_VARIABLES[sensor]["89"]
@@ -67,21 +73,26 @@ def process_pmw_file(
 
     with Dataset(str(file)) as raw:
         meta = read_tc_primed_overpass_meta(raw)
-        storm_id = meta["storm_id"]
-        basin = meta["basin"]
+        atcf_id = meta["storm_id"]
         time_unix_s = meta["time_unix_s"]
-        storm_lat = meta["storm_lat"]
-        storm_lon = meta["storm_lon"]
+
+        sid = atcf_to_sid.get(atcf_id)
+        if sid is None:
+            warnings.warn(
+                f"No IBTrACS SID for ATCF {atcf_id!r} — discarding {file}",
+                stacklevel=2,
+            )
+            return False
 
         overpass_time = pd.Timestamp(time_unix_s, unit="s")
         overpass_time_utc = to_compact_time(time_unix_s, unit="s")
-        dest_path = Source.path(sources_root, source_name, storm_id, overpass_time_utc)
+        dest_path = Source.path(sources_root, source_name, sid, overpass_time_utc)
         if should_skip_existing(dest_path, skip_existing):
-            return None
+            return True
 
         lat89, lon89, data89 = _read_pmw_swath(raw["passive_microwave"][swath_89], vars_89)
         if any(np.all(np.isnan(arr)) for arr in data89.values()):
-            return None
+            return False
 
         regridding_res = get_regridding_resolution(sensat, swath_89, ifovs)
         try:
@@ -93,7 +104,7 @@ def process_pmw_file(
 
         lat37, lon37, data37 = _read_pmw_swath(raw["passive_microwave"][swath_37], vars_37)
         if any(np.all(np.isnan(arr)) for arr in data37.values()):
-            return None
+            return False
 
         try:
             (resampled37, _, _), _ = regrid(
@@ -121,23 +132,12 @@ def process_pmw_file(
         channels=channels,
         mask=torch.from_numpy(mask_np),
         meta={
-            "storm_id": storm_id,
-            "basin": basin,
+            "storm_id": sid,
             "snapshot_time_utc": overpass_time.isoformat(),
-            "lat": storm_lat,
-            "lon": storm_lon,
         },
     )
     source.write(dest_path)
-
-    return make_index_row(
-        storm_id,
-        overpass_time.isoformat(),
-        storm_lat,
-        storm_lon,
-        source_name,
-        dest_path,
-    )
+    return True
 
 
 def _process_sensat_files(
@@ -145,9 +145,10 @@ def _process_sensat_files(
     sensat: str,
     ifovs: dict,
     sources_root: Path,
+    atcf_to_sid: dict[str, str],
     num_workers: int,
     skip_existing: bool,
-) -> list[dict[str, Any] | None]:
+) -> list[bool | None]:
     """Process all PMW files for one sensat."""
     return map_files(
         process_pmw_file,
@@ -155,6 +156,7 @@ def _process_sensat_files(
         sensat,
         ifovs,
         sources_root,
+        atcf_to_sid,
         skip_existing,
         num_workers=num_workers,
         desc=sensat,
@@ -184,6 +186,7 @@ def main(raw_cfg: DictConfig) -> None:
     num_workers = int(cfg.get("num_workers", 4))
     skip_existing = bool(cfg.get("skip_existing", False))
 
+    atcf_to_sid = load_translation(sources_root)
     ifovs = load_tc_primed_ifovs()
 
     pmw_files = list_tc_primed_overpass_files_by_sensat(
@@ -202,7 +205,9 @@ def main(raw_cfg: DictConfig) -> None:
     def run_all() -> None:
         for sensat, files in supported.items():
             print(f"Processing {sensat} ({len(files)} files)…")
-            _process_sensat_files(files, sensat, ifovs, sources_root, num_workers, skip_existing)
+            _process_sensat_files(
+                files, sensat, ifovs, sources_root, atcf_to_sid, num_workers, skip_existing
+            )
 
     def run_all_slurm() -> None:
         submit_slurm_jobs(
@@ -212,7 +217,15 @@ def main(raw_cfg: DictConfig) -> None:
                 (
                     sensat,
                     _process_sensat_files,
-                    (files, sensat, ifovs, sources_root, num_workers, skip_existing),
+                    (
+                        files,
+                        sensat,
+                        ifovs,
+                        sources_root,
+                        atcf_to_sid,
+                        num_workers,
+                        skip_existing,
+                    ),
                 )
                 for sensat, files in supported.items()
             ],

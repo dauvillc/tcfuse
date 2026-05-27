@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Preprocess C-band SAR wind speed data from CyclObs into the standard HDF5 format."""
+"""Stage 1 — preprocess C-band SAR wind speed snapshots from CyclObs."""
 
 from __future__ import annotations
 
-import re
+import warnings
 from pathlib import Path
 from typing import Any, cast
 
@@ -17,45 +17,42 @@ from scripts.preprocess.tc_primed.utils import should_skip_existing
 from scripts.preprocess.utils.runner import (
     finalize_source,
     launch_local_or_slurm,
-    make_index_row,
+    load_translation,
     map_files,
     resolve_preproc_cfg,
 )
+
 from tcfuse.data.sources import Source, SourceKind
 from tcfuse.utils.time import to_compact_time
 
 SOURCE_NAME = "sar_cband"
 CHANNELS = ["wind_speed"]
-_WKT_POINT = re.compile(r"POINT\s*\(\s*([-\d.eE+]+)\s+([-\d.eE+]+)\s*\)", re.IGNORECASE)
-
-
-def parse_wkt_point(wkt: str) -> tuple[float, float]:
-    """Parse a WKT POINT string as ``(lat, lon)`` in degrees."""
-    match = _WKT_POINT.match(wkt.strip())
-    if match is None:
-        raise ValueError(f"Unsupported WKT geometry: {wkt!r}")
-    lon, lat = float(match.group(1)), float(match.group(2))
-    return lat, lon
 
 
 def process_sar_file(
     file: str | Path,
     file_info: dict[str, Any],
     sources_root: Path,
+    atcf_to_sid: dict[str, str],
     skip_existing: bool = False,
-) -> dict[str, Any] | None:
+) -> bool:
     """Process one CyclObs SAR overpass file and write a standard HDF5 snapshot."""
-    storm_id = str(file_info["sid"])
-    basin = str(file_info["basin"])
+    atcf_id = str(file_info["sid"])
     acq_time = cast(pd.Timestamp, pd.Timestamp(file_info["acquisition_start_time"]))
     time_unix_s = float(acq_time.timestamp())
-    storm_lat, storm_lon = parse_wkt_point(str(file_info["track_point"]))
-    storm_lon = (storm_lon + 180) % 360 - 180
+
+    sid = atcf_to_sid.get(atcf_id)
+    if sid is None:
+        warnings.warn(
+            f"No IBTrACS SID for ATCF {atcf_id!r} — discarding {file}",
+            stacklevel=2,
+        )
+        return False
 
     snapshot_time_utc = to_compact_time(acq_time)
-    dest_path = Source.path(sources_root, SOURCE_NAME, storm_id, snapshot_time_utc)
+    dest_path = Source.path(sources_root, SOURCE_NAME, sid, snapshot_time_utc)
     if should_skip_existing(dest_path, skip_existing):
-        return None
+        return True
 
     with Dataset(str(file)) as raw:
         wind_speed = np.ma.filled(raw["wind_speed"][:].astype(float), np.nan)
@@ -71,7 +68,7 @@ def process_sar_file(
     wind_speed = np.asarray(wind_speed, dtype=np.float32)
     wind_speed[mask_flag != 0] = np.nan
     if np.all(np.isnan(wind_speed)):
-        return None
+        return False
 
     lon_2d, lat_2d = np.meshgrid(lon_1d, lat_1d)
     h, w = lat_2d.shape
@@ -88,39 +85,30 @@ def process_sar_file(
         channels=CHANNELS,
         mask=torch.from_numpy(mask_np),
         meta={
-            "storm_id": storm_id,
-            "basin": basin,
+            "storm_id": sid,
             "snapshot_time_utc": acq_time.isoformat(),
-            "lat": storm_lat,
-            "lon": storm_lon,
         },
     )
     source.write(dest_path)
-
-    return make_index_row(
-        storm_id,
-        acq_time.isoformat(),
-        storm_lat,
-        storm_lon,
-        SOURCE_NAME,
-        dest_path,
-    )
+    return True
 
 
 def _process_sar_item(
     item: tuple[Path, dict[str, Any]],
     sources_root: Path,
+    atcf_to_sid: dict[str, str],
     skip_existing: bool = False,
-) -> dict[str, Any] | None:
+) -> bool:
     """Process one ``(file, metadata)`` pair (picklable entry point for ``map_files``)."""
     file, file_info = item
-    return process_sar_file(file, file_info, sources_root, skip_existing)
+    return process_sar_file(file, file_info, sources_root, atcf_to_sid, skip_existing)
 
 
 def _process_all_files(
     files: list[Path],
     file_infos: list[dict[str, Any]],
     sources_root: Path,
+    atcf_to_sid: dict[str, str],
     num_workers: int,
     skip_existing: bool,
 ) -> None:
@@ -130,6 +118,7 @@ def _process_all_files(
         _process_sar_item,
         items,
         sources_root,
+        atcf_to_sid,
         skip_existing,
         num_workers=num_workers,
         desc=SOURCE_NAME,
@@ -144,6 +133,8 @@ def main(raw_cfg: DictConfig) -> None:
     sources_root = Path(cfg["paths"]["preprocessed_sources"])
     num_workers = int(cfg.get("num_workers", 4))
     skip_existing = bool(cfg.get("skip_existing", False))
+
+    atcf_to_sid = load_translation(sources_root)
 
     acq_df = pd.read_csv(
         cyclobs_dir / "sar_acquisitions_metadata.csv",
@@ -161,7 +152,7 @@ def main(raw_cfg: DictConfig) -> None:
         acq_df = acq_df[acq_df["season"].isin(include_seasons)].reset_index(drop=True)
         print(f"Filtered to seasons {include_seasons}: {len(acq_df)} acquisitions.")
 
-    keep_cols = ["sid", "basin", "acquisition_start_time", "track_point"]
+    keep_cols = ["sid", "acquisition_start_time"]
     subset = cast(pd.DataFrame, acq_df[keep_cols])
     file_infos = cast(list[dict[str, Any]], subset.to_dict(orient="records"))
     files = [cyclobs_dir / url.split("/")[-1] for url in acq_df["data_url"]]
@@ -170,8 +161,12 @@ def main(raw_cfg: DictConfig) -> None:
     launch_local_or_slurm(
         cfg,
         "prepare_sar",
-        lambda: _process_all_files(files, file_infos, sources_root, num_workers, skip_existing),
-        lambda: _process_all_files(files, file_infos, sources_root, num_workers, skip_existing),
+        lambda: _process_all_files(
+            files, file_infos, sources_root, atcf_to_sid, num_workers, skip_existing
+        ),
+        lambda: _process_all_files(
+            files, file_infos, sources_root, atcf_to_sid, num_workers, skip_existing
+        ),
     )
 
     if finalize_source(SOURCE_NAME, "sar", SourceKind.FIELD, CHANNELS, sources_root, cfg) == 0:

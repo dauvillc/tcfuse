@@ -1,24 +1,38 @@
 ---
 name: tcfuse-preprocess
 description: >-
-  TC-Fuse dataset preprocessing pipeline — Stage 1 per-source HDF5 snapshots,
-  Stage 2 assembled per-storm HDF5, best-track window splits, normalization
-  statistics, the I/O API in `src/tcfuse/data/sources/`. Use when preparing
-  any dataset (TC-PRIMED, CyclObs, dropsondes, Argo), running `assemble.py` /
-  `build_splits.py` / `compute_normalization.py`, working with `Source` or
-  `StormData`, or extending the per-source HDF5 / assembled formats.
+  TC-Fuse dataset preprocessing pipeline — Stage 0 IBTrACS prep + ATCF→SID
+  translation table, Stage 1 per-source HDF5 snapshots, Stage 2 assembled
+  per-storm HDF5 + concatenated index, Stage 3 best-track window splits,
+  normalization statistics, the I/O API in `src/tcfuse/data/sources/`. Use
+  when preparing any dataset (TC-PRIMED, CyclObs, dropsondes, Argo), running
+  `prepare_ibtracs.py` / `assemble.py` / `build_splits.py` /
+  `compute_normalization.py`, working with `Source` or `StormData`, or
+  extending the per-source HDF5 / assembled formats.
 ---
 
 # TC-Fuse preprocessing pipeline
 
 Claude Code: invoke `/preprocess` (reads this skill).
 
+## Pipeline at a glance
+
+The pipeline runs in four explicit stages. Each stage reads only the outputs
+of previous stages — never raw inputs from earlier ones.
+
+| Stage | Script | Inputs | Outputs |
+|---|---|---|---|
+| 0 | `prepare_ibtracs.py` | raw IBTrACS CSV | `ibtracs/ibtracs.parquet`, `ibtracs/atcf_to_sid.csv` |
+| 1 | `prepare_pmw.py`, `prepare_infrared.py`, `prepare_radar.py`, `sar/prepare_sar.py` | raw TC-PRIMED / CyclObs files, Stage 0 `atcf_to_sid.csv` | per-source HDF5 snapshots + `index.parquet` |
+| 2 | `assemble.py` | Stage 0 `ibtracs.parquet`, Stage 1 indices + snapshots | `storm_data/{sid}.h5`, `index.parquet` (concatenated) |
+| 3 | `build_splits.py`, `compute_normalization.py` | Stage 2 `index.parquet` | `train.parquet`, `val.parquet`, `test.parquet`, normalization stats |
+
 ## When to use
 
 - Writing or modifying a per-source preprocessor under `scripts/preprocess/`.
-- Running `assemble.py`, `build_splits.py`, or `compute_normalization.py`.
+- Running `prepare_ibtracs.py`, `assemble.py`, `build_splits.py`, or `compute_normalization.py`.
 - Reading or writing `Source` / `StormData` HDF5 files.
-- Understanding the on-disk Stage 1 / Stage 2 layouts and the assembled `index.parquet`.
+- Understanding the on-disk Stage 0 / Stage 1 / Stage 2 layouts and the assembled `index.parquet`.
 - Adding a new dataset to the project.
 
 For Jean-Zay submission, preflight, or SLURM setup, see [tcfuse-jz](../tcfuse-jz/SKILL.md).
@@ -33,17 +47,65 @@ For forecast output storage (predictions, not preprocessing), see [tcfuse-predic
 | **NOAA AOML Dropsondes** | Vertical profiles P/T/RH/u/v from hurricane recon | `dropsonde` (1D) | Preprocessor not yet written | `paths.raw_datasets.dropsondes` |
 | **Argo floats** | T/S profiles 0–2000 m depth | `argo` (1D) | Preprocessor not yet written | `paths.raw_datasets.argo` |
 
+## Stage 0 — IBTrACS preprocessing
+
+Config keys: `cfg.paths.raw_datasets.ibtracs` (input) and `cfg.paths.preprocessed_sources` (output).
+Script: `scripts/preprocess/prepare_ibtracs.py`.
+
+`prepare_ibtracs.py` reads the raw IBTrACS CSV once, filters to `TRACK_TYPE == "MAIN"`,
+keeps a trimmed lowercase column set, and writes two artifacts under
+`${paths.preprocessed_sources}/ibtracs/`:
+
+```
+${paths.preprocessed_sources}/ibtracs/
+├── ibtracs.parquet     # one row per (sid, iso_time)
+└── atcf_to_sid.csv     # translation table consumed by every Stage 1 preprocessor
+```
+
+**`ibtracs.parquet` columns (all lowercased):**
+
+```
+sid, season, basin, subbasin, name, number, iso_time, nature, lat, lon,
+usa_atcf_id, usa_wind, usa_pres, usa_sshs,
+usa_r34_ne, usa_r34_se, usa_r34_sw, usa_r34_nw,
+usa_r50_ne, usa_r50_se, usa_r50_sw, usa_r50_nw,
+usa_r64_ne, usa_r64_se, usa_r64_sw, usa_r64_nw
+```
+
+`iso_time` is a naive-UTC isoformat string. `season` is `int64`; `usa_sshs`
+and `number` are nullable `Int64`; everything else numeric is `float64`.
+
+**`atcf_to_sid.csv` columns:** `sid, season, basin, subbasin, name, usa_atcf_id`,
+deduplicated on `[sid, usa_atcf_id]`. A `ValueError` is raised if any SID maps
+to more than one `USA_ATCF_ID` (the per-SID check; a single ATCF mapping to
+multiple SIDs across seasons is allowed).
+
+**Loader API** in `src/tcfuse/data/ibtracs.py`:
+
+| Function | Purpose |
+|---|---|
+| `ibtracs_paths(sources_root)` | Return `(ibtracs.parquet, atcf_to_sid.csv)` paths. |
+| `load_ibtracs_snapshots(sources_root)` | Load the snapshots parquet as a DataFrame. |
+| `load_atcf_to_sid(sources_root)` | Load the translation table as a DataFrame. |
+| `load_atcf_to_sid_dict(sources_root)` | `{usa_atcf_id: sid}` mapping. |
+| `ibtracs_rows_to_sources(rows, sid, basin)` | Convert per-storm rows into 16-channel SCALAR `Source` snapshots. |
+| `group_ibtracs_by_sid(snapshots)` | Group snapshots by SID for fast per-storm access. |
+
+`IBTRACS_SOURCE_NAME = "ibtracs_best_track"` and `IBTRACS_CHANNELS` (length 16) are
+the canonical names of the injected best-track Source — see Stage 2 below.
+
 ## Stage 1 — Per-source format
 
 Config key: `cfg.paths.preprocessed_sources`
 
 ```
 ${paths.preprocessed_sources}/
+├── ibtracs/                    # Stage 0 outputs (see above)
 ├── pmw_amsr2_gcomw1/
 │   ├── metadata.yaml           # source kind, channels, char_vars
 │   ├── index.parquet           # one row per snapshot
 │   └── snapshots/
-│       └── {storm_id}_{YYYYMMDDTHHMMSSZ}.h5
+│       └── {sid}_{YYYYMMDDTHHMMSSZ}.h5
 ├── pmw_ssmis_f18/
 │   └── ...
 ├── ir_tcirar/
@@ -52,13 +114,35 @@ ${paths.preprocessed_sources}/
     └── ...
 ```
 
-Each HDF5 file holds **exactly one source**, written by `Source.write(path)`.
-Use `Source.path(sources_root, source_name, storm_id, snapshot_time_utc)` to compute canonical paths.
+Each per-source HDF5 file holds **exactly one source**, written by `Source.write(path)`.
+Use `Source.path(sources_root, source_name, sid, snapshot_time_utc)` to compute canonical paths.
+
+**ATCF→SID translation at Stage 1:** every per-source preprocessor calls
+`load_translation(sources_root)` to load the Stage 0 ATCF→SID lookup, then in the
+per-file worker:
+
+1. Reads the dataset-native ATCF ID (e.g. `storm_id` in TC-PRIMED, `sid` in CyclObs).
+2. Looks up the IBTrACS SID; if missing, the worker emits `warnings.warn(...)` and
+   **discards** the file — no snapshot is written.
+3. Uses the SID in the HDF5 filename and writes `Source.meta = {"storm_id": sid,
+   "snapshot_time_utc": <iso>}`. **`storm_lat` and `storm_lon` are no longer written**
+   to `Source.meta` — per-pixel coordinates already live in `Source.coords`.
+
+**Per-source `index.parquet` schema (canonical for every source):**
+
+```
+sid, source_name, snapshot_time_utc, season, basin, subbasin
+```
+
+The index is rebuilt at the end of every Stage 1 run by `finalize_source` in
+`scripts/preprocess/utils/runner.py`, which scans `snapshots/*.h5`, reads each
+file's `storm_id` (=SID) and `snapshot_time_utc` root attrs, and left-joins
+the Stage 0 translation table to populate `season / basin / subbasin`.
 
 **HDF5 file structure per snapshot:**
 ```
 /
-├── attrs: {storm_id, basin, snapshot_time_utc, lat, lon, vmax_kt, …}  ← Source.meta
+├── attrs: {storm_id (=SID), snapshot_time_utc, …}     ← Source.meta
 ├── scalar/
 │   └── {source_name}/
 │       ├── values    float32 (C,),       gzip-4
@@ -92,14 +176,6 @@ char_vars:
   ifov: {tb_36.5h: [7.2, 4.4, 7.2, 4.4], …}
 ```
 
-**index.parquet schema (per source):**
-```
-storm_id, basin, snapshot_time_utc, lat, lon, vmax_kt, mslp_hpa,
-development_level, storm_speed_ms, storm_heading_deg,
-source_name (str), file_path (str)
-```
-Columns vary by source; the listed ones are always present.
-
 ## Stage 2 — Assembled format
 
 Config key: `cfg.paths.preprocessed_data`
@@ -107,17 +183,17 @@ Config key: `cfg.paths.preprocessed_data`
 ```
 ${paths.preprocessed_data}/
 ├── storm_data/
-│   └── {ibtracs_sid}.h5    # one file per storm, e.g. 2016228N14275.h5
-└── index.parquet           # global assembled index (USA ATCF–tracked storms only)
+│   └── {sid}.h5            # one file per IBTrACS storm, e.g. 2016228N14275.h5
+└── index.parquet           # concatenated assembled index (Stage 1 + IBTrACS rows)
 ```
 
 Each HDF5 file holds **all sources for one storm**, written by `StormData.write(assembled_root)`.
-Use `StormData.path(assembled_root, storm_id)` to compute canonical paths.
+Use `StormData.path(assembled_root, sid)` to compute canonical paths.
 
 **HDF5 file structure (assembled):**
 ```
 /
-├── attrs: {storm_id (IBTrACS SID), basin, season, atcf_id}
+├── attrs: {storm_id (=SID), basin, subbasin, season, atcf_id?}
 └── {source_name}/
     └── {compact_snapshot_time}/     # e.g., "20160912T010942Z"
         ├── values    float32, gzip-4
@@ -129,48 +205,81 @@ Use `StormData.path(assembled_root, storm_id)` to compute canonical paths.
             ├── char_vars          JSON list
             ├── kind               "SCALAR" | "PROFILE" | "FIELD"
             ├── snapshot_time_utc  isoformat str (for round-trip key recovery)
-            └── [lat, lon, vmax_kt, …]  from Source.meta
+            └── […]                from Source.meta
 ```
 
-**ATCF-only filtering:** `assemble.py` requires the IBTrACS CSV at
-`cfg.paths.raw_datasets.ibtracs` and assembles only storms whose Stage-1 `storm_id`
-has a non-empty `USA_ATCF_ID` in IBTrACS (USA agency tracking). Storms without an
-ATCF match are skipped entirely.
+`StormData.subbasin` is **mandatory**. Older assembled files written before
+the four-stage refactor are missing this root attr and must be regenerated.
 
-**IBTrACS injection:** For each retained storm, `assemble.py` injects one SCALAR source per best-track
-observation time:
+**Storm selection:** `assemble.py` drives the storm set straight from the
+Stage 0 `ibtracs.parquet` (already filtered to `TRACK_TYPE == "MAIN"`). It
+never re-reads the raw IBTrACS CSV. Stage 1 indices already key on SID, so
+no ATCF translation happens at this stage.
+
+**IBTrACS injection:** For each storm, `assemble.py` injects one SCALAR
+`ibtracs_best_track` Source per best-track observation time via
+`ibtracs_rows_to_sources`:
 - `source_name = "ibtracs_best_track"`
-- `kind = SCALAR`, channels: `[usa_vmax_kt, wmo_vmax_kt, usa_mslp_hpa, wmo_mslp_hpa, usa_rmw_nm, usa_r34_ne_nm, usa_r34_se_nm, usa_r34_sw_nm, usa_r34_nw_nm]`
-- USA and WMO quantities are kept as distinct channels; missing values remain NaN.
+- `kind = SCALAR`, `coords = [time_unix_s, lat, lon]`
+- channels (length 16) — `IBTRACS_CHANNELS` in `src/tcfuse/data/ibtracs.py`:
+  ```
+  usa_wind, usa_pres, lat, lon,
+  usa_r34_ne, usa_r34_se, usa_r34_sw, usa_r34_nw,
+  usa_r50_ne, usa_r50_se, usa_r50_sw, usa_r50_nw,
+  usa_r64_ne, usa_r64_se, usa_r64_sw, usa_r64_nw
+  ```
+  `lat` and `lon` are intentionally duplicated as values so the embedding
+  layer can treat storm position as a feature, not only as a coordinate.
 
 **`StormData` sources dict key:** `(source_name, snapshot_time_utc)` where
 `snapshot_time_utc` is the isoformat string as it appears in per-source `index.parquet`.
 
-**Assembled index.parquet schema:**
+**Assembled `index.parquet` schema:** the concatenation of two row blocks
+(satellite snapshots first, IBTrACS rows second), sharing a union schema with
+columns in this order:
+
 ```
-storm_id, basin, season, atcf_id,
-source_name, snapshot_time_utc, lat, lon, usa_vmax_kt, wmo_vmax_kt
+sid, source_name, snapshot_time_utc, season, basin, subbasin,
+name, number, nature, lat, lon,
+usa_atcf_id, usa_wind, usa_pres, usa_sshs,
+usa_r34_*, usa_r50_*, usa_r64_*
 ```
-One row per (storm, source_name, snapshot). `ibtracs_best_track` rows are included.
+
+Satellite rows leave the IBTrACS-specific columns (`usa_wind`, radii, etc.)
+NaN; IBTrACS rows carry their full Stage 0 schema with `source_name =
+"ibtracs_best_track"` and the IBTrACS `iso_time` column renamed to
+`snapshot_time_utc`.
 
 ## Running the preprocessor
 
-### Step 1 — Verify paths
+### Step 0 — Verify paths
 
 ```bash
 # Check that raw data is present
 ls $SCRATCH/tcfuse/data/raw/tc_primed/
-ls $SCRATCH/tcfuse/data/raw/ibtracs/    # needed by the assembly step
+ls $SCRATCH/tcfuse/data/raw/ibtracs/    # raw CSV used by Stage 0
 ```
 
 For local runs, `$SCRATCH` must be set; or override `paths.scratch` on the command line.
 
-### Step 2 — Local debug run of source preprocessors (no SLURM)
+### Step 1 — Stage 0 IBTrACS preprocessing
+
+```bash
+python scripts/preprocess/prepare_ibtracs.py
+# Optional Jean-Zay run (no SLURM submission needed; it's a single-process job)
+python scripts/preprocess/prepare_ibtracs.py paths=jz
+```
+
+This must run **before** any Stage 1 preprocessor: every per-source preprocessor
+loads `atcf_to_sid.csv` from disk to discard files with unknown ATCF IDs.
+
+### Step 2 — Stage 1 per-source preprocessors
 
 ```bash
 python scripts/preprocess/tc_primed/prepare_pmw.py submitit=false
 python scripts/preprocess/tc_primed/prepare_infrared.py submitit=false
 python scripts/preprocess/tc_primed/prepare_radar.py submitit=false
+python scripts/preprocess/sar/prepare_sar.py submitit=false
 ```
 
 To limit to a subset during development, pass `include_seasons=[2020]` or similar via the
@@ -200,14 +309,14 @@ print(src.kind, src.values.shape, src.channels)
 
 # Check per-source index
 df = pd.read_parquet(sources_root / "pmw_amsr2_gcomw1" / "index.parquet")
-print(df.head())
+print(df.head())  # sid, source_name, snapshot_time_utc, season, basin, subbasin
 print(df["source_name"].value_counts())
 ```
 
-### Step 5 — Run assembly
+### Step 5 — Stage 2 assembly
 
-Requires IBTrACS at `cfg.paths.raw_datasets.ibtracs`. Only storms with a USA ATCF ID
-in IBTrACS are assembled; others are skipped.
+Reads the Stage 0 artifacts and every Stage 1 `index.parquet`; the storm set
+is exactly `set(ibtracs_snapshots["sid"])`. The raw IBTrACS CSV is **not** read.
 
 ```bash
 # Local debug run (no SLURM)
@@ -221,10 +330,6 @@ Key options:
 - `skip_existing=true` — resume a partial run without rewriting existing storm files
 - `chunk_size=200` — number of storms per SLURM job (SLURM mode only)
 
-Re-running assembly does not delete previously assembled storm files that no longer
-pass the ATCF filter; use `skip_existing=false` or remove stale `storm_data/*.h5`
-before `build_splits.py` for a clean refresh.
-
 Validate Stage 2 output:
 
 ```python
@@ -235,17 +340,19 @@ import pandas as pd
 assembled_root = Path("$SCRATCH/tcfuse/data/preprocessed/assembled")
 
 # Spot-check one assembled storm
-storm_id = next((assembled_root / "storm_data").glob("*.h5")).stem
-sd = StormData.from_disk(assembled_root, storm_id)
-print(sd.storm_id, sd.basin, sd.season)
+sid = next((assembled_root / "storm_data").glob("*.h5")).stem
+sd = StormData.from_disk(assembled_root, sid)
+print(sd.storm_id, sd.basin, sd.subbasin, sd.season)
 print({k: v.values.shape for k, v in sd.sources.items()})
 
-# Check global assembled index
+# Check concatenated assembled index
 df = pd.read_parquet(assembled_root / "index.parquet")
 print(df["source_name"].value_counts())
+# IBTrACS-specific columns (usa_wind, …) are populated on best-track rows only.
+print(df.loc[df["source_name"] == "ibtracs_best_track", "usa_wind"].describe())
 ```
 
-### Step 6 — Build train/val/test splits
+### Step 6 — Stage 3 train/val/test splits
 
 After all desired sources are preprocessed and assembled, run:
 
@@ -259,8 +366,9 @@ python scripts/preprocess/build_splits.py paths=jz
 
 This reads the assembled `index.parquet` and builds one model sample per valid
 `ibtracs_best_track` window. By default, each sample spans lead hours
-`[0, 6, 12, 18, 24, 30]`; finite `usa_vmax_kt`, `lat`, and `lon` are required at
-`+0h`, `+6h`, and `+30h`, while intermediate leads may be missing or NaN.
+`[0, 6, 12, 18, 24, 30]`; finite `usa_wind`, `usa_sshs`, `lat`, and `lon` are
+required at `+0h`, `+6h`, and `+30h`, while intermediate leads may be missing
+or NaN.
 
 The resulting sample rows are assigned to splits based on the season lists in
 `conf/preproc.yaml`:
@@ -317,7 +425,7 @@ pmw_amsr2_gcomw1:
 ibtracs_best_track:
   kind: scalar
   channels:
-    vmax_kt:
+    usa_wind:
       mean: 62.1
       std: 28.4
       count: 85000

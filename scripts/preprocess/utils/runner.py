@@ -1,4 +1,11 @@
-"""Shared launch and finalize helpers for preprocessing scripts."""
+"""Shared launch and finalize helpers for Stage 1 per-source preprocessing scripts.
+
+The per-source ``index.parquet`` is rebuilt by scanning the written HDF5
+snapshots at the end of every run; workers therefore no longer need to emit
+index rows themselves. Each row carries the IBTrACS SID (from the file root
+attrs) plus ``season / basin / subbasin`` looked up in the Stage 0 translation
+table.
+"""
 
 from __future__ import annotations
 
@@ -9,21 +16,22 @@ from pathlib import Path
 from typing import Any, cast
 
 import h5py
-import numpy as np
 import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
+from tcfuse.data.ibtracs import load_atcf_to_sid
 from tcfuse.data.sources import SourceKind, SourceMetadata
 from tcfuse.utils.archive import submit_archive_job
 
-INDEX_COLUMNS = (
-    "storm_id",
-    "snapshot_time_utc",
-    "lat",
-    "lon",
+# Canonical column set for every Stage 1 per-source index.parquet.
+INDEX_COLUMNS: tuple[str, ...] = (
+    "sid",
     "source_name",
-    "file_path",
+    "snapshot_time_utc",
+    "season",
+    "basin",
+    "subbasin",
 )
 
 
@@ -32,49 +40,91 @@ def resolve_preproc_cfg(raw_cfg: DictConfig) -> dict[str, Any]:
     return cast(dict[str, Any], OmegaConf.to_container(raw_cfg, resolve=True))
 
 
-def make_index_row(
-    storm_id: str,
-    snapshot_time_utc: str,
-    lat: float,
-    lon: float,
+def load_translation(sources_root: Path) -> dict[str, str]:
+    """Load the ATCF→SID translation dict from Stage 0 outputs.
+
+    Args:
+        sources_root: Root directory for preprocessed sources.
+
+    Returns:
+        Mapping ``{usa_atcf_id: sid}`` for every main-track storm in IBTrACS.
+    """
+    df = load_atcf_to_sid(sources_root)
+    table = dict(zip(cast(pd.Series, df["usa_atcf_id"]), cast(pd.Series, df["sid"]), strict=True))
+    print(
+        f"Loaded ATCF→SID translation: {len(table)} entries "
+        f"from {sources_root / 'ibtracs' / 'atcf_to_sid.csv'}"
+    )
+    return table
+
+
+def _sid_attrs_lookup(sources_root: Path) -> dict[str, dict[str, Any]]:
+    """Return ``{sid: {season, basin, subbasin}}`` from the Stage 0 translation table."""
+    df = load_atcf_to_sid(sources_root)
+    keep = cast(pd.DataFrame, df[["sid", "season", "basin", "subbasin"]])
+    keep = cast(pd.DataFrame, keep.drop_duplicates(subset=["sid"]))
+    records: dict[str, dict[str, Any]] = {}
+    for rec in cast(list[dict[str, Any]], keep.to_dict(orient="records")):
+        records[str(rec["sid"])] = {
+            "season": int(rec["season"]),
+            "basin": str(rec["basin"]),
+            "subbasin": str(rec["subbasin"]),
+        }
+    return records
+
+
+def scan_source_snapshots(
+    source_dir: Path,
     source_name: str,
-    file_path: Path | str,
-) -> dict[str, Any]:
-    """Build one row for a per-source ``index.parquet``."""
-    return {
-        "storm_id": storm_id,
-        "snapshot_time_utc": snapshot_time_utc,
-        "lat": lat,
-        "lon": lon,
-        "source_name": source_name,
-        "file_path": str(file_path),
-    }
+    sid_attrs: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
+    """Rebuild the per-source index by scanning written snapshot HDF5 files.
 
+    Args:
+        source_dir: Source directory, e.g. ``{sources_root}/pmw_amsr2_gcomw1``.
+        source_name: Source identifier.
+        sid_attrs: Mapping from SID to ``{season, basin, subbasin}`` produced by
+            :func:`_sid_attrs_lookup`.
 
-def scan_snapshots_index(source_dir: Path, source_name: str) -> pd.DataFrame:
-    """Rebuild the per-source index by scanning written snapshot HDF5 files."""
+    Returns:
+        DataFrame with the columns listed in :data:`INDEX_COLUMNS`. Snapshots
+        whose ``storm_id`` attr is not a known SID are dropped with a warning.
+    """
     snapshots_dir = source_dir / "snapshots"
     if not snapshots_dir.is_dir():
         return pd.DataFrame(columns=list(INDEX_COLUMNS))
 
     rows: list[dict[str, Any]] = []
+    skipped: list[str] = []
     for path in sorted(snapshots_dir.glob("*.h5")):
         with h5py.File(path, "r") as snapshot_file:
             attrs = dict(snapshot_file.attrs)
+        sid = str(attrs["storm_id"])
+        info = sid_attrs.get(sid)
+        if info is None:
+            skipped.append(sid)
+            continue
         rows.append(
-            make_index_row(
-                str(attrs["storm_id"]),
-                str(attrs["snapshot_time_utc"]),
-                float(np.asarray(attrs["lat"]).item()),
-                float(np.asarray(attrs["lon"]).item()),
-                source_name,
-                path,
-            )
+            {
+                "sid": sid,
+                "source_name": source_name,
+                "snapshot_time_utc": str(attrs["snapshot_time_utc"]),
+                "season": info["season"],
+                "basin": info["basin"],
+                "subbasin": info["subbasin"],
+            }
+        )
+
+    if skipped:
+        unique = sorted(set(skipped))
+        print(
+            f"[WARN] {source_name}: skipped {len(skipped)} snapshots for "
+            f"{len(unique)} unknown SID(s) (e.g. {unique[:3]})."
         )
 
     if not rows:
         return pd.DataFrame(columns=list(INDEX_COLUMNS))
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=list(INDEX_COLUMNS))
 
 
 def map_files[R, F](
@@ -133,9 +183,17 @@ def finalize_source(
     cfg: dict[str, Any],
     char_vars: dict[str, Any] | None = None,
 ) -> int:
-    """Write index/metadata from on-disk snapshots and archive the source directory."""
+    """Build the per-source index from on-disk snapshots and archive the source.
+
+    Reads the Stage 0 translation table once to populate ``season/basin/subbasin``
+    on every index row. Writes ``metadata.yaml`` and ``index.parquet`` under
+    ``{sources_root}/{source_name}/``.
+
+    Returns the number of indexed snapshots (0 when nothing was written).
+    """
     source_dir = sources_root / source_name
-    index_df = scan_snapshots_index(source_dir, source_name)
+    sid_attrs = _sid_attrs_lookup(sources_root)
+    index_df = scan_source_snapshots(source_dir, source_name, sid_attrs)
     if index_df.empty:
         return 0
 

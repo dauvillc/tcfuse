@@ -60,11 +60,7 @@ def _get_source_color(
 
     # Substring-match against known SOURCE_COLORS keys (longest key first for determinism).
     matched = next(
-        (
-            v
-            for k, v in sorted(SOURCE_COLORS.items(), key=lambda x: -len(x[0]))
-            if k in source_name
-        ),
+        (v for k, v in sorted(SOURCE_COLORS.items(), key=lambda x: -len(x[0])) if k in source_name),
         None,
     )
     color = matched if matched is not None else next(fallback_cycle)

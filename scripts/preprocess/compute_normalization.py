@@ -37,8 +37,8 @@ def load_training_snapshot_index(assembled_root: Path) -> pd.DataFrame:
 
     print(f"Loading training window index from {train_path} …")
     train_samples = pd.read_parquet(train_path)
-    if "storm_id" not in train_samples.columns:
-        raise ValueError(f"Training split at {train_path} must contain a storm_id column.")
+    if "sid" not in train_samples.columns:
+        raise ValueError(f"Training split at {train_path} must contain a sid column.")
 
     index_path = assembled_root / "index.parquet"
     if not index_path.exists():
@@ -48,13 +48,11 @@ def load_training_snapshot_index(assembled_root: Path) -> pd.DataFrame:
 
     print(f"Loading canonical snapshot index from {index_path} …")
     snapshot_index = pd.read_parquet(index_path)
-    train_storm_ids = set(train_samples["storm_id"].astype(str))
-    training_snapshots = snapshot_index[
-        snapshot_index["storm_id"].astype(str).isin(train_storm_ids)
-    ].copy()
+    train_sids = list(train_samples["sid"].astype(str).unique())
+    training_snapshots = snapshot_index[snapshot_index["sid"].astype(str).isin(train_sids)].copy()
 
     return training_snapshots.drop_duplicates(
-        subset=["storm_id", "source_name", "snapshot_time_utc"]
+        subset=["sid", "source_name", "snapshot_time_utc"]
     ).reset_index(drop=True)
 
 
@@ -74,8 +72,7 @@ def _flatten_values_and_mask(
 
     if mask.shape != values.shape:
         raise ValueError(
-            f"mask shape {mask.shape} must match values shape {values.shape} "
-            f"for {kind.name} source"
+            f"mask shape {mask.shape} must match values shape {values.shape} for {kind.name} source"
         )
 
     if kind == SourceKind.SCALAR:
@@ -121,10 +118,10 @@ def process_source(
     kind: SourceKind | None = None
 
     for _, row in rows.iterrows():
-        storm_id = str(row["storm_id"])
+        sid = str(row["sid"])
         snap_time = str(row["snapshot_time_utc"])
         compact = to_compact_time(snap_time)
-        storm_path = StormData.path(assembled_root, storm_id)
+        storm_path = StormData.path(assembled_root, sid)
         if not storm_path.exists():
             continue
         try:
@@ -152,10 +149,10 @@ def process_source(
     m2s = np.zeros(c, dtype=np.float64)
 
     for _, row in tqdm(rows.iterrows(), total=len(rows), desc=source_name, leave=False):
-        storm_id = str(row["storm_id"])
+        sid = str(row["sid"])
         snap_time = str(row["snapshot_time_utc"])
         compact = to_compact_time(snap_time)
-        storm_path = StormData.path(assembled_root, storm_id)
+        storm_path = StormData.path(assembled_root, sid)
         if not storm_path.exists():
             continue
 
@@ -170,11 +167,11 @@ def process_source(
                 values: np.ndarray = cast(h5py.Dataset, grp["values"])[:]
                 if "mask" not in grp:
                     raise ValueError(
-                        f"{storm_id}/{compact}/{source_name} is missing mandatory mask dataset."
+                        f"{sid}/{compact}/{source_name} is missing mandatory mask dataset."
                     )
                 mask: np.ndarray = cast(h5py.Dataset, grp["mask"])[:]
         except Exception as exc:
-            print(f"  [WARN] Failed to read {storm_id}/{compact}: {exc}")
+            print(f"  [WARN] Failed to read {sid}/{compact}: {exc}")
             continue
 
         flat_values, flat_mask = _flatten_values_and_mask(values, mask, kind)

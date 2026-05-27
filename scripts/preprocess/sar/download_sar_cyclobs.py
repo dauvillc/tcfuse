@@ -256,9 +256,7 @@ class DownloadJob:
 
         # Parallel downloads with a tqdm progress bar
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            future_to_url = {
-                executor.submit(download_file, url, cyclobs_root): url for url in urls
-            }
+            future_to_url = {executor.submit(download_file, url, cyclobs_root): url for url in urls}
 
             with tqdm(total=total_files, unit="file", desc="Downloading") as pbar:
                 for future in as_completed(future_to_url):

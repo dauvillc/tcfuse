@@ -61,10 +61,11 @@ def _empty_window_index(leads_hours: list[int], required_columns: list[str]) -> 
     """Return an empty sample-index DataFrame with the expected schema."""
     columns = [
         "sample_id",
-        "storm_id",
+        "sid",
         "basin",
+        "subbasin",
         "season",
-        "atcf_id",
+        "usa_atcf_id",
         "anchor_time_utc",
         "window_start_time_utc",
         "window_end_time_utc",
@@ -125,11 +126,11 @@ def build_window_index(
 
     # Parse timestamps once so sorting and lead matching use a consistent timezone.
     best_track["_time"] = best_track["snapshot_time_utc"].map(_parse_time)
-    best_track = cast(Any, best_track).sort_values(["storm_id", "_time"]).reset_index(drop=True)
+    best_track = cast(Any, best_track).sort_values(["sid", "_time"]).reset_index(drop=True)
 
     sample_rows: list[dict[str, Any]] = []
-    for storm_id_value, storm_rows in best_track.groupby("storm_id", sort=True):
-        storm_id = str(storm_id_value)
+    for sid_value, storm_rows in best_track.groupby("sid", sort=True):
+        sid = str(sid_value)
         rows_by_time = _first_rows_by_time(storm_rows)
         for anchor_time in sorted(rows_by_time):
             lead_rows: dict[int, pd.Series | None] = {}
@@ -145,13 +146,14 @@ def build_window_index(
                 continue
 
             anchor_row = rows_by_time[anchor_time]
-            sample_id = f"{storm_id}_{to_compact_time(anchor_time)}"
+            sample_id = f"{sid}_{to_compact_time(anchor_time)}"
             sample: dict[str, Any] = {
                 "sample_id": sample_id,
-                "storm_id": storm_id,
+                "sid": sid,
                 "basin": anchor_row.get("basin"),
+                "subbasin": anchor_row.get("subbasin"),
                 "season": int(anchor_row["season"]),
-                "atcf_id": anchor_row.get("atcf_id"),
+                "usa_atcf_id": anchor_row.get("usa_atcf_id"),
                 "anchor_time_utc": _isoformat_naive_utc(anchor_time),
                 "window_start_time_utc": _isoformat_naive_utc(anchor_time),
                 "window_end_time_utc": _isoformat_naive_utc(
@@ -177,11 +179,7 @@ def build_window_index(
 
     if not sample_rows:
         return _empty_window_index(leads_hours, required_columns)
-    return (
-        pd.DataFrame(sample_rows)
-        .sort_values(["storm_id", "anchor_time_utc"])
-        .reset_index(drop=True)
-    )
+    return pd.DataFrame(sample_rows).sort_values(["sid", "anchor_time_utc"]).reset_index(drop=True)
 
 
 def split_by_season(
@@ -236,7 +234,7 @@ def main(raw_cfg: DictConfig) -> None:
     # Load the global assembled index.
     print(f"Loading index from {index_path} …")
     index = pd.read_parquet(index_path)
-    print(f"  {len(index)} rows, {index['storm_id'].nunique()} unique storms.")
+    print(f"  {len(index)} rows, {index['sid'].nunique()} unique storms.")
 
     window_cfg = cast(dict[str, Any], cfg["window_index"])
     leads_hours = [int(h) for h in window_cfg["leads_hours"]]
@@ -258,7 +256,7 @@ def main(raw_cfg: DictConfig) -> None:
         required_leads_hours=required_leads_hours,
         required_columns=required_columns,
     )
-    n_storms = samples["storm_id"].nunique() if len(samples) else 0
+    n_storms = samples["sid"].nunique() if len(samples) else 0
     print(f"  {len(samples)} samples, {n_storms} storms.")
 
     # Slice sample windows into season-based splits.
@@ -271,7 +269,7 @@ def main(raw_cfg: DictConfig) -> None:
         out_path = assembled_root / f"{split_name}.parquet"
         df.to_parquet(out_path, index=False)
         seasons_str = ", ".join(str(s) for s in sorted(df["season"].unique()))
-        print(f"{split_name:<8}  {df['storm_id'].nunique():>7}  {len(df):>9}  {seasons_str}")
+        print(f"{split_name:<8}  {df['sid'].nunique():>7}  {len(df):>9}  {seasons_str}")
 
     # Sanity check: every sample appears in exactly one split.
     total = sum(len(df) for df in splits.values())

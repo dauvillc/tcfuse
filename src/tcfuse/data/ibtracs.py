@@ -1,4 +1,11 @@
-"""IBTrACS CSV loading and conversion to :class:`~tcfuse.data.sources.Source` objects."""
+"""Stage 0 IBTrACS I/O.
+
+Loads the preprocessed parquet / translation CSV and converts per-storm rows
+into :class:`~tcfuse.data.sources.Source` objects.
+
+The raw IBTrACS CSV is only read once, by ``scripts/preprocess/prepare_ibtracs.py``.
+Every downstream consumer goes through this module instead.
+"""
 
 from __future__ import annotations
 
@@ -12,96 +19,159 @@ import torch
 
 from tcfuse.data.sources import Source, SourceKind
 
+# Source identifier used everywhere the best-track is injected.
 IBTRACS_SOURCE_NAME = "ibtracs_best_track"
-IBTRACS_CHANNELS = [
-    "usa_vmax_kt",
-    "wmo_vmax_kt",
-    "usa_mslp_hpa",
-    "wmo_mslp_hpa",
-    "usa_rmw_nm",
-    "usa_r34_ne_nm",
-    "usa_r34_se_nm",
-    "usa_r34_sw_nm",
-    "usa_r34_nw_nm",
+
+# Channels written into the injected ibtracs_best_track Source.
+# lat/lon appear here AND in Source.coords by design — the model can then
+# treat storm position as a feature, not only as a coordinate.
+IBTRACS_CHANNELS: list[str] = [
+    "usa_wind",
+    "usa_pres",
+    "lat",
+    "lon",
+    "usa_r34_ne",
+    "usa_r34_se",
+    "usa_r34_sw",
+    "usa_r34_nw",
+    "usa_r50_ne",
+    "usa_r50_se",
+    "usa_r50_sw",
+    "usa_r50_nw",
+    "usa_r64_ne",
+    "usa_r64_se",
+    "usa_r64_sw",
+    "usa_r64_nw",
 ]
 
-
-def float_or_nan(value: Any) -> float:
-    """Return a float value, preserving missing IBTrACS entries as NaN."""
-    return float(value) if not pd.isna(value) else np.nan
+_IBTRACS_DIR_NAME = "ibtracs"
 
 
-def load_ibtracs(path: Path) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
-    """Load IBTrACS CSV and return rows indexed by SID plus a reverse ATCF lookup."""
-    df = pd.read_csv(
-        path,
-        skiprows=[1],
-        na_values=[" "],
-        keep_default_na=True,
-        low_memory=False,
-    )
+def ibtracs_paths(sources_root: Path) -> tuple[Path, Path]:
+    """Return the canonical Stage 0 output paths under ``sources_root``.
 
-    track_type = cast(pd.Series, df["TRACK_TYPE"]).astype(str).str.strip().str.lower()
-    df = cast(pd.DataFrame, df[track_type == "main"].copy())
-    df["ISO_TIME"] = pd.to_datetime(df["ISO_TIME"], utc=True)
-    df["SID"] = df["SID"].fillna("").str.strip()
-    df["USA_ATCF_ID"] = df["USA_ATCF_ID"].fillna("").str.strip()
+    Args:
+        sources_root: Root directory for preprocessed sources
+            (``cfg.paths.preprocessed_sources``).
 
-    ibtracs_by_sid: dict[str, pd.DataFrame] = {str(sid): grp for sid, grp in df.groupby("SID")}
-    atcf_id_col = cast(pd.DataFrame, df[["SID", "USA_ATCF_ID"]]).dropna(subset=["USA_ATCF_ID"])
-    atcf_id_col = atcf_id_col[atcf_id_col["USA_ATCF_ID"] != ""]
-    atcf_to_sid: dict[str, str] = dict(zip(atcf_id_col["USA_ATCF_ID"], atcf_id_col["SID"]))
-    return ibtracs_by_sid, atcf_to_sid
+    Returns:
+        ``(ibtracs_parquet, atcf_to_sid_csv)``.
+    """
+    base = sources_root / _IBTRACS_DIR_NAME
+    return base / "ibtracs.parquet", base / "atcf_to_sid.csv"
+
+
+def load_ibtracs_snapshots(sources_root: Path) -> pd.DataFrame:
+    """Load the preprocessed IBTrACS snapshots parquet produced by Stage 0.
+
+    Args:
+        sources_root: Root directory for preprocessed sources.
+
+    Returns:
+        DataFrame with one row per (sid, iso_time). See
+        ``scripts/preprocess/prepare_ibtracs.py`` for the full schema.
+
+    Raises:
+        FileNotFoundError: When the parquet does not exist.
+    """
+    parquet_path, _ = ibtracs_paths(sources_root)
+    if not parquet_path.exists():
+        raise FileNotFoundError(
+            f"IBTrACS snapshots parquet not found at {parquet_path}. "
+            "Run scripts/preprocess/prepare_ibtracs.py first."
+        )
+    return pd.read_parquet(parquet_path)
+
+
+def load_atcf_to_sid(sources_root: Path) -> pd.DataFrame:
+    """Load the ATCF→SID translation table produced by Stage 0.
+
+    Args:
+        sources_root: Root directory for preprocessed sources.
+
+    Returns:
+        DataFrame with columns ``sid, season, basin, subbasin, name,
+        usa_atcf_id``.
+
+    Raises:
+        FileNotFoundError: When the CSV does not exist.
+    """
+    _, csv_path = ibtracs_paths(sources_root)
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            f"ATCF→SID CSV not found at {csv_path}. "
+            "Run scripts/preprocess/prepare_ibtracs.py first."
+        )
+    df = pd.read_csv(csv_path, dtype={"sid": str, "usa_atcf_id": str})
+    df["season"] = cast(pd.Series, df["season"]).astype(int)
+    return df
+
+
+def load_atcf_to_sid_dict(sources_root: Path) -> dict[str, str]:
+    """Convenience helper: return a plain ``{usa_atcf_id: sid}`` lookup."""
+    df = load_atcf_to_sid(sources_root)
+    return dict(zip(cast(pd.Series, df["usa_atcf_id"]), cast(pd.Series, df["sid"]), strict=True))
+
+
+def _row_value(row: pd.Series, key: str) -> float:
+    """Read a numeric column from an IBTrACS row, mapping missing entries to NaN."""
+    if key not in row.index:
+        return float("nan")
+    value = row[key]
+    if value is None or bool(pd.isna(value)):
+        return float("nan")
+    return float(cast(Any, value))
 
 
 def ibtracs_rows_to_sources(
     storm_rows: pd.DataFrame,
-    storm_id: str,
+    sid: str,
     basin: str,
 ) -> list[tuple[str, Source]]:
-    """Convert IBTrACS rows for one storm into ``(snapshot_time_utc, Source)`` pairs."""
-    storm_rows = storm_rows.sort_values("ISO_TIME")
+    """Convert per-storm IBTrACS rows into ``(snapshot_time_utc, Source)`` pairs.
+
+    Each row becomes one SCALAR Source with the 16 channels listed in
+    :data:`IBTRACS_CHANNELS`. ``coords = [time_unix_s, lat, lon]``; ``lat`` and
+    ``lon`` are intentionally duplicated as values so the embedding layer can
+    treat storm position as a feature.
+
+    Rows with NaN ``lat`` or ``lon`` are skipped with a warning — those
+    coordinates are required to build a valid SCALAR Source.
+
+    Args:
+        storm_rows: All IBTrACS rows for a single SID (any row order).
+        sid: IBTrACS SID for the storm; written to ``Source.meta["storm_id"]``.
+        basin: 2-letter basin code; written to ``Source.meta["basin"]``.
+
+    Returns:
+        List of ``(snapshot_time_utc, Source)`` tuples sorted by snapshot time.
+    """
+    storm_rows = cast(pd.DataFrame, storm_rows.sort_values("iso_time"))
     results: list[tuple[str, Source]] = []
 
     for _, row in storm_rows.iterrows():
-        lat = cast(float, row["LAT"])
-        lon = cast(float, row["LON"])
-        iso_time = cast(pd.Timestamp, row["ISO_TIME"])
+        lat = _row_value(row, "lat")
+        lon = _row_value(row, "lon")
+        iso_time_raw = str(row["iso_time"])
 
-        if pd.isna(lat) or pd.isna(lon):
+        if np.isnan(lat) or np.isnan(lon):
             warnings.warn(
-                f"IBTrACS row for {storm_id} at {iso_time} has NaN lat/lon — skipped.",
+                f"IBTrACS row for {sid} at {iso_time_raw} has NaN lat/lon — skipped.",
                 stacklevel=2,
             )
             continue
 
-        usa_vmax_kt = float_or_nan(row.get("USA_WIND", np.nan))
-        wmo_vmax_kt = float_or_nan(row.get("WMO_WIND", np.nan))
-        usa_mslp_hpa = float_or_nan(row.get("USA_PRES", np.nan))
-        wmo_mslp_hpa = float_or_nan(row.get("WMO_PRES", np.nan))
-        usa_rmw_nm = float_or_nan(row.get("USA_RMW", np.nan))
-        usa_r34_ne = float_or_nan(row.get("USA_R34_NE", np.nan))
-        usa_r34_se = float_or_nan(row.get("USA_R34_SE", np.nan))
-        usa_r34_sw = float_or_nan(row.get("USA_R34_SW", np.nan))
-        usa_r34_nw = float_or_nan(row.get("USA_R34_NW", np.nan))
+        iso_time = cast(pd.Timestamp, pd.Timestamp(iso_time_raw))
+        if iso_time.tzinfo is None:
+            iso_time_utc = iso_time.tz_localize("UTC")
+        else:
+            iso_time_utc = iso_time.tz_convert("UTC")
+        time_unix_s = float(iso_time_utc.timestamp())
+        snapshot_time_utc = iso_time_utc.tz_localize(None).isoformat()
 
-        values = torch.tensor(
-            [
-                usa_vmax_kt,
-                wmo_vmax_kt,
-                usa_mslp_hpa,
-                wmo_mslp_hpa,
-                usa_rmw_nm,
-                usa_r34_ne,
-                usa_r34_se,
-                usa_r34_sw,
-                usa_r34_nw,
-            ],
-            dtype=torch.float32,
-        )
-        time_unix_s = float(iso_time.timestamp())
-        coords = torch.tensor([time_unix_s, float(lat), float(lon)], dtype=torch.float64)
-        snapshot_time_utc = iso_time.replace(tzinfo=None).isoformat()
+        channel_values = [_row_value(row, channel) for channel in IBTRACS_CHANNELS]
+        values = torch.tensor(channel_values, dtype=torch.float32)
+        coords = torch.tensor([time_unix_s, lat, lon], dtype=torch.float64)
 
         source = Source(
             kind=SourceKind.SCALAR,
@@ -111,17 +181,16 @@ def ibtracs_rows_to_sources(
             channels=IBTRACS_CHANNELS,
             mask=torch.isfinite(values),
             meta={
-                "storm_id": storm_id,
+                "storm_id": sid,
                 "basin": basin,
                 "snapshot_time_utc": snapshot_time_utc,
-                "lat": float(lat),
-                "lon": float(lon),
-                "usa_vmax_kt": usa_vmax_kt,
-                "wmo_vmax_kt": wmo_vmax_kt,
-                "usa_mslp_hpa": usa_mslp_hpa,
-                "wmo_mslp_hpa": wmo_mslp_hpa,
             },
         )
         results.append((snapshot_time_utc, source))
 
     return results
+
+
+def group_ibtracs_by_sid(snapshots: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Group the IBTrACS snapshots DataFrame by ``sid`` for fast per-storm access."""
+    return {str(sid): cast(pd.DataFrame, grp) for sid, grp in snapshots.groupby("sid")}

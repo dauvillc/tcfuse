@@ -1,5 +1,22 @@
 #!/usr/bin/env python3
-"""Assemble individually preprocessed sources into one HDF5 file per storm."""
+"""Stage 2 — assemble per-source HDF5 snapshots into one HDF5 file per storm.
+
+Reads:
+- Stage 1 outputs under ``${paths.preprocessed_sources}/<source>/``.
+- Stage 0 IBTrACS artifacts under ``${paths.preprocessed_sources}/ibtracs/``.
+
+Writes:
+- ``${paths.preprocessed_data}/storm_data/{sid}.h5`` — one assembled HDF5 file
+  per IBTrACS SID. Contains every available Stage 1 source plus an injected
+  ``ibtracs_best_track`` SCALAR Source (16 channels).
+- ``${paths.preprocessed_data}/index.parquet`` — concatenated index of
+  satellite-source snapshot rows and full IBTrACS rows. Satellite rows leave
+  IBTrACS-specific columns NaN; IBTrACS rows leave nothing extra.
+
+Storms not present in IBTrACS are simply not assembled — the SID set comes
+straight from the IBTrACS parquet, after the ``TRACK_TYPE == "MAIN"`` filter
+already applied at Stage 0.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +27,6 @@ from typing import Any, cast
 
 import h5py
 import hydra
-import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 from tqdm import tqdm
@@ -18,32 +34,31 @@ from tqdm import tqdm
 from scripts.preprocess.utils.runner import resolve_preproc_cfg
 from tcfuse.data.ibtracs import (
     IBTRACS_SOURCE_NAME,
-    float_or_nan,
+    group_ibtracs_by_sid,
     ibtracs_rows_to_sources,
-    load_ibtracs,
+    load_atcf_to_sid,
+    load_ibtracs_snapshots,
 )
 from tcfuse.data.sources import MultisourceMetadata, Source, SourceKind, StormData
 from tcfuse.utils.archive import submit_archive_job
 from tcfuse.utils.time import to_compact_time
 
-_ASSEMBLED_INDEX_COLUMNS = [
-    "storm_id",
-    "basin",
-    "season",
-    "atcf_id",
-    "source_name",
-    "snapshot_time_utc",
-    "lat",
-    "lon",
-    "usa_vmax_kt",
-    "wmo_vmax_kt",
-]
 _SOURCE_KIND_GROUPS: dict[str, SourceKind] = {
     "scalar": SourceKind.SCALAR,
     "profile": SourceKind.PROFILE,
     "field": SourceKind.FIELD,
 }
-_ROOT_ATTRS = {"storm_id", "basin", "season", "atcf_id"}
+_ROOT_ATTRS = {"storm_id", "basin", "subbasin", "season", "atcf_id"}
+
+# Satellite-row columns kept in the concatenated assembled index.
+_SAT_INDEX_COLUMNS: list[str] = [
+    "sid",
+    "source_name",
+    "snapshot_time_utc",
+    "season",
+    "basin",
+    "subbasin",
+]
 
 
 def _find_single_source_group(source_file: h5py.File) -> tuple[h5py.Group, SourceKind]:
@@ -113,30 +128,36 @@ def _write_source_to_assembled(
 
 
 def assemble_storm(
-    storm_id: str,
+    sid: str,
     rows: pd.DataFrame,
+    sources_root: Path,
     assembled_root: Path,
     skip_existing: bool,
     ibtracs_by_sid: dict[str, pd.DataFrame],
-    atcf_to_sid: dict[str, str],
+    sid_attrs: dict[str, dict[str, Any]],
+    atcf_for_sid: dict[str, str],
 ) -> str | None:
-    """Stream all available sources for one storm into an assembled HDF5 file."""
-    if storm_id not in atcf_to_sid:
+    """Stream all available sources for one storm into an assembled HDF5 file.
+
+    Returns the SID on success, ``None`` when nothing was written.
+    """
+    info = sid_attrs.get(sid)
+    if info is None:
         return None
 
-    sid = atcf_to_sid[storm_id]
-    final_storm_id = sid
-    dest_path = StormData.path(assembled_root, final_storm_id)
+    basin = info["basin"]
+    subbasin = info["subbasin"]
+    season = info["season"]
+    atcf_id = atcf_for_sid.get(sid)
 
+    dest_path = StormData.path(assembled_root, sid)
     if skip_existing and dest_path.exists():
-        return storm_id
+        return sid
 
-    basin = storm_id[:2]
-    season = int(storm_id[-4:])
-
-    storm_rows = ibtracs_by_sid[sid]
-    atcf_id = str(storm_rows["USA_ATCF_ID"].iloc[0]).strip()
-    ibtracs_sources = ibtracs_rows_to_sources(storm_rows, final_storm_id, basin)
+    storm_rows = ibtracs_by_sid.get(sid)
+    ibtracs_sources: list[tuple[str, Source]] = []
+    if storm_rows is not None and not storm_rows.empty:
+        ibtracs_sources = ibtracs_rows_to_sources(storm_rows, sid, basin)
 
     if rows.empty and not ibtracs_sources:
         return None
@@ -144,21 +165,25 @@ def assemble_storm(
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     written_snapshots = 0
     with h5py.File(dest_path, "w") as dest_file:
-        dest_file.attrs["storm_id"] = final_storm_id
+        dest_file.attrs["storm_id"] = sid
         dest_file.attrs["basin"] = basin
+        dest_file.attrs["subbasin"] = subbasin
         dest_file.attrs["season"] = season
-        dest_file.attrs["atcf_id"] = atcf_id
+        if atcf_id is not None:
+            dest_file.attrs["atcf_id"] = atcf_id
 
         for _, row in rows.iterrows():
-            file_path = Path(str(row["file_path"]))
+            source_name = str(row["source_name"])
+            snapshot_time_utc = str(row["snapshot_time_utc"])
+            file_path = Source.path(
+                sources_root,
+                source_name,
+                sid,
+                to_compact_time(snapshot_time_utc),
+            )
             if not file_path.exists():
                 raise FileNotFoundError(f"Snapshot file missing: {file_path}")
-            _copy_snapshot_to_assembled(
-                file_path,
-                dest_file,
-                str(row["source_name"]),
-                str(row["snapshot_time_utc"]),
-            )
+            _copy_snapshot_to_assembled(file_path, dest_file, source_name, snapshot_time_utc)
             written_snapshots += 1
 
         for snapshot_time_utc, source in ibtracs_sources:
@@ -173,33 +198,39 @@ def assemble_storm(
     if written_snapshots == 0:
         dest_path.unlink(missing_ok=True)
         return None
-    return storm_id
+    return sid
 
 
 def _assemble_storms_batch(
-    storm_ids: list[str],
+    sids: list[str],
     index: pd.DataFrame,
+    sources_root: Path,
     assembled_root: Path,
     skip_existing: bool,
     num_workers: int,
     ibtracs_by_sid: dict[str, pd.DataFrame],
-    atcf_to_sid: dict[str, str],
+    sid_attrs: dict[str, dict[str, Any]],
+    atcf_for_sid: dict[str, str],
 ) -> list[str | None]:
     """Assemble a batch of storms, optionally in parallel."""
-    storm_id_set = set(storm_ids)
-    grouped = {sid: grp for sid, grp in index.groupby("storm_id") if sid in storm_id_set}
+    sid_set = set(sids)
+    grouped = {sid: grp for sid, grp in index.groupby("sid") if sid in sid_set}
+    empty = pd.DataFrame(columns=index.columns)
+    rows_per_sid = [grouped.get(sid, empty) for sid in sids]
 
     if num_workers <= 1:
         return [
             assemble_storm(
                 sid,
-                grouped[sid],
+                rows,
+                sources_root,
                 assembled_root,
                 skip_existing,
                 ibtracs_by_sid,
-                atcf_to_sid,
+                sid_attrs,
+                atcf_for_sid,
             )
-            for sid in tqdm(storm_ids, desc="assemble")
+            for sid, rows in zip(tqdm(sids, desc="assemble"), rows_per_sid, strict=True)
         ]
 
     with ProcessPoolExecutor(max_workers=num_workers) as pool:
@@ -207,102 +238,107 @@ def _assemble_storms_batch(
             tqdm(
                 pool.map(
                     assemble_storm,
-                    storm_ids,
-                    [grouped[sid] for sid in storm_ids],
+                    sids,
+                    rows_per_sid,
+                    repeat(sources_root),
                     repeat(assembled_root),
                     repeat(skip_existing),
                     repeat(ibtracs_by_sid),
-                    repeat(atcf_to_sid),
-                    chunksize=max(1, len(storm_ids) // (num_workers * 4)),
+                    repeat(sid_attrs),
+                    repeat(atcf_for_sid),
+                    chunksize=max(1, len(sids) // (num_workers * 4)),
                 ),
-                total=len(storm_ids),
+                total=len(sids),
                 desc="assemble",
             )
         )
 
 
-def _ibtracs_rows_from_assembled(
+def _scan_storm_satellite_index(
     assembled_root: Path,
-    atcf_storm_id: str,
-    ibtracs_sid: str,
-) -> list[dict[str, Any]]:
-    """Read injected IBTrACS snapshot index rows from an assembled storm file."""
-    storm_path = StormData.path(assembled_root, ibtracs_sid)
-    if not storm_path.exists():
-        return []
-
-    atcf_id_val: str | None = None
-    basin = atcf_storm_id[:2]
-    season = int(atcf_storm_id[-4:])
+    sids: list[str],
+    sid_attrs: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
+    """Browse every assembled storm file and collect one row per non-IBTrACS snapshot."""
     rows: list[dict[str, Any]] = []
+    for sid in sids:
+        path = StormData.path(assembled_root, sid)
+        if not path.exists():
+            continue
+        info = sid_attrs.get(sid)
+        if info is None:
+            continue
 
-    with h5py.File(storm_path, "r") as storm_file:
-        if IBTRACS_SOURCE_NAME not in storm_file:
-            return []
-        source_group = cast(h5py.Group, storm_file[IBTRACS_SOURCE_NAME])
-        if "atcf_id" in storm_file.attrs:
-            atcf_id_val = str(storm_file.attrs["atcf_id"])
+        with h5py.File(path, "r") as storm_file:
+            for source_name, source_group in storm_file.items():
+                if source_name == IBTRACS_SOURCE_NAME:
+                    continue
+                if not isinstance(source_group, h5py.Group):
+                    continue
+                for snap_group in source_group.values():
+                    if not isinstance(snap_group, h5py.Group):
+                        continue
+                    snapshot_time_utc = str(snap_group.attrs["snapshot_time_utc"])
+                    rows.append(
+                        {
+                            "sid": sid,
+                            "source_name": source_name,
+                            "snapshot_time_utc": snapshot_time_utc,
+                            "season": info["season"],
+                            "basin": info["basin"],
+                            "subbasin": info["subbasin"],
+                        }
+                    )
 
-        for compact_time in source_group.keys():
-            snap_group = cast(h5py.Group, source_group[compact_time])
-            snapshot_time_utc = str(snap_group.attrs["snapshot_time_utc"])
-            lat = float(np.asarray(snap_group.attrs["lat"]).item())
-            lon = float(np.asarray(snap_group.attrs["lon"]).item())
-            usa_vmax_kt = float_or_nan(snap_group.attrs.get("usa_vmax_kt", np.nan))
-            wmo_vmax_kt = float_or_nan(snap_group.attrs.get("wmo_vmax_kt", np.nan))
-            rows.append(
-                {
-                    "storm_id": ibtracs_sid,
-                    "basin": basin,
-                    "season": season,
-                    "atcf_id": atcf_id_val,
-                    "source_name": IBTRACS_SOURCE_NAME,
-                    "snapshot_time_utc": snapshot_time_utc,
-                    "lat": lat,
-                    "lon": lon,
-                    "usa_vmax_kt": usa_vmax_kt,
-                    "wmo_vmax_kt": wmo_vmax_kt,
-                }
-            )
-
-    return rows
+    if not rows:
+        return pd.DataFrame(columns=_SAT_INDEX_COLUMNS)
+    return pd.DataFrame(rows, columns=_SAT_INDEX_COLUMNS)
 
 
 def build_assembled_index(
-    multi_meta_index: pd.DataFrame,
-    atcf_to_sid: dict[str, str],
-    assembled_storm_ids: list[str],
+    ibtracs_snapshots: pd.DataFrame,
     assembled_root: Path,
+    assembled_sids: list[str],
+    sid_attrs: dict[str, dict[str, Any]],
 ) -> pd.DataFrame:
-    """Build a dataset-wide index with one row per (storm_id, source_name, snapshot)."""
-    assembled_set = list(assembled_storm_ids)
-    non_ibt = multi_meta_index[multi_meta_index["storm_id"].isin(assembled_set)].copy()
+    """Build the concatenated index of satellite rows + IBTrACS rows.
 
-    non_ibt["basin"] = cast(pd.Series, non_ibt["storm_id"]).str[:2]
-    non_ibt["season"] = cast(pd.Series, non_ibt["storm_id"]).str[-4:].astype(int)
-    storm_id_series = cast(pd.Series, non_ibt["storm_id"])
-    non_ibt["atcf_id"] = storm_id_series.where(storm_id_series.isin(atcf_to_sid), other=None)
-    non_ibt["storm_id"] = storm_id_series.map(lambda atcf: atcf_to_sid.get(str(atcf), str(atcf)))
-    non_ibt["usa_vmax_kt"] = np.nan
-    non_ibt["wmo_vmax_kt"] = np.nan
+    Satellite rows carry the trimmed schema in :data:`_SAT_INDEX_COLUMNS`
+    (IBTrACS-specific columns are NaN). IBTrACS rows carry the full Stage 0
+    schema with ``source_name = "ibtracs_best_track"`` and the IBTrACS
+    ``iso_time`` column renamed to ``snapshot_time_utc`` for the union schema.
+    """
+    sat_index = _scan_storm_satellite_index(assembled_root, assembled_sids, sid_attrs)
 
-    for col in ("lat", "lon"):
-        if col not in non_ibt.columns:
-            non_ibt[col] = np.nan
+    ibt_rows = cast(
+        pd.DataFrame,
+        ibtracs_snapshots[ibtracs_snapshots["sid"].isin(assembled_sids)].copy(),
+    )
+    ibt_rows = cast(pd.DataFrame, ibt_rows.rename(columns={"iso_time": "snapshot_time_utc"}))
+    ibt_rows["source_name"] = IBTRACS_SOURCE_NAME
 
-    ibt_rows_list: list[dict[str, Any]] = []
-    for storm_id in assembled_storm_ids:
-        ibtracs_sid = atcf_to_sid.get(storm_id)
-        if ibtracs_sid is None:
+    combined = cast(
+        pd.DataFrame,
+        pd.concat([sat_index, ibt_rows], ignore_index=True),
+    )
+
+    # Establish a stable column order: trimmed schema first, then the IBTrACS-
+    # specific columns that only exist on best-track rows.
+    extra_columns = [c for c in combined.columns if c not in _SAT_INDEX_COLUMNS]
+    final_columns = [*_SAT_INDEX_COLUMNS, *extra_columns]
+    combined = cast(pd.DataFrame, combined.reindex(columns=final_columns))
+
+    # Fill IBTrACS-specific columns with NaN on satellite rows (already implicit
+    # via concat, but make it explicit for downstream consumers reading dtypes).
+    for col in extra_columns:
+        if combined[col].dtype == object:
             continue
-        ibt_rows_list.extend(
-            _ibtracs_rows_from_assembled(assembled_root, storm_id, ibtracs_sid)
-        )
+        combined[col] = pd.to_numeric(combined[col], errors="coerce")
 
-    non_ibt_df = cast(pd.DataFrame, non_ibt[_ASSEMBLED_INDEX_COLUMNS])
-    ibt_df = pd.DataFrame(ibt_rows_list, columns=_ASSEMBLED_INDEX_COLUMNS)
-    index_df = pd.concat([non_ibt_df, ibt_df], ignore_index=True)
-    return index_df.sort_values(["storm_id", "snapshot_time_utc"]).reset_index(drop=True)
+    return cast(
+        pd.DataFrame,
+        combined.sort_values(["sid", "snapshot_time_utc"]).reset_index(drop=True),
+    )
 
 
 @hydra.main(config_path="../../conf/", config_name="preproc", version_base=None)
@@ -316,50 +352,54 @@ def main(raw_cfg: DictConfig) -> None:
     num_workers = int(cfg.get("num_workers", 4))
     skip_existing = bool(cfg.get("skip_existing", False))
 
-    ibtracs_path = Path(cfg["paths"]["raw_datasets"]["ibtracs"])
-    if not ibtracs_path.exists():
-        raise FileNotFoundError(
-            f"IBTrACS CSV not found at {ibtracs_path}. "
-            "Assembly requires IBTrACS to filter storms with a USA ATCF ID."
-        )
+    print(f"Loading IBTrACS Stage 0 artifacts from {sources_root / 'ibtracs'} …")
+    ibtracs_snapshots = load_ibtracs_snapshots(sources_root)
+    ibtracs_by_sid = group_ibtracs_by_sid(ibtracs_snapshots)
+    translation = load_atcf_to_sid(sources_root)
+    print(f"Loaded {len(ibtracs_by_sid)} IBTrACS storms; {len(translation)} ATCF↔SID pairings.")
 
-    print(f"Loading IBTrACS from {ibtracs_path} …")
-    ibtracs_by_sid, atcf_to_sid = load_ibtracs(ibtracs_path)
-    print(
-        f"Loaded {len(ibtracs_by_sid)} storms from IBTrACS ({len(atcf_to_sid)} ATCF-tracked)."
-    )
+    # Storm-level constants keyed by SID, derived from the translation table.
+    subset_df = cast(pd.DataFrame, translation[["sid", "season", "basin", "subbasin"]])
+    keep = cast(pd.DataFrame, subset_df.drop_duplicates(subset=["sid"]))
+    sid_attrs: dict[str, dict[str, Any]] = {
+        str(rec["sid"]): {
+            "season": int(rec["season"]),
+            "basin": str(rec["basin"]),
+            "subbasin": str(rec["subbasin"]),
+        }
+        for rec in cast(list[dict[str, Any]], keep.to_dict(orient="records"))
+    }
+    atcf_for_sid: dict[str, str] = {
+        str(rec["sid"]): str(rec["usa_atcf_id"])
+        for rec in cast(list[dict[str, Any]], translation.to_dict(orient="records"))
+        if str(rec["usa_atcf_id"]).strip() != ""
+    }
 
-    print(f"Loading source metadata from {sources_root} …")
+    print(f"Loading per-source metadata from {sources_root} …")
     multi_meta = MultisourceMetadata.from_disk(sources_root)
-    if not multi_meta.sources:
-        print("No preprocessed sources found. Nothing to assemble.")
-        return
+    if multi_meta.sources:
+        index = multi_meta.index
+        print(
+            f"Found {len(multi_meta)} source(s), {len(index)} total snapshots, "
+            f"{index['sid'].nunique() if not index.empty else 0} unique SIDs."
+        )
+    else:
+        index = pd.DataFrame(columns=list(_SAT_INDEX_COLUMNS))
+        print("No Stage 1 source indices found; will still write IBTrACS-only storm files.")
 
-    index = multi_meta.index
-    all_storm_ids = sorted(index["storm_id"].unique())
-    storm_ids = [sid for sid in all_storm_ids if sid in atcf_to_sid]
-    n_filtered = len(all_storm_ids) - len(storm_ids)
-    print(
-        f"Found {len(all_storm_ids)} storms across {len(multi_meta)} sources "
-        f"({len(index)} total snapshots)."
-    )
-    print(
-        f"Keeping {len(storm_ids)} storms with USA ATCF ID in IBTrACS "
-        f"(skipped {n_filtered} without ATCF match)."
-    )
-    if not storm_ids:
-        print("No ATCF-tracked storms to assemble. Nothing to do.")
+    sids = sorted(ibtracs_by_sid.keys())
+    if not sids:
+        print("No IBTrACS storms to assemble. Nothing to do.")
         return
 
     if cfg.get("submitit", False):
         from tcfuse.utils.submitit_utils import make_executor
 
         chunk_size = int(cfg.get("chunk_size", 200))
-        chunks = [storm_ids[i : i + chunk_size] for i in range(0, len(storm_ids), chunk_size)]
+        chunks = [sids[i : i + chunk_size] for i in range(0, len(sids), chunk_size)]
         slurm_executor = make_executor(cfg, "assemble")
         print(
-            f"Submitting {len(chunks)} SLURM jobs ({len(storm_ids)} storms, "
-            f"chunk_size={chunk_size}) …"
+            f"Submitting {len(chunks)} SLURM jobs ({len(sids)} storms, chunk_size={chunk_size}) …"
         )
         results: list[str | None] = []
         for job in tqdm(
@@ -368,11 +408,13 @@ def main(raw_cfg: DictConfig) -> None:
                     _assemble_storms_batch,
                     chunk,
                     index,
+                    sources_root,
                     assembled_root,
                     skip_existing,
                     num_workers,
                     ibtracs_by_sid,
-                    atcf_to_sid,
+                    sid_attrs,
+                    atcf_for_sid,
                 )
                 for chunk in chunks
             ],
@@ -381,23 +423,25 @@ def main(raw_cfg: DictConfig) -> None:
             results.extend(job.result())
     else:
         results = _assemble_storms_batch(
-            storm_ids,
+            sids,
             index,
+            sources_root,
             assembled_root,
             skip_existing,
             num_workers,
             ibtracs_by_sid,
-            atcf_to_sid,
+            sid_attrs,
+            atcf_for_sid,
         )
 
     written = [r for r in results if r is not None]
     skipped = len(results) - len(written)
-    print(f"Assembled {len(written)}/{len(storm_ids)} storms → {assembled_root}")
+    print(f"Assembled {len(written)}/{len(sids)} storms → {assembled_root}")
     if skipped:
-        print(f"Skipped / failed: {skipped}")
+        print(f"Skipped / empty: {skipped}")
 
     print("Building assembled index …")
-    index_df = build_assembled_index(index, atcf_to_sid, written, assembled_root)
+    index_df = build_assembled_index(ibtracs_snapshots, assembled_root, written, sid_attrs)
     index_path = assembled_root / "index.parquet"
     index_df.to_parquet(index_path, index=False)
     print(f"Wrote assembled index: {len(index_df)} rows → {index_path}")

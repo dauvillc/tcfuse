@@ -116,14 +116,6 @@
         ],
         "./scripts/preprocess/compute_normalization.py": [
             {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 52,
-                    "endColumn": 67,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportCallIssue",
                 "range": {
                     "startColumn": 11,
@@ -410,80 +402,6 @@
                 "range": {
                     "startColumn": 25,
                     "endColumn": 50,
-                    "lineCount": 1
-                }
-            }
-        ],
-        "./tests/test_assemble.py": [
-            {
-                "code": "reportGeneralTypeIssues",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 45,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportGeneralTypeIssues",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 52,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 39,
-                    "endColumn": 44,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportGeneralTypeIssues",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 52,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 39,
-                    "endColumn": 44,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportGeneralTypeIssues",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 51,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 39,
-                    "endColumn": 43,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportGeneralTypeIssues",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 51,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 39,
-                    "endColumn": 43,
                     "lineCount": 1
                 }
             }

@@ -10,36 +10,39 @@ from scripts.preprocess.build_splits import build_window_index, split_by_season
 SOURCE_NAME = "ibtracs_best_track"
 LEADS_HOURS = [0, 6, 12, 18, 24, 30]
 REQUIRED_LEADS_HOURS = [0, 6, 30]
-REQUIRED_COLUMNS = ["usa_vmax_kt", "lat", "lon"]
+REQUIRED_COLUMNS = ["usa_wind", "usa_sshs", "lat", "lon"]
 
 
 def _make_index(
     lead_hours: list[int],
     *,
-    storm_id: str = "2016292N14270",
+    sid: str = "2016292N14270",
     season: int = 2016,
     nan_lead: int | None = None,
-    nan_column: str = "usa_vmax_kt",
+    nan_column: str = "usa_wind",
 ) -> pd.DataFrame:
     """Create a synthetic assembled index with ibtracs rows at selected leads."""
     anchor = pd.Timestamp("2016-10-05T00:00:00")
     rows = []
     for lead_hour in lead_hours:
-        value = np.nan if lead_hour == nan_lead and nan_column == "usa_vmax_kt" else 65.0
+        usa_wind = np.nan if lead_hour == nan_lead and nan_column == "usa_wind" else 65.0
+        usa_sshs = np.nan if lead_hour == nan_lead and nan_column == "usa_sshs" else 2.0
         lat = np.nan if lead_hour == nan_lead and nan_column == "lat" else 15.0
         lon = np.nan if lead_hour == nan_lead and nan_column == "lon" else -60.0
         rows.append(
             {
-                "storm_id": storm_id,
+                "sid": sid,
                 "basin": "AL",
+                "subbasin": "GM",
                 "season": season,
-                "atcf_id": "AL102016",
+                "usa_atcf_id": "AL102016",
                 "source_name": SOURCE_NAME,
                 "snapshot_time_utc": (anchor + pd.Timedelta(hours=lead_hour)).isoformat(),
                 "lat": lat,
                 "lon": lon,
-                "usa_vmax_kt": value,
-                "wmo_vmax_kt": 60.0,
+                "usa_wind": usa_wind,
+                "usa_pres": 970.0,
+                "usa_sshs": usa_sshs,
             }
         )
     return pd.DataFrame(rows)
@@ -60,7 +63,7 @@ def test_complete_six_lead_window_creates_one_sample() -> None:
     index = _make_index([0, 6, 12, 18, 24, 30])
     samples = _build_samples(index)
     assert len(samples) == 1
-    assert samples.loc[0, "lead_000h_usa_vmax_kt"] == pytest.approx(65.0)
+    assert samples.loc[0, "lead_000h_usa_wind"] == pytest.approx(65.0)
     assert bool(samples.loc[0, "lead_030h_available"])
 
 
@@ -69,7 +72,7 @@ def test_missing_optional_lead_is_preserved_as_unavailable() -> None:
     samples = _build_samples(index)
     assert len(samples) == 1
     assert not bool(samples.loc[0, "lead_012h_available"])
-    assert np.isnan(samples.loc[0, "lead_012h_usa_vmax_kt"])
+    assert np.isnan(samples.loc[0, "lead_012h_usa_wind"])
 
 
 def test_missing_required_six_hour_lead_rejects_sample() -> None:
@@ -91,12 +94,20 @@ def test_nan_required_value_rejects_sample(column: str) -> None:
     assert samples.empty
 
 
+def test_sample_row_carries_sid_and_subbasin() -> None:
+    index = _make_index([0, 6, 12, 18, 24, 30])
+    samples = _build_samples(index)
+    assert samples.loc[0, "sid"] == "2016292N14270"
+    assert samples.loc[0, "subbasin"] == "GM"
+    assert samples.loc[0, "usa_atcf_id"] == "AL102016"
+
+
 def test_season_split_assigns_samples_to_one_split() -> None:
     train_index = _make_index([0, 6, 12, 18, 24, 30], season=2018)
-    val_index = _make_index([0, 6, 12, 18, 24, 30], storm_id="2019292N14270", season=2019)
+    val_index = _make_index([0, 6, 12, 18, 24, 30], sid="2019292N14270", season=2019)
     test_index = _make_index(
         [0, 6, 12, 18, 24, 30],
-        storm_id="2020292N14270",
+        sid="2020292N14270",
         season=2020,
     )
     samples = _build_samples(pd.concat([train_index, val_index, test_index], ignore_index=True))
