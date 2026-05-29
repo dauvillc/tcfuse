@@ -43,9 +43,15 @@ def _parse_time(value: Any) -> pd.Timestamp:
     return timestamp.tz_convert("UTC")
 
 
-def _isoformat_naive_utc(value: pd.Timestamp) -> str:
+def _isoformat_naive_utc(value: Any) -> str:
     """Return the repository's naive-UTC ISO timestamp representation."""
-    return value.tz_convert("UTC").tz_localize(None).isoformat()
+    timestamp = _parse_time(value)
+    return timestamp.tz_convert("UTC").tz_localize(None).isoformat()
+
+
+def _series_int(row: pd.Series, column: str) -> int:
+    """Return an integer column value from a single index row."""
+    return int(row.at[column])
 
 
 def _lead_prefix(lead_hour: int) -> str:
@@ -153,7 +159,7 @@ def build_window_index(
                 "sid": sid,
                 "basin": init_row.get("basin"),
                 "subbasin": init_row.get("subbasin"),
-                "season": int(init_row["season"]),
+                "season": _series_int(init_row, "season"),
                 "usa_atcf_id": init_row.get("usa_atcf_id"),
                 "init_time_utc": _isoformat_naive_utc(init_time),
                 "window_start_time_utc": _isoformat_naive_utc(

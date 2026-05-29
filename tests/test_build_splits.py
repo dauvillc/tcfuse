@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -11,7 +13,7 @@ SOURCE_NAME = "ibtracs_best_track"
 LEADS_HOURS = [-6, 0, 6, 12, 18, 24]
 REQUIRED_LEADS_HOURS = [-6, 0, 24]
 REQUIRED_COLUMNS = ["usa_wind", "usa_sshs", "lat", "lon"]
-INIT_TIME = pd.Timestamp("2016-10-05T06:00:00")
+INIT_TIME = cast(pd.Timestamp, pd.Timestamp("2016-10-05T06:00:00"))
 
 
 def _make_index(
@@ -107,8 +109,12 @@ def test_sample_row_carries_sid_and_subbasin() -> None:
 def test_window_bounds_span_assimilation_window() -> None:
     index = _make_index(LEADS_HOURS)
     samples = _build_samples(index)
-    assert samples.loc[0, "window_start_time_utc"] == (INIT_TIME - pd.Timedelta(hours=6)).isoformat()
-    assert samples.loc[0, "window_end_time_utc"] == (INIT_TIME + pd.Timedelta(hours=24)).isoformat()
+    assert (
+        samples.loc[0, "window_start_time_utc"] == (INIT_TIME - pd.Timedelta(hours=6)).isoformat()
+    )
+    assert (
+        samples.loc[0, "window_end_time_utc"] == (INIT_TIME + pd.Timedelta(hours=24)).isoformat()
+    )
 
 
 def test_season_split_assigns_samples_to_one_split() -> None:
