@@ -120,7 +120,7 @@ meta = SamplePrediction.read_meta(run_root, sample_id)
 
 ## Conventions
 
-- `sample_id` = `f"{storm_id}_{anchor_time:%Y%m%dT%H%M%SZ}"` (matches `build_splits.py`).
+- `sample_id` = `f"{storm_id}_{init_time:%Y%m%dT%H%M%SZ}"` (matches `build_splits.py` `init_time_utc`).
 - `run_root` = `{cfg.paths.predictions}/{run_id}` — never hardcode filesystem paths.
 - Source dict keys: `(source_name, snapshot_time_utc)` with repository ISO timestamp strings.
 - IBTrACS `mask`: `True` only when **both** `pred` and `target` are finite (same as `Source.mask` for paired values).

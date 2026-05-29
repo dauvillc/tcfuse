@@ -7,10 +7,11 @@ writes three sample-index parquet files — ``train.parquet``, ``val.parquet``,
 remains one row per source snapshot; the split files are one row per training
 sample window anchored on ``ibtracs_best_track``.
 
-Each sample spans the configured best-track lead hours from an anchor time.  By
-default a sample covers ``t0`` through ``t0 + 30h`` and requires finite USA wind,
-latitude, and longitude at ``+0h``, ``+6h``, and ``+30h``.  Intermediate leads
-may be absent or NaN and are preserved in the output row.
+Each sample is centred on an assimilation time ``t0`` (``init_time_utc``).  By
+default a sample spans ``t0 - 6h`` through ``t0 + 24h`` at 6-hourly leads and
+requires finite USA wind, SSHS, latitude, and longitude at ``-6h``, ``0h``, and
+``+24h`` relative to ``t0``.  Intermediate leads may be absent or NaN and are
+preserved in the output row.
 
 Split seasons are read from ``cfg.splits`` (``conf/preproc.yaml``):
   - **val**:   seasons listed under ``splits.val``
@@ -48,8 +49,8 @@ def _isoformat_naive_utc(value: pd.Timestamp) -> str:
 
 
 def _lead_prefix(lead_hour: int) -> str:
-    """Return the fixed column prefix for a forecast lead."""
-    return f"lead_{lead_hour:03d}h"
+    """Return the fixed column prefix for a lead relative to init time."""
+    return f"lead_{lead_hour:+04d}h"
 
 
 def _float_or_nan(value: Any) -> float:
@@ -66,7 +67,7 @@ def _empty_window_index(leads_hours: list[int], required_columns: list[str]) -> 
         "subbasin",
         "season",
         "usa_atcf_id",
-        "anchor_time_utc",
+        "init_time_utc",
         "window_start_time_utc",
         "window_end_time_utc",
     ]
@@ -109,7 +110,7 @@ def build_window_index(
 
     Args:
         assembled_index: Canonical assembled index with one row per source snapshot.
-        source_name: Best-track source used to anchor samples.
+        source_name: Best-track source used to define init times.
         leads_hours: Lead times, in hours, to materialise in each sample row.
         required_leads_hours: Lead times that must be present and finite.
         required_columns: Best-track columns required at each required lead.
@@ -132,10 +133,10 @@ def build_window_index(
     for sid_value, storm_rows in best_track.groupby("sid", sort=True):
         sid = str(sid_value)
         rows_by_time = _first_rows_by_time(storm_rows)
-        for anchor_time in sorted(rows_by_time):
+        for init_time in sorted(rows_by_time):
             lead_rows: dict[int, pd.Series | None] = {}
             for lead_hour in leads_hours:
-                lead_time = anchor_time + pd.Timedelta(hours=lead_hour)
+                lead_time = init_time + pd.Timedelta(hours=lead_hour)
                 lead_rows[lead_hour] = rows_by_time.get(lead_time)
 
             # Required leads must have finite USA wind and position metadata.
@@ -145,26 +146,28 @@ def build_window_index(
             ):
                 continue
 
-            anchor_row = rows_by_time[anchor_time]
-            sample_id = f"{sid}_{to_compact_time(anchor_time)}"
+            init_row = rows_by_time[init_time]
+            sample_id = f"{sid}_{to_compact_time(init_time)}"
             sample: dict[str, Any] = {
                 "sample_id": sample_id,
                 "sid": sid,
-                "basin": anchor_row.get("basin"),
-                "subbasin": anchor_row.get("subbasin"),
-                "season": int(anchor_row["season"]),
-                "usa_atcf_id": anchor_row.get("usa_atcf_id"),
-                "anchor_time_utc": _isoformat_naive_utc(anchor_time),
-                "window_start_time_utc": _isoformat_naive_utc(anchor_time),
+                "basin": init_row.get("basin"),
+                "subbasin": init_row.get("subbasin"),
+                "season": int(init_row["season"]),
+                "usa_atcf_id": init_row.get("usa_atcf_id"),
+                "init_time_utc": _isoformat_naive_utc(init_time),
+                "window_start_time_utc": _isoformat_naive_utc(
+                    init_time + pd.Timedelta(hours=min(leads_hours))
+                ),
                 "window_end_time_utc": _isoformat_naive_utc(
-                    anchor_time + pd.Timedelta(hours=max(leads_hours))
+                    init_time + pd.Timedelta(hours=max(leads_hours))
                 ),
             }
 
             # Fixed lead columns are easy to consume from Parquet in PyTorch datasets.
             for lead_hour in leads_hours:
                 prefix = _lead_prefix(lead_hour)
-                lead_time = anchor_time + pd.Timedelta(hours=lead_hour)
+                lead_time = init_time + pd.Timedelta(hours=lead_hour)
                 row = lead_rows[lead_hour]
                 sample[f"{prefix}_time_utc"] = _isoformat_naive_utc(lead_time)
                 sample[f"{prefix}_available"] = row is not None
@@ -179,7 +182,7 @@ def build_window_index(
 
     if not sample_rows:
         return _empty_window_index(leads_hours, required_columns)
-    return pd.DataFrame(sample_rows).sort_values(["sid", "anchor_time_utc"]).reset_index(drop=True)
+    return pd.DataFrame(sample_rows).sort_values(["sid", "init_time_utc"]).reset_index(drop=True)
 
 
 def split_by_season(

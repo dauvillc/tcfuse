@@ -365,10 +365,11 @@ python scripts/preprocess/build_splits.py paths=jz
 ```
 
 This reads the assembled `index.parquet` and builds one model sample per valid
-`ibtracs_best_track` window. By default, each sample spans lead hours
-`[0, 6, 12, 18, 24, 30]`; finite `usa_wind`, `usa_sshs`, `lat`, and `lon` are
-required at `+0h`, `+6h`, and `+30h`, while intermediate leads may be missing
-or NaN.
+`ibtracs_best_track` assimilation window. By default, each sample is centred on
+`init_time_utc` (t₀) with lead hours `[-6, 0, 6, 12, 18, 24]` relative to t₀;
+finite `usa_wind`, `usa_sshs`, `lat`, and `lon` are required at `-6h`, `0h`, and
+`+24h`, while intermediate leads may be missing or NaN. Per-lead columns use
+signed prefixes such as `lead_-006h_usa_wind` and `lead_+000h_lat`.
 
 The resulting sample rows are assigned to splits based on the season lists in
 `conf/preproc.yaml`:

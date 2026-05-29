@@ -8,9 +8,10 @@ import pytest
 from scripts.preprocess.build_splits import build_window_index, split_by_season
 
 SOURCE_NAME = "ibtracs_best_track"
-LEADS_HOURS = [0, 6, 12, 18, 24, 30]
-REQUIRED_LEADS_HOURS = [0, 6, 30]
+LEADS_HOURS = [-6, 0, 6, 12, 18, 24]
+REQUIRED_LEADS_HOURS = [-6, 0, 24]
 REQUIRED_COLUMNS = ["usa_wind", "usa_sshs", "lat", "lon"]
+INIT_TIME = pd.Timestamp("2016-10-05T06:00:00")
 
 
 def _make_index(
@@ -18,11 +19,11 @@ def _make_index(
     *,
     sid: str = "2016292N14270",
     season: int = 2016,
+    init_time: pd.Timestamp = INIT_TIME,
     nan_lead: int | None = None,
     nan_column: str = "usa_wind",
 ) -> pd.DataFrame:
     """Create a synthetic assembled index with ibtracs rows at selected leads."""
-    anchor = pd.Timestamp("2016-10-05T00:00:00")
     rows = []
     for lead_hour in lead_hours:
         usa_wind = np.nan if lead_hour == nan_lead and nan_column == "usa_wind" else 65.0
@@ -37,7 +38,7 @@ def _make_index(
                 "season": season,
                 "usa_atcf_id": "AL102016",
                 "source_name": SOURCE_NAME,
-                "snapshot_time_utc": (anchor + pd.Timedelta(hours=lead_hour)).isoformat(),
+                "snapshot_time_utc": (init_time + pd.Timedelta(hours=lead_hour)).isoformat(),
                 "lat": lat,
                 "lon": lon,
                 "usa_wind": usa_wind,
@@ -60,53 +61,61 @@ def _build_samples(index: pd.DataFrame) -> pd.DataFrame:
 
 
 def test_complete_six_lead_window_creates_one_sample() -> None:
-    index = _make_index([0, 6, 12, 18, 24, 30])
+    index = _make_index(LEADS_HOURS)
     samples = _build_samples(index)
     assert len(samples) == 1
-    assert samples.loc[0, "lead_000h_usa_wind"] == pytest.approx(65.0)
-    assert bool(samples.loc[0, "lead_030h_available"])
+    assert samples.loc[0, "lead_+000h_usa_wind"] == pytest.approx(65.0)
+    assert bool(samples.loc[0, "lead_+024h_available"])
+    assert samples.loc[0, "init_time_utc"] == INIT_TIME.isoformat()
 
 
 def test_missing_optional_lead_is_preserved_as_unavailable() -> None:
-    index = _make_index([0, 6, 18, 24, 30])
+    index = _make_index([-6, 0, 6, 18, 24])
     samples = _build_samples(index)
     assert len(samples) == 1
-    assert not bool(samples.loc[0, "lead_012h_available"])
-    assert np.isnan(samples.loc[0, "lead_012h_usa_wind"])
+    assert not bool(samples.loc[0, "lead_+012h_available"])
+    assert np.isnan(samples.loc[0, "lead_+012h_usa_wind"])
 
 
-def test_missing_required_six_hour_lead_rejects_sample() -> None:
-    index = _make_index([0, 12, 18, 24, 30])
+def test_missing_required_zero_hour_lead_rejects_sample() -> None:
+    index = _make_index([-6, 6, 12, 18, 24])
     samples = _build_samples(index)
     assert samples.empty
 
 
-def test_missing_required_thirty_hour_lead_rejects_sample() -> None:
-    index = _make_index([0, 6, 12, 18, 24])
+def test_missing_required_twenty_four_hour_lead_rejects_sample() -> None:
+    index = _make_index([-6, 0, 6, 12, 18])
     samples = _build_samples(index)
     assert samples.empty
 
 
 @pytest.mark.parametrize("column", REQUIRED_COLUMNS)
 def test_nan_required_value_rejects_sample(column: str) -> None:
-    index = _make_index([0, 6, 12, 18, 24, 30], nan_lead=6, nan_column=column)
+    index = _make_index(LEADS_HOURS, nan_lead=0, nan_column=column)
     samples = _build_samples(index)
     assert samples.empty
 
 
 def test_sample_row_carries_sid_and_subbasin() -> None:
-    index = _make_index([0, 6, 12, 18, 24, 30])
+    index = _make_index(LEADS_HOURS)
     samples = _build_samples(index)
     assert samples.loc[0, "sid"] == "2016292N14270"
     assert samples.loc[0, "subbasin"] == "GM"
     assert samples.loc[0, "usa_atcf_id"] == "AL102016"
 
 
+def test_window_bounds_span_assimilation_window() -> None:
+    index = _make_index(LEADS_HOURS)
+    samples = _build_samples(index)
+    assert samples.loc[0, "window_start_time_utc"] == (INIT_TIME - pd.Timedelta(hours=6)).isoformat()
+    assert samples.loc[0, "window_end_time_utc"] == (INIT_TIME + pd.Timedelta(hours=24)).isoformat()
+
+
 def test_season_split_assigns_samples_to_one_split() -> None:
-    train_index = _make_index([0, 6, 12, 18, 24, 30], season=2018)
-    val_index = _make_index([0, 6, 12, 18, 24, 30], sid="2019292N14270", season=2019)
+    train_index = _make_index(LEADS_HOURS, season=2018)
+    val_index = _make_index(LEADS_HOURS, sid="2019292N14270", season=2019)
     test_index = _make_index(
-        [0, 6, 12, 18, 24, 30],
+        LEADS_HOURS,
         sid="2020292N14270",
         season=2020,
     )

@@ -21,7 +21,7 @@ splits:
 # Best-track window samples built by scripts/preprocess/build_splits.py.
 window_index:
   source_name: ibtracs_best_track
-  leads_hours: [0, 6, 12, 18, 24, 30]
-  required_leads_hours: [0, 6, 30]
+  leads_hours: [-6, 0, 6, 12, 18, 24]
+  required_leads_hours: [-6, 0, 24]
   required_channels: [usa_wind, usa_sshs]
   required_meta: [lat, lon]
