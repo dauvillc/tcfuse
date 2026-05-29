@@ -256,11 +256,6 @@ class TestReadMeta:
         assert set(meta.keys()) == {"storm_id", "basin", "subbasin", "season"}
 
 
-# ---------------------------------------------------------------------------
-# atcf_id round-trip
-# ---------------------------------------------------------------------------
-
-
 class TestAtcfId:
     def test_atcf_id_round_trips_when_set(self) -> None:
         sd = StormData(
@@ -293,3 +288,63 @@ class TestAtcfId:
             sd.write(assembled_root)
             meta = StormData.read_meta(assembled_root, _STORM_ID)
         assert meta.get("atcf_id") == "AL102016"
+
+
+# ---------------------------------------------------------------------------
+# Time-filtered partial load
+# ---------------------------------------------------------------------------
+
+
+class TestStormDataWindowLoad:
+    _WINDOW_START = "2016-09-12T00:00:00"
+    _WINDOW_END = "2016-09-14T23:59:59"
+    _INSIDE_TIME = "2016-09-12T01:09:42+00:00"
+    _OUTSIDE_TIME = "2016-09-15T15:30:12+00:00"
+
+    def test_from_disk_with_window_bounds_filters_snapshots(self) -> None:
+        sources = {
+            ("pmw_ssmi", self._INSIDE_TIME): make_field_source(),
+            ("pmw_ssmi", self._OUTSIDE_TIME): make_field_source(),
+            ("best_track", self._INSIDE_TIME): make_scalar_source(),
+        }
+        storm_data = _make_storm_data(sources)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assembled_root = Path(tmpdir)
+            storm_data.write(assembled_root)
+            filtered = StormData.from_disk(
+                assembled_root,
+                storm_data.storm_id,
+                window_start_utc=self._WINDOW_START,
+                window_end_utc=self._WINDOW_END,
+            )
+
+        assert len(filtered.sources) == 2
+        assert ("pmw_ssmi", self._INSIDE_TIME) in filtered.sources
+        assert ("best_track", self._INSIDE_TIME) in filtered.sources
+        assert ("pmw_ssmi", self._OUTSIDE_TIME) not in filtered.sources
+
+    def test_from_disk_without_window_bounds_loads_all_snapshots(self) -> None:
+        sources = {
+            ("pmw_ssmi", self._INSIDE_TIME): make_field_source(),
+            ("pmw_ssmi", self._OUTSIDE_TIME): make_field_source(),
+        }
+        storm_data = _make_storm_data(sources)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assembled_root = Path(tmpdir)
+            storm_data.write(assembled_root)
+            loaded = StormData.from_disk(assembled_root, storm_data.storm_id)
+
+        assert len(loaded.sources) == 2
+
+    def test_from_disk_rejects_partial_window_bounds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assembled_root = Path(tmpdir)
+            _make_storm_data({("best_track", _TIME_0): make_scalar_source()}).write(assembled_root)
+            with pytest.raises(ValueError, match="window_start_utc and window_end_utc"):
+                StormData.from_disk(
+                    assembled_root,
+                    _STORM_ID,
+                    window_start_utc=self._WINDOW_START,
+                )

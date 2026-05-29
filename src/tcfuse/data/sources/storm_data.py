@@ -11,6 +11,7 @@ from typing import Any
 import h5py
 
 from tcfuse.data.sources.source import Source, SourceKind
+from tcfuse.data.window_index import snapshot_in_window
 from tcfuse.utils.time import to_compact_time
 
 # HDF5 attribute keys written at the root level of each assembled file.
@@ -123,24 +124,44 @@ class StormData:
                             )
 
     @classmethod
-    def from_disk(cls, assembled_root: Path, storm_id: str) -> StormData:
-        """Load all sources for a storm from its assembled HDF5 file.
+    def from_disk(
+        cls,
+        assembled_root: Path,
+        storm_id: str,
+        *,
+        window_start_utc: str | None = None,
+        window_end_utc: str | None = None,
+    ) -> StormData:
+        """Load sources for a storm from its assembled HDF5 file.
 
         Reconstructs the ``sources`` dict with ``(source_name, snapshot_time_utc)``
         keys matching the original isoformat strings, so the keys are compatible
         with the per-source ``index.parquet`` index.
 
+        When ``window_start_utc`` and ``window_end_utc`` are both provided, only
+        snapshots whose ``snapshot_time_utc`` falls in the closed interval
+        ``[window_start_utc, window_end_utc]`` are loaded.
+
         Args:
             assembled_root: Root directory for assembled storm files.
             storm_id: IBTrACS SID, e.g. ``"2016292N14270"``.
+            window_start_utc: Optional inclusive window lower bound.
+            window_end_utc: Optional inclusive window upper bound.
 
         Returns:
-            :class:`StormData` with all sources loaded into CPU tensors.
+            :class:`StormData` with matching sources loaded into CPU tensors.
 
         Raises:
             KeyError: When the file is missing any of the mandatory root attrs
                 (``storm_id``, ``basin``, ``subbasin``, ``season``).
+            ValueError: When only one of ``window_start_utc`` / ``window_end_utc``
+                is provided.
         """
+        if (window_start_utc is None) ^ (window_end_utc is None):
+            raise ValueError(
+                "window_start_utc and window_end_utc must both be set or both be None."
+            )
+
         path = StormData.path(assembled_root, storm_id)
         sources: dict[tuple[str, str], Source] = {}
 
@@ -158,9 +179,17 @@ class StormData:
                     if not isinstance(snap_group, h5py.Group):
                         continue
 
+                    snapshot_time_utc = str(snap_group.attrs["snapshot_time_utc"])
+                    if window_start_utc is not None and window_end_utc is not None:
+                        if not snapshot_in_window(
+                            snapshot_time_utc,
+                            window_start_utc,
+                            window_end_utc,
+                        ):
+                            continue
+
                     kind = SourceKind[str(snap_group.attrs["kind"])]
                     source = Source.from_hdf5_group(snap_group, kind)
-                    snapshot_time_utc = str(snap_group.attrs["snapshot_time_utc"])
 
                     meta: dict[str, Any] = {
                         "storm_id": loaded_storm_id,

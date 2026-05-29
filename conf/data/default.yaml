@@ -1,0 +1,3 @@
+# Data loading configuration for training.
+assembled_root: ${paths.preprocessed_data}
+split: train
