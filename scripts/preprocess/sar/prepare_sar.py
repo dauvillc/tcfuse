@@ -14,6 +14,7 @@ import torch
 from netCDF4 import Dataset
 from omegaconf import DictConfig
 from scripts.preprocess.tc_primed.utils import should_skip_existing
+from scripts.preprocess.utils.field_grid import center_crop_or_pad_2d
 from scripts.preprocess.utils.runner import (
     finalize_source,
     launch_local_or_slurm,
@@ -27,6 +28,8 @@ from tcfuse.utils.time import to_compact_time
 
 SOURCE_NAME = "sar_cband"
 CHANNELS = ["wind_speed"]
+# Storm-centered square crop on the native regular grid (no regridding).
+SAR_CENTER_CROP_HALF_WIDTH_PX = 200
 
 
 def process_sar_file(
@@ -71,6 +74,8 @@ def process_sar_file(
         return False
 
     lon_2d, lat_2d = np.meshgrid(lon_1d, lat_1d)
+    side = 2 * SAR_CENTER_CROP_HALF_WIDTH_PX + 1
+    wind_speed, lat_2d, lon_2d = center_crop_or_pad_2d(side, side, wind_speed, lat_2d, lon_2d)
     h, w = lat_2d.shape
     values_np = wind_speed[:, :, np.newaxis].astype(np.float32)
     mask_np = np.isfinite(values_np)

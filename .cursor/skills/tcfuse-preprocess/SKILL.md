@@ -117,9 +117,13 @@ ${paths.preprocessed_sources}/
 Each per-source HDF5 file holds **exactly one source**, written by `Source.write(path)`.
 Use `Source.path(sources_root, source_name, sid, snapshot_time_utc)` to compute canonical paths.
 
-**TC-PRIMED infrared (native grid center crop):** `prepare_infrared.py` keeps a
-storm-centered square crop on each source's regular lat/lon grid (no regridding):
-`ir_tcirar` ±200 px (401×401), `ir_hursat` ±100 px (201×201).
+**TC-PRIMED infrared (native grid fixed size):** `prepare_infrared.py` outputs a
+storm-centered square on each source's regular lat/lon grid (no regridding):
+`ir_tcirar` always 401×401 (±200 px), `ir_hursat` always 201×201 (±100 px). Native
+grids larger than the target are center-cropped; smaller axes get symmetric NaN padding.
+
+**CyclObs SAR (native grid fixed size):** `sar/prepare_sar.py` always outputs 401×401
+(±200 px) with the same center-crop / symmetric NaN-pad rules on the native grid.
 
 **TC-PRIMED PMW and radar (storm-centered equiangular grids):** `prepare_pmw.py` and
 `prepare_radar.py` bilinearly resample swaths onto a fixed Plate Carrée grid centered on

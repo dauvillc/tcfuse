@@ -17,6 +17,7 @@ from omegaconf import DictConfig
 
 from scripts.preprocess.tc_primed.tc_primed_meta import read_tc_primed_overpass_meta
 from scripts.preprocess.tc_primed.utils import list_tc_primed_storm_files, should_skip_existing
+from scripts.preprocess.utils.field_grid import center_crop_or_pad_2d
 from scripts.preprocess.utils.runner import (
     finalize_source,
     launch_local_or_slurm,
@@ -46,27 +47,6 @@ def _read_ir_data(ir_grp: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         lon, lat = np.meshgrid(lon, lat)
 
     return irwin, lat, lon
-
-
-def _crop_center_square(
-    half_width_px: int,
-    *fields: np.ndarray,
-) -> tuple[np.ndarray, ...]:
-    """Crop 2-D arrays to a central square of side ``2 * half_width_px + 1`` pixels."""
-    ref = fields[0]
-    if ref.ndim != 2:
-        raise ValueError(f"Expected 2-D field, got shape {ref.shape}")
-    h, w = ref.shape
-    side = 2 * half_width_px + 1
-    if h < side or w < side:
-        raise ValueError(
-            f"Field shape {h}x{w} is smaller than crop side {side} "
-            f"(half_width_px={half_width_px})"
-        )
-    cy, cx = h // 2, w // 2
-    y_slice = slice(cy - half_width_px, cy + half_width_px + 1)
-    x_slice = slice(cx - half_width_px, cx + half_width_px + 1)
-    return tuple(field[y_slice, x_slice] for field in fields)
 
 
 def process_ir_file(
@@ -112,11 +92,8 @@ def process_ir_file(
         return False
 
     half_width_px = IR_CENTER_CROP_HALF_WIDTH_PX[source_name]
-    try:
-        irwin, lat2d, lon2d = _crop_center_square(half_width_px, irwin, lat2d, lon2d)
-    except ValueError as exc:
-        warnings.warn(f"{file}: {exc} — discarding", stacklevel=2)
-        return False
+    side = 2 * half_width_px + 1
+    irwin, lat2d, lon2d = center_crop_or_pad_2d(side, side, irwin, lat2d, lon2d)
 
     h, w = irwin.shape
     values_np = irwin[..., np.newaxis].astype(np.float32)
