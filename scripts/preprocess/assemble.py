@@ -12,6 +12,8 @@ Writes:
 - ``${paths.preprocessed_data}/index.parquet`` — concatenated index of
   satellite-source snapshot rows and full IBTrACS rows. Satellite rows leave
   IBTrACS-specific columns NaN; IBTrACS rows leave nothing extra.
+- ``${paths.preprocessed_data}/sources_metadata.yaml`` — merged source
+  descriptors (channels, shape, kind) for downstream ML pipeline use.
 
 Storms not present in IBTrACS are simply not assembled — the SID set comes
 straight from the IBTrACS parquet, after the ``TRACK_TYPE == "MAIN"`` filter
@@ -59,6 +61,37 @@ _SAT_INDEX_COLUMNS: list[str] = [
     "basin",
     "subbasin",
 ]
+
+# Stage 0 outputs live here; not a Stage 1 measurement source.
+_IBTRACS_DIR_NAME = "ibtracs"
+
+
+def _is_stage1_source_dir(entry: Path) -> bool:
+    """Return True when a directory holds both Stage-1 metadata and index files."""
+    if not entry.is_dir() or entry.name == _IBTRACS_DIR_NAME:
+        return False
+    return (entry / "metadata.yaml").is_file() and (entry / "index.parquet").is_file()
+
+
+def _discover_stage1_metadata_yaml_paths(sources_root: Path) -> list[Path]:
+    """Collect per-source ``metadata.yaml`` paths under ``sources_root``."""
+    return [
+        entry / "metadata.yaml"
+        for entry in sorted(sources_root.iterdir())
+        if _is_stage1_source_dir(entry)
+    ]
+
+
+def _load_stage1_snapshot_index(sources_root: Path) -> pd.DataFrame:
+    """Concatenate every Stage-1 ``index.parquet`` under ``sources_root``."""
+    frames: list[pd.DataFrame] = []
+    for entry in sorted(sources_root.iterdir()):
+        if not _is_stage1_source_dir(entry):
+            continue
+        frames.append(pd.read_parquet(entry / "index.parquet"))
+    if not frames:
+        return pd.DataFrame(columns=list(_SAT_INDEX_COLUMNS))
+    return pd.concat(frames, ignore_index=True)
 
 
 def _find_single_source_group(source_file: h5py.File) -> tuple[h5py.Group, SourceKind]:
@@ -376,15 +409,15 @@ def main(raw_cfg: DictConfig) -> None:
     }
 
     print(f"Loading per-source metadata from {sources_root} …")
-    multi_meta = MultisourceMetadata.from_disk(sources_root)
+    yaml_paths = _discover_stage1_metadata_yaml_paths(sources_root)
+    multi_meta = MultisourceMetadata.from_multiple_yaml(yaml_paths)
+    index = _load_stage1_snapshot_index(sources_root)
     if multi_meta.sources:
-        index = multi_meta.index
         print(
             f"Found {len(multi_meta)} source(s), {len(index)} total snapshots, "
             f"{index['sid'].nunique() if not index.empty else 0} unique SIDs."
         )
     else:
-        index = pd.DataFrame(columns=list(_SAT_INDEX_COLUMNS))
         print("No Stage 1 source indices found; will still write IBTrACS-only storm files.")
 
     sids = sorted(ibtracs_by_sid.keys())
@@ -445,6 +478,11 @@ def main(raw_cfg: DictConfig) -> None:
     index_path = assembled_root / "index.parquet"
     index_df.to_parquet(index_path, index=False)
     print(f"Wrote assembled index: {len(index_df)} rows → {index_path}")
+
+    if multi_meta.sources:
+        metadata_path = assembled_root / "sources_metadata.yaml"
+        multi_meta.to_yaml(metadata_path)
+        print(f"Wrote sources metadata: {len(multi_meta)} source(s) → {metadata_path}")
 
     submit_archive_job(
         assembled_root,

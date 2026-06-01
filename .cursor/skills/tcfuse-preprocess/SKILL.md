@@ -154,7 +154,9 @@ sid, source_name, snapshot_time_utc, season, basin, subbasin
 The index is rebuilt at the end of every Stage 1 run by `finalize_source` in
 `scripts/preprocess/utils/runner.py`, which scans `snapshots/*.h5`, reads each
 file's `storm_id` (=SID) and `snapshot_time_utc` root attrs, and left-joins
-the Stage 0 translation table to populate `season / basin / subbasin`.
+the Stage 0 translation table to populate `season / basin / subbasin`. Metadata
+is written via `SourceMetadata.to_yaml`; the index is written separately as
+``index.parquet`` in the same source directory.
 
 **HDF5 file structure per snapshot:**
 ```
@@ -206,8 +208,15 @@ Config key: `cfg.paths.preprocessed_data`
 ${paths.preprocessed_data}/
 ├── storm_data/
 │   └── {sid}.h5            # one file per IBTrACS storm, e.g. 2016228N14275.h5
-└── index.parquet           # concatenated assembled index (Stage 1 + IBTrACS rows)
+├── index.parquet           # concatenated assembled index (Stage 1 + IBTrACS rows)
+└── sources_metadata.yaml   # merged source descriptors (channels, shape, kind)
 ```
+
+`SourceMetadata` and `MultisourceMetadata` hold static descriptors only — no snapshot
+index. Stage-1 per-source indices live in ``index.parquet`` under each source directory;
+the assembled snapshot index is ``index.parquet`` at this root. Load descriptors for
+training via ``MultisourceMetadata.from_yaml(assembled_root / "sources_metadata.yaml")``.
+Produced by ``assemble.py`` from Stage-1 ``metadata.yaml`` files.
 
 Each HDF5 file holds **all sources for one storm**, written by `StormData.write(assembled_root)`.
 Use `StormData.path(assembled_root, sid)` to compute canonical paths.
@@ -481,8 +490,11 @@ All read/write operations go through `src/tcfuse/data/sources/`:
 | `StormData.from_disk(assembled_root, storm_id)` | `sources/storm_data.py` | Load all sources for a storm |
 | `StormData.read_meta(assembled_root, storm_id)` | `sources/storm_data.py` | Read root attrs only (no tensors) |
 | `StormData.path(assembled_root, storm_id)` | `sources/storm_data.py` | Canonical assembled file path |
-| `SourceMetadata.from_disk(source_dir)` | `sources/metadata.py` | Load metadata.yaml + index for one source |
-| `MultisourceMetadata.from_disk(sources_root)` | `sources/metadata.py` | Scan sources_root and load all SourceMetadata |
+| `SourceMetadata.to_yaml(yaml_path)` | `sources/metadata.py` | Write one source's metadata.yaml |
+| `SourceMetadata.from_yaml(yaml_path)` | `sources/metadata.py` | Load metadata.yaml (descriptors only, no index) |
+| `MultisourceMetadata.from_yaml(yaml_path)` | `sources/metadata.py` | Load assembled sources_metadata.yaml |
+| `MultisourceMetadata.from_multiple_yaml(paths)` | `sources/metadata.py` | Union several per-source metadata.yaml files |
+| `MultisourceMetadata.to_yaml(yaml_path)` | `sources/metadata.py` | Write merged sources_metadata.yaml |
 
 ## Maintenance
 

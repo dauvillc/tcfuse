@@ -210,13 +210,17 @@ def main(raw_cfg: DictConfig) -> None:
     """Compute normalization statistics for all sources in the assembled dataset."""
     cfg = resolve_preproc_cfg(raw_cfg)
     assembled_root = Path(cfg["paths"]["preprocessed_data"])
-    sources_root = Path(cfg["paths"]["preprocessed_sources"])
 
     index = load_training_snapshot_index(assembled_root)
     groups: dict[str, pd.DataFrame] = {str(k): v for k, v in index.groupby("source_name")}
     print(f"  Found {len(groups)} source(s): {sorted(groups)}")
 
-    multi_meta = MultisourceMetadata.from_disk(sources_root)
+    meta_path = assembled_root / "sources_metadata.yaml"
+    if not meta_path.exists():
+        raise FileNotFoundError(
+            f"Sources metadata not found at {meta_path}. Run scripts/preprocess/assemble.py first."
+        )
+    multi_meta = MultisourceMetadata.from_yaml(meta_path)
     channels_hints: dict[str, list[str] | None] = {
         sn: (multi_meta[sn].channels if sn in multi_meta else None) for sn in groups
     }

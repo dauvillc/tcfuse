@@ -22,6 +22,7 @@ from typing import Any, cast
 
 import hydra
 import matplotlib.pyplot as plt
+import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
 from tcfuse.data.sources import Source, SourceMetadata
@@ -96,9 +97,11 @@ def channel_specs_for_source(meta: SourceMetadata) -> list[ChannelPlotSpec]:
 
 def example_snapshot_path(sources_root: Path, meta: SourceMetadata) -> Path | None:
     """Return the HDF5 path for the first index row, or None when the index is empty."""
-    if meta.index.empty:
+    index_path = sources_root / meta.name / "index.parquet"
+    index = pd.read_parquet(index_path)
+    if index.empty:
         return None
-    row = meta.index.sort_values(["sid", "snapshot_time_utc"]).iloc[0]
+    row = index.sort_values(["sid", "snapshot_time_utc"]).iloc[0]
     sid = str(row["sid"])
     snapshot_time_utc = to_compact_time(str(row["snapshot_time_utc"]))
     path = Source.path(sources_root, meta.name, sid, snapshot_time_utc)
@@ -139,7 +142,7 @@ def main(raw_cfg: DictConfig) -> None:
     plotted = 0
 
     for source_name in source_names:
-        meta = SourceMetadata.from_disk(sources_root, source_name)
+        meta = SourceMetadata.from_yaml(sources_root / source_name / "metadata.yaml")
         snapshot_path = example_snapshot_path(sources_root, meta)
         if snapshot_path is None:
             print(f"  SKIP {source_name}: no snapshots")

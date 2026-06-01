@@ -1,4 +1,4 @@
-"""Source-level and multi-source metadata, with disk I/O."""
+"""Source-level and multi-source metadata, with YAML I/O."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 import yaml
 
 from tcfuse.data.sources.source import SourceKind
@@ -16,11 +15,11 @@ from tcfuse.data.sources.source import SourceKind
 
 @dataclasses.dataclass
 class SourceMetadata:
-    """Source-level metadata: physical description + full snapshot index.
+    """Source-level metadata: physical description of a measurement source.
 
-    This object holds everything that is known about a source across all its
-    snapshots.  It does NOT contain any measurement tensors — those live in
-    individual :class:`~tcfuse.data.sources.source.Source` objects loaded on demand.
+    This object holds static descriptors shared by every snapshot of a source.
+    It does NOT contain measurement tensors (see :class:`~tcfuse.data.sources.source.Source`)
+    or snapshot indices (see per-source ``index.parquet`` or the assembled index).
 
     Args:
         name: Source directory name, e.g. ``"pmw_amsr2_gcomw1"``.
@@ -33,10 +32,6 @@ class SourceMetadata:
             - PROFILE: ``(L,)``
             - FIELD:   ``(H, W)``
             All snapshots within a source are guaranteed to share this shape.
-        index: Source index loaded from ``index.parquet``.  Each row
-            corresponds to one HDF5 snapshot file; columns include at least
-            ``storm_id``, ``snapshot_time_utc``, ``lat``, ``lon``,
-            ``source_name``, and ``file_path``.
         char_vars: Instrument-level descriptor variables constant across all snapshots
             of this source (e.g. ``{"ifov": {"tb_89.0h": [7.2, 4.4, 7.2, 4.4]}}``).
             Values must be JSON-serialisable (lists, dicts, scalars).
@@ -47,7 +42,6 @@ class SourceMetadata:
     kind: SourceKind
     channels: list[str]
     shape: tuple[int, ...]
-    index: pd.DataFrame = dataclasses.field(compare=False)
     char_vars: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     @property
@@ -65,23 +59,12 @@ class SourceMetadata:
         return max(1, math.prod(self.shape))
 
     # ------------------------------------------------------------------
-    # Disk I/O
+    # Serialization
     # ------------------------------------------------------------------
 
-    def write(self, sources_root: Path) -> None:
-        """Write ``metadata.yaml`` and ``index.parquet`` for this source.
-
-        Both files are written to ``{sources_root}/{self.name}/``.  The
-        directory is created if it does not exist.
-
-        Args:
-            sources_root: Root directory for preprocessed sources
-                (``cfg.paths.preprocessed_sources``).
-        """
-        dest = sources_root / self.name
-        dest.mkdir(parents=True, exist_ok=True)
-
-        meta = {
+    def to_dict(self) -> dict[str, Any]:
+        """Return a YAML-serialisable dict for this source."""
+        return {
             "name": self.name,
             "type": self.type,
             "kind": self.kind.name.lower(),
@@ -90,74 +73,61 @@ class SourceMetadata:
             "shape": list(self.shape),
             "char_vars": self.char_vars,
         }
-        with open(dest / "metadata.yaml", "w") as f:
-            yaml.dump(meta, f, default_flow_style=False, sort_keys=False)
-
-        self.index.to_parquet(dest / "index.parquet", index=False)
 
     @classmethod
-    def from_disk(cls, sources_root: Path, source_name: str) -> SourceMetadata:
-        """Load source-level metadata and snapshot index from disk.
+    def from_dict(cls, raw: dict[str, Any]) -> SourceMetadata:
+        """Build a :class:`SourceMetadata` from a dict (one source entry)."""
+        source_kind = SourceKind[str(raw["kind"]).upper()]
+        shape = tuple(int(d) for d in raw["shape"])
+        return cls(
+            name=str(raw["name"]),
+            type=str(raw["type"]),
+            kind=source_kind,
+            channels=list(raw["channels"]),
+            shape=shape,
+            char_vars=dict(raw.get("char_vars") or {}),
+        )
 
-        Reads ``{sources_root}/{source_name}/metadata.yaml`` and
-        ``{sources_root}/{source_name}/index.parquet``.
+    def to_yaml(self, yaml_path: Path) -> None:
+        """Write this source's metadata to a YAML file.
 
         Args:
-            sources_root: Root directory for preprocessed sources
-                (``cfg.paths.preprocessed_sources``).
-            source_name: Source directory name, e.g. ``"pmw_amsr2_gcomw1"``.
+            yaml_path: Full path to the output ``metadata.yaml`` file.
+        """
+        yaml_path = Path(yaml_path)
+        yaml_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(yaml_path, "w") as f:
+            yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)
+
+    @classmethod
+    def from_yaml(cls, yaml_path: Path) -> SourceMetadata:
+        """Load source metadata from a YAML file.
+
+        Args:
+            yaml_path: Full path to a per-source ``metadata.yaml`` file.
 
         Returns:
-            :class:`SourceMetadata` with the snapshot index fully loaded into
-            memory.
+            :class:`SourceMetadata` with static descriptors only (no index).
         """
-        meta_path = sources_root / source_name / "metadata.yaml"
-        with open(meta_path) as f:
+        with open(yaml_path) as f:
             raw = yaml.safe_load(f)
-
-        source_kind = SourceKind[raw["kind"].upper()]
-        index = pd.read_parquet(sources_root / source_name / "index.parquet")
-        shape = tuple(int(d) for d in raw["shape"])
-
-        return cls(
-            name=raw["name"],
-            type=raw["type"],
-            kind=source_kind,
-            channels=raw["channels"],
-            shape=shape,
-            index=index,
-            char_vars=raw["char_vars"],
-        )
+        if not isinstance(raw, dict):
+            raise ValueError(f"Expected a mapping in {yaml_path}, got {type(raw).__name__}")
+        return cls.from_dict(raw)
 
 
 @dataclasses.dataclass
 class MultisourceMetadata:
     """Grouped metadata for a collection of sources.
 
-    Wraps multiple :class:`SourceMetadata` objects and exposes a merged
-    snapshot index across all sources.
+    Wraps multiple :class:`SourceMetadata` objects. Snapshot indices live in
+    ``index.parquet`` files on disk, not in this class.
 
     Args:
         sources: Mapping from source name to its :class:`SourceMetadata`.
     """
 
     sources: dict[str, SourceMetadata]
-
-    def __post_init__(self) -> None:
-        """Merge individual source indices into a single DataFrame for easy querying."""
-        self._index: pd.DataFrame = (
-            pd.concat(
-                [meta.index for meta in self.sources.values()],
-                ignore_index=True,
-            )
-            if self.sources
-            else pd.DataFrame()
-        )
-
-    @property
-    def index(self) -> pd.DataFrame:
-        """Merged snapshot index across all sources (one row per snapshot per source)."""
-        return self._index
 
     def __getitem__(self, source_name: str) -> SourceMetadata:
         """Return the SourceMetadata for the given source name."""
@@ -198,32 +168,63 @@ class MultisourceMetadata:
         return MultisourceMetadata(sources=filtered)
 
     # ------------------------------------------------------------------
-    # Disk I/O
+    # Serialization
     # ------------------------------------------------------------------
 
-    @classmethod
-    def from_disk(cls, sources_root: Path) -> MultisourceMetadata:
-        """Load metadata for all sources found under ``sources_root``.
+    def to_dict(self) -> dict[str, dict[str, Any]]:
+        """Return ``{source_name: source_dict}`` suitable for YAML export."""
+        return {name: meta.to_dict() for name, meta in self.sources.items()}
 
-        Scans for sub-directories that contain both ``metadata.yaml`` and
-        ``index.parquet``, skipping any that are missing either file.
+    @classmethod
+    def from_dict(cls, raw: dict[str, dict[str, Any]]) -> MultisourceMetadata:
+        """Build from ``{source_name: source_metadata_dict}``."""
+        sources = {name: SourceMetadata.from_dict(entry) for name, entry in raw.items()}
+        return cls(sources=sources)
+
+    def to_yaml(self, yaml_path: Path) -> None:
+        """Write merged source metadata to a YAML file.
 
         Args:
-            sources_root: Root directory for preprocessed sources
-                (``cfg.paths.preprocessed_sources``).
+            yaml_path: Full path to the output file (e.g. ``sources_metadata.yaml``).
+        """
+        yaml_path = Path(yaml_path)
+        yaml_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(yaml_path, "w") as f:
+            yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)
+
+    @classmethod
+    def from_yaml(cls, yaml_path: Path) -> MultisourceMetadata:
+        """Load multi-source metadata from a single YAML file.
+
+        The file must contain a mapping ``{source_name: source_metadata_dict}``.
+
+        Args:
+            yaml_path: Full path to a multi-source metadata YAML file.
 
         Returns:
-            A :class:`MultisourceMetadata` containing one entry per valid
-            source directory found, with a merged snapshot index.
+            :class:`MultisourceMetadata` with one entry per source key.
         """
-        sources_root = Path(sources_root)
-        sources: dict[str, SourceMetadata] = {}
-        for entry in sorted(sources_root.iterdir()):
-            if not entry.is_dir():
-                continue
-            if not (entry / "metadata.yaml").exists():
-                continue
-            if not (entry / "index.parquet").exists():
-                continue
-            sources[entry.name] = SourceMetadata.from_disk(sources_root, entry.name)
-        return cls(sources=sources)
+        with open(yaml_path) as f:
+            raw = yaml.safe_load(f)
+        if not isinstance(raw, dict):
+            raise ValueError(f"Expected a mapping in {yaml_path}, got {type(raw).__name__}")
+        return cls.from_dict(raw)
+
+    @classmethod
+    def from_multiple_yaml(cls, yaml_paths: list[Path]) -> MultisourceMetadata:
+        """Load and union metadata from several per-source YAML files.
+
+        Each path is loaded with :meth:`SourceMetadata.from_yaml`. Later paths
+        overwrite earlier ones when source names collide.
+
+        Args:
+            yaml_paths: List of per-source ``metadata.yaml`` file paths.
+
+        Returns:
+            :class:`MultisourceMetadata` containing the union of all sources.
+        """
+        merged: dict[str, dict[str, Any]] = {}
+        for path in yaml_paths:
+            meta = SourceMetadata.from_yaml(path)
+            merged[meta.name] = meta.to_dict()
+        return cls.from_dict(merged)

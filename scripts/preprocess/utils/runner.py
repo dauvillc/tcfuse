@@ -187,8 +187,8 @@ def finalize_source(
     """Build the per-source index from on-disk snapshots and archive the source.
 
     Reads the Stage 0 translation table once to populate ``season/basin/subbasin``
-    on every index row. Writes ``metadata.yaml`` and ``index.parquet`` under
-    ``{sources_root}/{source_name}/``.
+    on every index row. Writes ``metadata.yaml`` via :meth:`SourceMetadata.to_yaml`
+    and ``index.parquet`` separately under ``{sources_root}/{source_name}/``.
 
     Args:
         source_name: Source identifier, e.g. ``"pmw_amsr2_gcomw1"``.
@@ -217,10 +217,10 @@ def finalize_source(
         kind,
         channels,
         shape,
-        index_df,
         char_vars=char_vars or {},
     )
-    source_meta.write(sources_root)
+    source_meta.to_yaml(source_dir / "metadata.yaml")
+    index_df.to_parquet(source_dir / "index.parquet", index=False)
     print(f"Wrote index ({source_name}): {len(index_df)} rows → {source_dir / 'index.parquet'}")
 
     tar_path = Path(cfg["paths"]["archives"]["preprocessed_sources"]) / f"{source_name}.tar.gz"
