@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -115,15 +116,26 @@ class Source:
             raise ValueError(f"mask shape {self.mask.shape} must match values shape {v.shape}")
 
     @property
+    def shape(self) -> tuple[int, ...]:
+        """Spatial shape of this source (excluding channels).
+
+        Returns:
+            - SCALAR:  ``()`` — a single measurement point.
+            - PROFILE: ``(L,)`` — L vertical levels.
+            - FIELD:   ``(H, W)`` — spatial grid dimensions.
+        """
+        if self.kind is SourceKind.SCALAR:
+            return ()
+        elif self.kind is SourceKind.PROFILE:
+            return (self.values.shape[0],)
+        else:  # FIELD
+            return (self.values.shape[0], self.values.shape[1])
+
+    @property
     def n_tokens(self) -> int:
         """Number of (value, coord) pairs in this source (flattened spatial dims)."""
-        if self.kind is SourceKind.SCALAR:
-            return 1
-        elif self.kind is SourceKind.PROFILE:
-            return self.values.shape[0]  # L
-        else:  # FIELD
-            h, w = self.values.shape[:2]
-            return h * w
+        # SCALAR has an empty shape, so math.prod(()) == 1.
+        return max(1, math.prod(self.shape))
 
     def to(self, device: torch.device | str) -> Source:
         """Move tensors to device, returning a new Source."""

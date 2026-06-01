@@ -265,8 +265,16 @@ def main(raw_cfg: DictConfig) -> None:
     written = 0
     for sensat in supported:
         source_name, channels, char_vars = _pmw_source_config(sensat, ifovs, extent_half_km)
+        yx = char_vars["grid_shape_yx"]
         written += finalize_source(
-            source_name, "pmw", SourceKind.FIELD, channels, sources_root, cfg, char_vars
+            source_name,
+            "pmw",
+            SourceKind.FIELD,
+            channels,
+            shape=(yx[0], yx[1]),
+            sources_root=sources_root,
+            cfg=cfg,
+            char_vars=char_vars,
         )
 
     if written == 0:

@@ -168,14 +168,17 @@ def main(raw_cfg: DictConfig) -> None:
 
     written = 0
     for source_name in ("ir_tcirar", "ir_hursat"):
+        half = IR_CENTER_CROP_HALF_WIDTH_PX[source_name]
+        side = 2 * half + 1
         written += finalize_source(
             source_name,
             "infrared",
             SourceKind.FIELD,
             ["irwin"],
-            sources_root,
-            cfg,
-            {"ifov_km": IR_SOURCE_IFOVS[source_name]},
+            shape=(side, side),
+            sources_root=sources_root,
+            cfg=cfg,
+            char_vars={"ifov_km": IR_SOURCE_IFOVS[source_name]},
         )
 
     if written == 0:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,11 @@ class SourceMetadata:
         kind: Dimensionality class (SCALAR, PROFILE, or FIELD).
         channels: Ordered list of channel names matching the last axis of
             the ``values`` array in each snapshot.
+        shape: Spatial shape shared by every snapshot of this source (excluding channels).
+            - SCALAR:  ``()``
+            - PROFILE: ``(L,)``
+            - FIELD:   ``(H, W)``
+            All snapshots within a source are guaranteed to share this shape.
         index: Source index loaded from ``index.parquet``.  Each row
             corresponds to one HDF5 snapshot file; columns include at least
             ``storm_id``, ``snapshot_time_utc``, ``lat``, ``lon``,
@@ -40,6 +46,7 @@ class SourceMetadata:
     type: str
     kind: SourceKind
     channels: list[str]
+    shape: tuple[int, ...]
     index: pd.DataFrame = dataclasses.field(compare=False)
     char_vars: dict[str, Any] = dataclasses.field(default_factory=dict)
 
@@ -47,6 +54,15 @@ class SourceMetadata:
     def num_channels(self) -> int:
         """Number of channels (last axis of ``values`` in each snapshot)."""
         return len(self.channels)
+
+    @property
+    def num_tokens(self) -> int:
+        """Number of spatial tokens per snapshot (flattened spatial dims).
+
+        Returns 1 for SCALAR sources (empty shape).
+        """
+        # math.prod(()) == 1, which is correct for SCALAR.
+        return max(1, math.prod(self.shape))
 
     # ------------------------------------------------------------------
     # Disk I/O
@@ -71,6 +87,7 @@ class SourceMetadata:
             "kind": self.kind.name.lower(),
             "channels": self.channels,
             "num_channels": self.num_channels,
+            "shape": list(self.shape),
             "char_vars": self.char_vars,
         }
         with open(dest / "metadata.yaml", "w") as f:
@@ -100,12 +117,14 @@ class SourceMetadata:
 
         source_kind = SourceKind[raw["kind"].upper()]
         index = pd.read_parquet(sources_root / source_name / "index.parquet")
+        shape = tuple(int(d) for d in raw["shape"])
 
         return cls(
             name=raw["name"],
             type=raw["type"],
             kind=source_kind,
             channels=raw["channels"],
+            shape=shape,
             index=index,
             char_vars=raw["char_vars"],
         )

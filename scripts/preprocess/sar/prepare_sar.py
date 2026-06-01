@@ -174,7 +174,19 @@ def main(raw_cfg: DictConfig) -> None:
         ),
     )
 
-    if finalize_source(SOURCE_NAME, "sar", SourceKind.FIELD, CHANNELS, sources_root, cfg) == 0:
+    sar_side = 2 * SAR_CENTER_CROP_HALF_WIDTH_PX + 1
+    if (
+        finalize_source(
+            SOURCE_NAME,
+            "sar",
+            SourceKind.FIELD,
+            CHANNELS,
+            shape=(sar_side, sar_side),
+            sources_root=sources_root,
+            cfg=cfg,
+        )
+        == 0
+    ):
         print("No valid SAR snapshots found.")
 
 

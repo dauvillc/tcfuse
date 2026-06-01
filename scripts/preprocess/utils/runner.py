@@ -179,6 +179,7 @@ def finalize_source(
     source_type: str,
     kind: SourceKind,
     channels: list[str],
+    shape: tuple[int, ...],
     sources_root: Path,
     cfg: dict[str, Any],
     char_vars: dict[str, Any] | None = None,
@@ -189,7 +190,20 @@ def finalize_source(
     on every index row. Writes ``metadata.yaml`` and ``index.parquet`` under
     ``{sources_root}/{source_name}/``.
 
-    Returns the number of indexed snapshots (0 when nothing was written).
+    Args:
+        source_name: Source identifier, e.g. ``"pmw_amsr2_gcomw1"``.
+        source_type: Physical category, e.g. ``"microwave"``.
+        kind: Dimensionality class of the source.
+        channels: Ordered channel names.
+        shape: Spatial shape shared by every snapshot of this source
+            (excluding channels). Use ``()`` for SCALAR, ``(L,)`` for
+            PROFILE, ``(H, W)`` for FIELD.
+        sources_root: Root directory for preprocessed sources.
+        cfg: Resolved preproc config dict.
+        char_vars: Optional instrument-level descriptor variables.
+
+    Returns:
+        The number of indexed snapshots (0 when nothing was written).
     """
     source_dir = sources_root / source_name
     sid_attrs = _sid_attrs_lookup(sources_root)
@@ -202,6 +216,7 @@ def finalize_source(
         source_type,
         kind,
         channels,
+        shape,
         index_df,
         char_vars=char_vars or {},
     )

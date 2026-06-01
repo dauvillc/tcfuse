@@ -250,8 +250,16 @@ def main(raw_cfg: DictConfig) -> None:
         source_name = f"radar_{sensat.split('_')[0].lower()}"
         channels = [v.lower() for v in variables]
         char_vars = _radar_source_char_vars(sensat, swath, ifovs, extent_half_km)
+        yx = char_vars["grid_shape_yx"]
         written += finalize_source(
-            source_name, "radar", SourceKind.FIELD, channels, sources_root, cfg, char_vars
+            source_name,
+            "radar",
+            SourceKind.FIELD,
+            channels,
+            shape=(yx[0], yx[1]),
+            sources_root=sources_root,
+            cfg=cfg,
+            char_vars=char_vars,
         )
 
     if written == 0:

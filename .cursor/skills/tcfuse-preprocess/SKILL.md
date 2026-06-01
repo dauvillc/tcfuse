@@ -130,9 +130,9 @@ grids larger than the target are center-cropped; smaller axes get symmetric NaN 
 `overpass_storm_metadata` `storm_latitude` / `storm_longitude`, with half-width
 `cfg.tc_primed.storm_grid_extent_half_km` (default 750 km) along each axis and pixel
 spacing equal to the minimum IFOV (km) for that sensor/swath (`tc_primed_ifovs.yaml`).
-Grid shape is `(2 × round(extent_half_km / resolution_km), …)` and is recorded in source
-`char_vars` as `grid_shape_yx` together with `target_resolution_km` and
-`storm_grid_extent_half_km`. Implementation: `scripts/preprocess/utils/regridding.py`.
+Grid shape is `(2 × round(extent_half_km / resolution_km), …)`, stored as `SourceMetadata.shape`
+and also recorded in source `char_vars` as `grid_shape_yx` together with `target_resolution_km`
+and `storm_grid_extent_half_km`. Implementation: `scripts/preprocess/utils/regridding.py`.
 
 **ATCF→SID translation at Stage 1:** every per-source preprocessor calls
 `load_translation(sources_root)` to load the Stage 0 ATCF→SID lookup, then in the
@@ -189,9 +189,14 @@ type: microwave      # physical category
 kind: field          # scalar | profile | field
 channels: [tb_36.5h, tb_36.5v, tb_a89.0h, tb_a89.0v]
 num_channels: 4
+shape: [400, 400]    # spatial dims shared by every snapshot: [] SCALAR, [L] PROFILE, [H, W] FIELD
 char_vars:
   ifov: {tb_36.5h: [7.2, 4.4, 7.2, 4.4], …}
 ```
+
+`SourceMetadata.shape` is the canonical way to know a snapshot's spatial dimensions without
+loading any HDF5 file. `SourceMetadata.num_tokens` derives from it (`math.prod(shape)`, 1 for
+SCALAR). For PMW/radar, `shape` is consistent with `char_vars["grid_shape_yx"]`.
 
 ## Stage 2 — Assembled format
 
