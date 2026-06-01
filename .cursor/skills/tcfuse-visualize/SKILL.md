@@ -101,7 +101,14 @@ fig, ax = plt.subplots(...)
 path = save_fig(fig, "figures/my_plot")  # saves to figures/my_plot.svg
 ```
 
+`plot_field()` rasterizes the `pcolormesh` layer on save so SVG/PDF files stay small while
+titles, ticks, and coastlines remain vector.
+
 Set `TCFUSE_NO_LATEX=1` to disable the LaTeX renderer (e.g. on nodes without a LaTeX install).
+
+Use `UNIT_K`, `UNIT_MM_H`, `UNIT_M_S` from `style.py` for colorbar units (LaTeX-safe math,
+not Unicode superscripts). Channel names and titles are escaped via
+`format_text_for_renderer()` when usetex is on.
 
 ## Visualization module conventions
 
@@ -116,10 +123,17 @@ visualization/
 ├── storm_data_visu.py    ← StormDataVisualizer class: show_footprints and future overview plots
 ├── timeline.py           ← plot_source_timeline(): source availability eventplot from assembled index
 ├── tracks.py             ← TC track and intensity maps
-├── fields.py             ← 2D satellite / model field plots (PMW, IR, ERA5, SAR): plot_field(), plot_sar_wind()
+├── fields.py             ← 2D field plots: plot_field(), plot_field_from_source(), plot_field_source_channels(), plot_sar_wind()
 ├── profiles.py           ← vertical profile plots (dropsonde, Argo)
 └── training.py           ← loss curves, attention weights, model diagnostics
 ```
+
+**CLI scripts** under `scripts/visualization/` (Hydra + `preproc` config):
+
+| Script | Output |
+|---|---|
+| `source_timeline.py` | `figures/source_timeline.svg` — assembled-index source availability |
+| `plot_source_examples.py` | `figures/source_examples/{source_name}.svg` — one multi-panel example per Stage 1 source (all PMW sensors, IR, radar, SAR) |
 
 ### Function signature pattern
 
@@ -220,16 +234,16 @@ Key design decisions:
 from tcfuse.data.visualization.fields import plot_field, plot_sar_wind
 
 # Generic field (raw numpy arrays):
-fig, ax = plot_field(values, lats, lons, channel="sar_wind", unit="m s⁻¹",
+fig, ax = plot_field(values, lats, lons, channel="sar_wind", unit=UNIT_M_S,
                      storm_lat=15.0, storm_lon=-75.0)
 
 # SAR convenience wrapper (accepts a Source object directly):
 fig, ax = plot_sar_wind(source, storm_lat=15.0, storm_lon=-75.0)
 ```
 
-`plot_sar_wind` extracts `values[..., 0]`, `coords[..., 1]` (lats), `coords[..., 2]` (lons) from
-the `Source` dataclass, applies the validity mask (→ NaN for invalid pixels), and calls `plot_field`
-with `channel="sar_wind"` and `unit="m s⁻¹"`.
+`plot_sar_wind` delegates to `plot_field_from_source()` (channel 0, `sar_wind` colormap).
+`plot_field_source_channels()` lays out every channel in a 2×2 (PMW), 1×3 (radar), or 1×1 grid;
+use it from `plot_source_examples.py` or custom gallery scripts.
 
 ## Adding a new visualization module
 
