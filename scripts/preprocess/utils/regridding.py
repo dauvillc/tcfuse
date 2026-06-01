@@ -4,12 +4,11 @@ import logging
 import math
 import traceback
 import warnings
-from typing import cast
 
 import numpy as np
 from pyresample.area_config import create_area_def
 from pyresample.bilinear._numpy_resampler import NumpyBilinearResampler
-from pyresample.geometry import AreaDefinition, DynamicAreaDefinition, SwathDefinition
+from pyresample.geometry import AreaDefinition, SwathDefinition
 from pyresample.image import ImageContainerNearest
 from pyresample.utils import check_and_wrap
 
@@ -36,33 +35,94 @@ warnings.simplefilter(action="ignore")
 
 
 EARTH_RADIUS = 6371228.0  # Earth radius in meters
+BILINEAR_RADIUS_OF_INFLUENCE_M = 100_000.0  # 100 km
+
+
+def _resolution_km_to_degrees(target_resolution_km: float) -> float:
+    """Convert target grid spacing in km to degrees at the equator."""
+    circumference = 2 * math.pi * EARTH_RADIUS
+    meters_per_degree = circumference / 360.0
+    return (target_resolution_km * 1000.0) / meters_per_degree
+
+
+def grid_shape_for_extent(extent_half_km: float, resolution_km: float) -> tuple[int, int]:
+    """Return (height, width) for a storm-centered grid spanning ±extent_half_km.
+
+    Args:
+        extent_half_km: Half-width of the grid in km along each axis (e.g. 750).
+        resolution_km: Target pixel spacing in km.
+
+    Returns:
+        ``(2 * round(extent_half_km / resolution_km), ...)`` for pyresample ``shape``.
+    """
+    n_half = round(extent_half_km / resolution_km)
+    size = 2 * n_half
+    return (size, size)
+
+
+def create_storm_centered_equiangular_area(
+    storm_lon: float,
+    storm_lat: float,
+    target_resolution_km: float,
+    *,
+    extent_half_km: float = 750.0,
+) -> AreaDefinition:
+    """Build a fixed equiangular grid centered on the storm position.
+
+    Uses Plate Carrée (``longlat``) with pixel spacing derived from
+    ``target_resolution_km`` at the equator.
+
+    Args:
+        storm_lon: Storm center longitude in degrees (``[-180, 180]``).
+        storm_lat: Storm center latitude in degrees.
+        target_resolution_km: Target pixel spacing in km.
+        extent_half_km: Half-width of the grid in km along each cardinal direction.
+
+    Returns:
+        Frozen ``AreaDefinition`` for bilinear resampling.
+    """
+    proj_dict = {
+        "proj": "longlat",
+        "a": EARTH_RADIUS,
+    }
+    grid_shape = grid_shape_for_extent(extent_half_km, target_resolution_km)
+    res_degrees = _resolution_km_to_degrees(target_resolution_km)
+
+    with DisableLogger():
+        area = create_area_def(
+            area_id="storm_centered_equiangular",
+            projection=proj_dict,
+            center=(storm_lon, storm_lat),
+            shape=grid_shape,
+            resolution=res_degrees,
+            units="degrees",
+        )
+    if not isinstance(area, AreaDefinition):
+        raise TypeError(
+            f"Expected AreaDefinition from create_area_def, got {type(area).__name__}"
+        )
+    return area
 
 
 def regrid(
     lat: np.ndarray,
     lon: np.ndarray,
     data: dict[str, np.ndarray],
-    target_resolution: float,
-    target_area: AreaDefinition | None = None,
+    target_area: AreaDefinition,
 ) -> tuple[tuple[dict[str, np.ndarray], np.ndarray, np.ndarray], AreaDefinition]:
-    """Regrids swath data to a regular equiangular grid at the given resolution.
-
-    Uses an equiangular (Plate Carrée) projection.
+    """Regrid swath data onto a fixed equiangular target area using bilinear resampling.
 
     Args:
-        lat: Source latitude array of shape (H, W).
-        lon: Source longitude array of shape (H, W).
-        data: Dict mapping variable names to arrays of shape (H, W) or (H, W, C).
-        target_resolution: Target resolution in km (converted to degrees at the equator).
-        has_channel_dimension: Whether arrays in data have a trailing channel dimension.
-        target_area: If provided, the target AreaDefinition to use. If None, one is
-            created from the swath extent and target_resolution.
-        return_area: Whether to return the target area definition alongside the result.
+        lat: Source latitude array of shape ``(H, W)``.
+        lon: Source longitude array of shape ``(H, W)``.
+        data: Dict mapping variable names to arrays of shape ``(H, W)`` or ``(H, W, C)``.
+        target_area: Pre-built target ``AreaDefinition`` (e.g. from
+            :func:`create_storm_centered_equiangular_area`).
 
     Returns:
-        (resampled_data, out_lats, out_lons) where resampled_data maps each key in data
-        to its resampled array, and out_lats/out_lons are (H', W') coordinate arrays.
-        If return_area is True, returns ((resampled_data, out_lats, out_lons), target_area).
+        ``((resampled_data, out_lats, out_lons), target_area)`` where ``resampled_data``
+        maps each key in ``data`` to its resampled array, and ``out_lats`` / ``out_lons``
+        are ``(H', W')`` coordinate arrays on the target grid.
     """
     lon, lat = check_and_wrap(lon, lat)
 
@@ -82,33 +142,10 @@ def regrid(
             lons_were_shifted = True
 
     swath = SwathDefinition(lons=lon, lats=lat)
-    radius_of_influence = 100000  # 100 km
 
-    if target_area is None:
-        proj_dict = {
-            "proj": "longlat",
-            "a": EARTH_RADIUS,
-        }
-
-        circumference = 2 * math.pi * EARTH_RADIUS
-        meters_per_degree = circumference / 360.0
-        res_degrees = (target_resolution * 1000) / meters_per_degree
-
-        with DisableLogger():
-            target_area_def = cast(
-                DynamicAreaDefinition,
-                create_area_def(
-                    area_id="dynamic_equiangular",
-                    projection=proj_dict,
-                    resolution=res_degrees,
-                    units="degrees",
-                    shape=None,
-                ),
-            )
-
-        target_area = target_area_def.freeze(swath, antimeridian_mode="modify_extents")
-
-    resampler = NumpyBilinearResampler(swath, target_area, radius_of_influence)
+    resampler = NumpyBilinearResampler(
+        swath, target_area, BILINEAR_RADIUS_OF_INFLUENCE_M
+    )
     resampled_vars: dict[str, np.ndarray] = {}
     for var, arr in data.items():
         try:

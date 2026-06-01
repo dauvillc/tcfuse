@@ -117,6 +117,15 @@ ${paths.preprocessed_sources}/
 Each per-source HDF5 file holds **exactly one source**, written by `Source.write(path)`.
 Use `Source.path(sources_root, source_name, sid, snapshot_time_utc)` to compute canonical paths.
 
+**TC-PRIMED PMW and radar (storm-centered equiangular grids):** `prepare_pmw.py` and
+`prepare_radar.py` bilinearly resample swaths onto a fixed Plate Carrée grid centered on
+`overpass_storm_metadata` `storm_latitude` / `storm_longitude`, with half-width
+`cfg.tc_primed.storm_grid_extent_half_km` (default 750 km) along each axis and pixel
+spacing equal to the minimum IFOV (km) for that sensor/swath (`tc_primed_ifovs.yaml`).
+Grid shape is `(2 × round(extent_half_km / resolution_km), …)` and is recorded in source
+`char_vars` as `grid_shape_yx` together with `target_resolution_km` and
+`storm_grid_extent_half_km`. Implementation: `scripts/preprocess/utils/regridding.py`.
+
 **ATCF→SID translation at Stage 1:** every per-source preprocessor calls
 `load_translation(sources_root)` to load the Stage 0 ATCF→SID lookup, then in the
 per-file worker:

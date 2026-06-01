@@ -14,14 +14,22 @@ import torch
 from netCDF4 import Dataset
 from omegaconf import DictConfig
 
-from scripts.preprocess.tc_primed.regrid_utils import get_regridding_resolution
+from scripts.preprocess.tc_primed.regrid_utils import (
+    get_regridding_resolution,
+    get_storm_centered_grid_shape,
+    storm_grid_extent_half_km_from_cfg,
+)
 from scripts.preprocess.tc_primed.tc_primed_meta import read_tc_primed_overpass_meta
 from scripts.preprocess.tc_primed.utils import (
     list_tc_primed_overpass_files_by_sensat,
     load_tc_primed_ifovs,
     should_skip_existing,
 )
-from scripts.preprocess.utils.regridding import ResamplingError, regrid
+from scripts.preprocess.utils.regridding import (
+    ResamplingError,
+    create_storm_centered_equiangular_area,
+    regrid,
+)
 from scripts.preprocess.utils.runner import (
     finalize_source,
     load_translation,
@@ -58,7 +66,8 @@ def process_pmw_file(
     ifovs: dict,
     sources_root: Path,
     atcf_to_sid: dict[str, str],
-    skip_existing: bool = False,
+    skip_existing: bool,
+    extent_half_km: float,
 ) -> bool:
     """Process one TC-PRIMED overpass file and write a standard HDF5 snapshot.
 
@@ -95,10 +104,14 @@ def process_pmw_file(
             return False
 
         regridding_res = get_regridding_resolution(sensat, swath_89, ifovs)
+        target_area = create_storm_centered_equiangular_area(
+            meta["storm_lon"],
+            meta["storm_lat"],
+            regridding_res,
+            extent_half_km=extent_half_km,
+        )
         try:
-            (resampled89, out_lats, out_lons), target_area = regrid(
-                lat89, lon89, data89, regridding_res
-            )
+            (resampled89, out_lats, out_lons), _ = regrid(lat89, lon89, data89, target_area)
         except ResamplingError as exc:
             raise RuntimeError(f"89 GHz regrid failed for {file}") from exc
 
@@ -107,9 +120,7 @@ def process_pmw_file(
             return False
 
         try:
-            (resampled37, _, _), _ = regrid(
-                lat37, lon37, data37, regridding_res, target_area=target_area
-            )
+            (resampled37, _, _), _ = regrid(lat37, lon37, data37, target_area)
         except ResamplingError as exc:
             raise RuntimeError(f"37 GHz regrid failed for {file}") from exc
 
@@ -148,6 +159,7 @@ def _process_sensat_files(
     atcf_to_sid: dict[str, str],
     num_workers: int,
     skip_existing: bool,
+    extent_half_km: float,
 ) -> list[bool | None]:
     """Process all PMW files for one sensat."""
     return map_files(
@@ -158,12 +170,15 @@ def _process_sensat_files(
         sources_root,
         atcf_to_sid,
         skip_existing,
+        extent_half_km,
         num_workers=num_workers,
         desc=sensat,
     )
 
 
-def _pmw_source_config(sensat: str, ifovs: dict) -> tuple[str, list[str], dict[str, Any]]:
+def _pmw_source_config(
+    sensat: str, ifovs: dict, extent_half_km: float
+) -> tuple[str, list[str], dict[str, Any]]:
     """Return source name, channels, and metadata char_vars for one sensat."""
     sensor = sensat.split("_")[0]
     swath_37, vars_37 = SENSOR_VARIABLES[sensor]["37"]
@@ -172,6 +187,8 @@ def _pmw_source_config(sensat: str, ifovs: dict) -> tuple[str, list[str], dict[s
     channels = [v.lower() for v in vars_37 + vars_89]
     char_vars = {
         "target_resolution_km": get_regridding_resolution(sensat, swath_89, ifovs),
+        "storm_grid_extent_half_km": extent_half_km,
+        "grid_shape_yx": list(get_storm_centered_grid_shape(sensat, swath_89, ifovs, extent_half_km)),
         "swaths": {"37": swath_37, "89": swath_89},
     }
     return source_name, channels, char_vars
@@ -188,6 +205,7 @@ def main(raw_cfg: DictConfig) -> None:
 
     atcf_to_sid = load_translation(sources_root)
     ifovs = load_tc_primed_ifovs()
+    extent_half_km = storm_grid_extent_half_km_from_cfg(cfg)
 
     pmw_files = list_tc_primed_overpass_files_by_sensat(
         tc_primed_path, include_seasons=cfg.get("include_seasons")
@@ -206,7 +224,14 @@ def main(raw_cfg: DictConfig) -> None:
         for sensat, files in supported.items():
             print(f"Processing {sensat} ({len(files)} files)…")
             _process_sensat_files(
-                files, sensat, ifovs, sources_root, atcf_to_sid, num_workers, skip_existing
+                files,
+                sensat,
+                ifovs,
+                sources_root,
+                atcf_to_sid,
+                num_workers,
+                skip_existing,
+                extent_half_km,
             )
 
     def run_all_slurm() -> None:
@@ -225,6 +250,7 @@ def main(raw_cfg: DictConfig) -> None:
                         atcf_to_sid,
                         num_workers,
                         skip_existing,
+                        extent_half_km,
                     ),
                 )
                 for sensat, files in supported.items()
@@ -238,7 +264,7 @@ def main(raw_cfg: DictConfig) -> None:
 
     written = 0
     for sensat in supported:
-        source_name, channels, char_vars = _pmw_source_config(sensat, ifovs)
+        source_name, channels, char_vars = _pmw_source_config(sensat, ifovs, extent_half_km)
         written += finalize_source(
             source_name, "pmw", SourceKind.FIELD, channels, sources_root, cfg, char_vars
         )

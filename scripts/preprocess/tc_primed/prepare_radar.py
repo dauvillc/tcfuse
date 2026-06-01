@@ -14,14 +14,22 @@ import torch
 from netCDF4 import Dataset
 from omegaconf import DictConfig
 
-from scripts.preprocess.tc_primed.regrid_utils import get_regridding_resolution
+from scripts.preprocess.tc_primed.regrid_utils import (
+    get_regridding_resolution,
+    get_storm_centered_grid_shape,
+    storm_grid_extent_half_km_from_cfg,
+)
 from scripts.preprocess.tc_primed.tc_primed_meta import read_tc_primed_overpass_meta
 from scripts.preprocess.tc_primed.utils import (
     list_tc_primed_overpass_files_by_sensat,
     load_tc_primed_ifovs,
     should_skip_existing,
 )
-from scripts.preprocess.utils.regridding import ResamplingError, regrid
+from scripts.preprocess.utils.regridding import (
+    ResamplingError,
+    create_storm_centered_equiangular_area,
+    regrid,
+)
 from scripts.preprocess.utils.runner import (
     finalize_source,
     load_translation,
@@ -60,7 +68,8 @@ def process_radar_file(
     ifovs: dict,
     sources_root: Path,
     atcf_to_sid: dict[str, str],
-    skip_existing: bool = False,
+    skip_existing: bool,
+    extent_half_km: float,
 ) -> bool:
     """Process one TC-PRIMED overpass file and write a standard HDF5 snapshot.
 
@@ -101,8 +110,14 @@ def process_radar_file(
             return False
 
         regridding_res = get_regridding_resolution(sensat, swath, ifovs)
+        target_area = create_storm_centered_equiangular_area(
+            meta["storm_lon"],
+            meta["storm_lat"],
+            regridding_res,
+            extent_half_km=extent_half_km,
+        )
         try:
-            (resampled, out_lats, out_lons), _ = regrid(lat, lon, data, regridding_res)
+            (resampled, out_lats, out_lons), _ = regrid(lat, lon, data, target_area)
         except ResamplingError as exc:
             raise RuntimeError(f"Radar regrid failed for {file}") from exc
 
@@ -139,6 +154,7 @@ def _process_sensat_files(
     atcf_to_sid: dict[str, str],
     num_workers: int,
     skip_existing: bool,
+    extent_half_km: float,
 ) -> list[bool | None]:
     """Process all radar files for one sensat."""
     return map_files(
@@ -149,9 +165,21 @@ def _process_sensat_files(
         sources_root,
         atcf_to_sid,
         skip_existing,
+        extent_half_km,
         num_workers=num_workers,
         desc=sensat,
     )
+
+
+def _radar_source_char_vars(
+    sensat: str, swath: str, ifovs: dict, extent_half_km: float
+) -> dict[str, Any]:
+    """Return instrument-level char_vars for one radar source."""
+    return {
+        "target_resolution_km": get_regridding_resolution(sensat, swath, ifovs),
+        "storm_grid_extent_half_km": extent_half_km,
+        "grid_shape_yx": list(get_storm_centered_grid_shape(sensat, swath, ifovs, extent_half_km)),
+    }
 
 
 @hydra.main(config_path="../../../conf/", config_name="preproc", version_base=None)
@@ -165,6 +193,7 @@ def main(raw_cfg: DictConfig) -> None:
 
     atcf_to_sid = load_translation(sources_root)
     ifovs = load_tc_primed_ifovs()
+    extent_half_km = storm_grid_extent_half_km_from_cfg(cfg)
 
     radar_files = list_tc_primed_overpass_files_by_sensat(
         tc_primed_path, include_seasons=cfg.get("include_seasons")
@@ -177,7 +206,14 @@ def main(raw_cfg: DictConfig) -> None:
         for sensat, files in supported.items():
             print(f"Processing {sensat} ({len(files)} files)…")
             _process_sensat_files(
-                files, sensat, ifovs, sources_root, atcf_to_sid, num_workers, skip_existing
+                files,
+                sensat,
+                ifovs,
+                sources_root,
+                atcf_to_sid,
+                num_workers,
+                skip_existing,
+                extent_half_km,
             )
 
     def run_all_slurm() -> None:
@@ -196,6 +232,7 @@ def main(raw_cfg: DictConfig) -> None:
                         atcf_to_sid,
                         num_workers,
                         skip_existing,
+                        extent_half_km,
                     ),
                 )
                 for sensat, files in supported.items()
@@ -212,7 +249,7 @@ def main(raw_cfg: DictConfig) -> None:
         swath, variables = SENSAT_VARIABLES[sensat]
         source_name = f"radar_{sensat.split('_')[0].lower()}"
         channels = [v.lower() for v in variables]
-        char_vars = {"target_resolution_km": get_regridding_resolution(sensat, swath, ifovs)}
+        char_vars = _radar_source_char_vars(sensat, swath, ifovs, extent_half_km)
         written += finalize_source(
             source_name, "radar", SourceKind.FIELD, channels, sources_root, cfg, char_vars
         )

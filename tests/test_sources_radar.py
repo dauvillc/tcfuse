@@ -4,7 +4,10 @@ import numpy as np
 import pytest
 import torch
 from scripts.preprocess.tc_primed.prepare_radar import _read_radar_swath
-from scripts.preprocess.tc_primed.regrid_utils import get_regridding_resolution
+from scripts.preprocess.tc_primed.regrid_utils import (
+    get_regridding_resolution,
+    get_storm_centered_grid_shape,
+)
 from scripts.preprocess.tc_primed.utils import _validate_ifovs_table, load_tc_primed_ifovs
 
 from tcfuse.data.sources import Source, SourceKind
@@ -17,9 +20,9 @@ class TestLoadTcPrimedIfovs:
         """Loaded table includes nested VAR entries for radar swaths."""
         ifovs = load_tc_primed_ifovs()
         assert len(ifovs) > 0
-        gmi_kuka = ifovs["GMI_GPM"]["KuKaGMI"]["nearSurfPrecipTotRate"]
-        assert len(gmi_kuka) == 4
-        assert gmi_kuka == [5.04, 5.04, 5.04, 5.57]
+        gmi_kugmi = ifovs["GMI_GPM"]["KuGMI"]["nearSurfPrecipTotRate"]
+        assert len(gmi_kugmi) == 4
+        assert gmi_kugmi == [5.04, 5.04, 5.04, 5.57]
 
     def test_validate_rejects_bare_swath_list(self) -> None:
         """Swath-level list entries are rejected by the schema validator."""
@@ -77,6 +80,20 @@ class TestGetRegriddingResolution:
         ifovs = {"GMI_GPM": {"KuKaGMI": [5.04, 5.04, 5.04, 5.04]}}
         with pytest.raises(TypeError, match="must be VAR"):
             get_regridding_resolution("GMI_GPM", "KuKaGMI", ifovs)
+
+
+class TestGetStormCenteredGridShape:
+    """Test fixed output grid shape from IFOV resolution and extent."""
+
+    def test_radar_grid_shape(self) -> None:
+        ifovs = {
+            "GMI_GPM": {
+                "KuGMI": {
+                    "nearSurfPrecipTotRate": [5.04, 5.04, 5.04, 5.04],
+                }
+            }
+        }
+        assert get_storm_centered_grid_shape("GMI_GPM", "KuGMI", ifovs, 750.0) == (298, 298)
 
 
 class TestRadarSwathReader:
