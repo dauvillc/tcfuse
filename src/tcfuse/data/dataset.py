@@ -9,10 +9,12 @@ from pathlib import Path
 import pandas as pd
 from torch.utils.data import Dataset
 
+from tcfuse.data.sources.metadata import MultisourceMetadata
 from tcfuse.data.sources.storm_data import StormData
 from tcfuse.data.window_index import SplitName, load_split_index
 
 _LABEL_COLUMN_PREFIX = "lead_"
+_SOURCES_METADATA_FILENAME = "sources_metadata.yaml"
 
 
 @dataclass
@@ -65,6 +67,8 @@ class TCWindowDataset(Dataset[WindowSample]):
             (``cfg.paths.preprocessed_data``).
         split: Which window-index parquet to load.
         index: Optional pre-loaded index for tests or subset debugging.
+        sources_metadata: Optional pre-loaded source descriptors. When omitted,
+            loads ``sources_metadata.yaml`` from ``assembled_root``.
     """
 
     def __init__(
@@ -73,10 +77,23 @@ class TCWindowDataset(Dataset[WindowSample]):
         split: SplitName,
         *,
         index: pd.DataFrame | None = None,
+        sources_metadata: MultisourceMetadata | None = None,
     ) -> None:
         self._assembled_root = assembled_root
         self._split: SplitName = split
         self._index = index if index is not None else load_split_index(assembled_root, split)
+        loaded_metadata = (
+            sources_metadata
+            if sources_metadata is not None
+            else MultisourceMetadata.from_yaml(assembled_root / _SOURCES_METADATA_FILENAME)
+        )
+        # Snapshot so later mutations to injected or returned metadata cannot leak in.
+        self._sources_metadata = MultisourceMetadata.from_dict(loaded_metadata.to_dict())
+
+    @property
+    def sources_metadata(self) -> MultisourceMetadata:
+        """Static descriptors (channels, shape, kind) for every assembled source."""
+        return MultisourceMetadata.from_dict(self._sources_metadata.to_dict())
 
     @property
     def index(self) -> pd.DataFrame:

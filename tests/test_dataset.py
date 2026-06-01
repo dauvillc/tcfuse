@@ -11,6 +11,8 @@ import pytest
 from scripts.preprocess.build_splits import build_window_index
 from tcfuse.data.dataset import TCWindowDataset, WindowSample
 from tcfuse.data.sources import StormData
+from tcfuse.data.sources.metadata import MultisourceMetadata, SourceMetadata
+from tcfuse.data.sources.source import SourceKind
 from tests.test_build_splits import (
     INIT_TIME,
     LEADS_HOURS,
@@ -64,12 +66,36 @@ def _write_storm_with_mixed_snapshots(assembled_root: Path) -> None:
     storm_data.write(assembled_root)
 
 
+def _write_sources_metadata(assembled_root: Path) -> None:
+    """Write a minimal sources_metadata.yaml for dataset tests."""
+    metadata = MultisourceMetadata(
+        sources={
+            "pmw_ssmi": SourceMetadata(
+                name="pmw_ssmi",
+                type="microwave",
+                kind=SourceKind.FIELD,
+                channels=["tb_22.0v", "tb_22.0h"],
+                shape=(400, 400),
+            ),
+            SOURCE_NAME: SourceMetadata(
+                name=SOURCE_NAME,
+                type="best_track",
+                kind=SourceKind.SCALAR,
+                channels=["usa_wind", "usa_pres", "lat", "lon"],
+                shape=(),
+            ),
+        }
+    )
+    metadata.to_yaml(assembled_root / "sources_metadata.yaml")
+
+
 class TestTCWindowDataset:
     def test_len_matches_index(self) -> None:
         index = _build_window_index_row()
         with tempfile.TemporaryDirectory() as tmpdir:
             assembled_root = Path(tmpdir)
             _write_storm_with_mixed_snapshots(assembled_root)
+            _write_sources_metadata(assembled_root)
             dataset = TCWindowDataset(assembled_root, split="train", index=index)
             assert len(dataset) == 1
 
@@ -80,6 +106,7 @@ class TestTCWindowDataset:
         with tempfile.TemporaryDirectory() as tmpdir:
             assembled_root = Path(tmpdir)
             _write_storm_with_mixed_snapshots(assembled_root)
+            _write_sources_metadata(assembled_root)
             dataset = TCWindowDataset(assembled_root, split="train", index=index)
             sample = dataset[0]
 
@@ -105,6 +132,7 @@ class TestTCWindowDataset:
         with tempfile.TemporaryDirectory() as tmpdir:
             assembled_root = Path(tmpdir)
             _write_storm_with_mixed_snapshots(assembled_root)
+            _write_sources_metadata(assembled_root)
             dataset = TCWindowDataset(assembled_root, split="train", index=index)
             sample = dataset[0]
 
@@ -117,5 +145,99 @@ class TestTCWindowDataset:
         with tempfile.TemporaryDirectory() as tmpdir:
             assembled_root = Path(tmpdir)
             _write_storm_with_mixed_snapshots(assembled_root)
+            _write_sources_metadata(assembled_root)
             dataset = TCWindowDataset(assembled_root, split="train", index=index)
             assert dataset.index is index
+
+    def test_sources_metadata_property_exposes_source_descriptors(self) -> None:
+        index = _build_window_index_row()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assembled_root = Path(tmpdir)
+            _write_storm_with_mixed_snapshots(assembled_root)
+            _write_sources_metadata(assembled_root)
+            dataset = TCWindowDataset(assembled_root, split="train", index=index)
+
+        assert "pmw_ssmi" in dataset.sources_metadata
+        pmw = dataset.sources_metadata["pmw_ssmi"]
+        assert pmw.kind == SourceKind.FIELD
+        assert pmw.shape == (400, 400)
+        assert pmw.num_channels == 2
+
+    def test_raises_when_sources_metadata_yaml_is_missing(self) -> None:
+        index = _build_window_index_row()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assembled_root = Path(tmpdir)
+            _write_storm_with_mixed_snapshots(assembled_root)
+            with pytest.raises(FileNotFoundError, match="sources_metadata.yaml"):
+                TCWindowDataset(assembled_root, split="train", index=index)
+
+    def test_accepts_injected_sources_metadata(self) -> None:
+        index = _build_window_index_row()
+        injected = MultisourceMetadata(
+            sources={
+                "pmw_ssmi": SourceMetadata(
+                    name="pmw_ssmi",
+                    type="microwave",
+                    kind=SourceKind.FIELD,
+                    channels=["tb_22.0v"],
+                    shape=(200, 200),
+                )
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assembled_root = Path(tmpdir)
+            _write_storm_with_mixed_snapshots(assembled_root)
+            dataset = TCWindowDataset(
+                assembled_root,
+                split="train",
+                index=index,
+                sources_metadata=injected,
+            )
+            assert dataset.sources_metadata["pmw_ssmi"].shape == (200, 200)
+
+    def test_sources_metadata_property_returns_independent_copy(self) -> None:
+        index = _build_window_index_row()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assembled_root = Path(tmpdir)
+            _write_storm_with_mixed_snapshots(assembled_root)
+            _write_sources_metadata(assembled_root)
+            dataset = TCWindowDataset(assembled_root, split="train", index=index)
+
+            returned = dataset.sources_metadata
+            returned.sources["pmw_ssmi"].channels.append("tb_99.0v")
+            returned.sources["extra"] = SourceMetadata(
+                name="extra",
+                type="microwave",
+                kind=SourceKind.FIELD,
+                channels=["tb"],
+                shape=(10, 10),
+            )
+
+        assert dataset.sources_metadata["pmw_ssmi"].channels == ["tb_22.0v", "tb_22.0h"]
+        assert "extra" not in dataset.sources_metadata
+
+    def test_injected_sources_metadata_cannot_mutate_dataset(self) -> None:
+        index = _build_window_index_row()
+        injected = MultisourceMetadata(
+            sources={
+                "pmw_ssmi": SourceMetadata(
+                    name="pmw_ssmi",
+                    type="microwave",
+                    kind=SourceKind.FIELD,
+                    channels=["tb_22.0v"],
+                    shape=(200, 200),
+                )
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assembled_root = Path(tmpdir)
+            _write_storm_with_mixed_snapshots(assembled_root)
+            dataset = TCWindowDataset(
+                assembled_root,
+                split="train",
+                index=index,
+                sources_metadata=injected,
+            )
+            injected.sources["pmw_ssmi"].channels.append("tb_99.0v")
+
+        assert dataset.sources_metadata["pmw_ssmi"].channels == ["tb_22.0v"]
