@@ -29,6 +29,8 @@ from tcfuse.utils.time import to_compact_time
 
 IR_FLAG_TO_SOURCE: list[str | None] = [None, "ir_tcirar", "ir_hursat"]
 IR_SOURCE_IFOVS: dict[str, float] = {"ir_tcirar": 4.0, "ir_hursat": 8.0}
+# Storm-centered square crop on the native regular grid (no regridding).
+IR_CENTER_CROP_HALF_WIDTH_PX: dict[str, int] = {"ir_tcirar": 200, "ir_hursat": 100}
 
 
 def _read_ir_data(ir_grp: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -44,6 +46,27 @@ def _read_ir_data(ir_grp: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         lon, lat = np.meshgrid(lon, lat)
 
     return irwin, lat, lon
+
+
+def _crop_center_square(
+    half_width_px: int,
+    *fields: np.ndarray,
+) -> tuple[np.ndarray, ...]:
+    """Crop 2-D arrays to a central square of side ``2 * half_width_px + 1`` pixels."""
+    ref = fields[0]
+    if ref.ndim != 2:
+        raise ValueError(f"Expected 2-D field, got shape {ref.shape}")
+    h, w = ref.shape
+    side = 2 * half_width_px + 1
+    if h < side or w < side:
+        raise ValueError(
+            f"Field shape {h}x{w} is smaller than crop side {side} "
+            f"(half_width_px={half_width_px})"
+        )
+    cy, cx = h // 2, w // 2
+    y_slice = slice(cy - half_width_px, cy + half_width_px + 1)
+    x_slice = slice(cx - half_width_px, cx + half_width_px + 1)
+    return tuple(field[y_slice, x_slice] for field in fields)
 
 
 def process_ir_file(
@@ -86,6 +109,13 @@ def process_ir_file(
         irwin, lat2d, lon2d = _read_ir_data(ir_grp)
 
     if np.all(np.isnan(irwin)):
+        return False
+
+    half_width_px = IR_CENTER_CROP_HALF_WIDTH_PX[source_name]
+    try:
+        irwin, lat2d, lon2d = _crop_center_square(half_width_px, irwin, lat2d, lon2d)
+    except ValueError as exc:
+        warnings.warn(f"{file}: {exc} — discarding", stacklevel=2)
         return False
 
     h, w = irwin.shape

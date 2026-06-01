@@ -117,6 +117,10 @@ ${paths.preprocessed_sources}/
 Each per-source HDF5 file holds **exactly one source**, written by `Source.write(path)`.
 Use `Source.path(sources_root, source_name, sid, snapshot_time_utc)` to compute canonical paths.
 
+**TC-PRIMED infrared (native grid center crop):** `prepare_infrared.py` keeps a
+storm-centered square crop on each source's regular lat/lon grid (no regridding):
+`ir_tcirar` ±200 px (401×401), `ir_hursat` ±100 px (201×201).
+
 **TC-PRIMED PMW and radar (storm-centered equiangular grids):** `prepare_pmw.py` and
 `prepare_radar.py` bilinearly resample swaths onto a fixed Plate Carrée grid centered on
 `overpass_storm_metadata` `storm_latitude` / `storm_longitude`, with half-width
