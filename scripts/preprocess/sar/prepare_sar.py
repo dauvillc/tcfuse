@@ -69,6 +69,7 @@ def process_sar_file(
 
     lon_1d = (lon_1d + 180) % 360 - 180
     wind_speed = np.asarray(wind_speed, dtype=np.float32)
+    # mask_flag == 0 marks valid pixels; non-zero values are masked out as NaN.
     wind_speed[mask_flag != 0] = np.nan
     if np.all(np.isnan(wind_speed)):
         return False
@@ -148,6 +149,7 @@ def main(raw_cfg: DictConfig) -> None:
     acq_df["season"] = acq_df["sid"].str[-4:]
     acq_df["basin"] = acq_df["sid"].str[:2].str.upper()
     acq_df["storm_number"] = acq_df["sid"].str[2:4].astype(int)
+    # Rebuild canonical ATCF ids (uppercase basin, zero-padded number) for Stage 0 lookup.
     acq_df["sid"] = acq_df.apply(
         lambda row: f"{row['basin']}{row['storm_number']:02d}{row['season']}", axis=1
     )
@@ -166,9 +168,6 @@ def main(raw_cfg: DictConfig) -> None:
     launch_local_or_slurm(
         cfg,
         "prepare_sar",
-        lambda: _process_all_files(
-            files, file_infos, sources_root, atcf_to_sid, num_workers, skip_existing
-        ),
         lambda: _process_all_files(
             files, file_infos, sources_root, atcf_to_sid, num_workers, skip_existing
         ),

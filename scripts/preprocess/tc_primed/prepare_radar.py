@@ -76,6 +76,7 @@ def process_radar_file(
     Returns ``True`` when a snapshot was written or kept, ``False`` otherwise.
     """
     swath, variables = SENSAT_VARIABLES[sensat]
+    # Source name uses the first token only (e.g. GMI from GMI_GPM).
     sensor_abbrev = sensat.split("_")[0].lower()
     source_name = f"radar_{sensor_abbrev}"
     channels = [v.lower() for v in variables]

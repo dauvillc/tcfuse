@@ -33,7 +33,7 @@ import pandas as pd
 from omegaconf import DictConfig
 from tqdm import tqdm
 
-from scripts.preprocess.utils.runner import resolve_preproc_cfg
+from scripts.preprocess.utils.runner import INDEX_COLUMNS, resolve_preproc_cfg
 from tcfuse.data.ibtracs import (
     IBTRACS_SOURCE_NAME,
     group_ibtracs_by_sid,
@@ -42,6 +42,7 @@ from tcfuse.data.ibtracs import (
     load_ibtracs_snapshots,
 )
 from tcfuse.data.sources import MultisourceMetadata, Source, SourceKind, StormData
+from tcfuse.data.sources.storm_data import ASSEMBLED_ROOT_ATTRS
 from tcfuse.utils.archive import submit_archive_job
 from tcfuse.utils.time import to_compact_time
 
@@ -50,17 +51,6 @@ _SOURCE_KIND_GROUPS: dict[str, SourceKind] = {
     "profile": SourceKind.PROFILE,
     "field": SourceKind.FIELD,
 }
-_ROOT_ATTRS = {"storm_id", "basin", "subbasin", "season", "atcf_id"}
-
-# Satellite-row columns kept in the concatenated assembled index.
-_SAT_INDEX_COLUMNS: list[str] = [
-    "sid",
-    "source_name",
-    "snapshot_time_utc",
-    "season",
-    "basin",
-    "subbasin",
-]
 
 # Stage 0 outputs live here; not a Stage 1 measurement source.
 _IBTRACS_DIR_NAME = "ibtracs"
@@ -90,7 +80,7 @@ def _load_stage1_snapshot_index(sources_root: Path) -> pd.DataFrame:
             continue
         frames.append(pd.read_parquet(entry / "index.parquet"))
     if not frames:
-        return pd.DataFrame(columns=list(_SAT_INDEX_COLUMNS))
+        return pd.DataFrame(columns=list(INDEX_COLUMNS))
     return pd.concat(frames, ignore_index=True)
 
 
@@ -118,7 +108,8 @@ def _set_snapshot_attrs(
     snap_group.attrs["kind"] = kind.name
     snap_group.attrs["snapshot_time_utc"] = snapshot_time_utc
     for key, value in meta.items():
-        if key in _ROOT_ATTRS or key == "snapshot_time_utc":
+        # Storm-level root attrs live on the file root, not per snapshot.
+        if key in ASSEMBLED_ROOT_ATTRS or key == "snapshot_time_utc":
             continue
         snap_group.attrs[key] = value
 
@@ -229,6 +220,7 @@ def assemble_storm(
             written_snapshots += 1
 
     if written_snapshots == 0:
+        # Remove empty partial writes when no satellite or IBTrACS snapshots land.
         dest_path.unlink(missing_ok=True)
         return None
     return sid
@@ -324,8 +316,8 @@ def _scan_storm_satellite_index(
                     )
 
     if not rows:
-        return pd.DataFrame(columns=_SAT_INDEX_COLUMNS)
-    return pd.DataFrame(rows, columns=_SAT_INDEX_COLUMNS)
+        return pd.DataFrame(columns=INDEX_COLUMNS)
+    return pd.DataFrame(rows, columns=INDEX_COLUMNS)
 
 
 def build_assembled_index(
@@ -336,7 +328,7 @@ def build_assembled_index(
 ) -> pd.DataFrame:
     """Build the concatenated index of satellite rows + IBTrACS rows.
 
-    Satellite rows carry the trimmed schema in :data:`_SAT_INDEX_COLUMNS`
+    Satellite rows carry the trimmed schema in :data:`INDEX_COLUMNS`
     (IBTrACS-specific columns are NaN). IBTrACS rows carry the full Stage 0
     schema with ``source_name = "ibtracs_best_track"`` and the IBTrACS
     ``iso_time`` column renamed to ``snapshot_time_utc`` for the union schema.
@@ -357,8 +349,8 @@ def build_assembled_index(
 
     # Establish a stable column order: trimmed schema first, then the IBTrACS-
     # specific columns that only exist on best-track rows.
-    extra_columns = [c for c in combined.columns if c not in _SAT_INDEX_COLUMNS]
-    final_columns = [*_SAT_INDEX_COLUMNS, *extra_columns]
+    extra_columns = [c for c in combined.columns if c not in INDEX_COLUMNS]
+    final_columns = [*INDEX_COLUMNS, *extra_columns]
     combined = cast(pd.DataFrame, combined.reindex(columns=final_columns))
 
     # Fill IBTrACS-specific columns with NaN on satellite rows (already implicit

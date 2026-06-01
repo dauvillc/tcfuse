@@ -30,7 +30,7 @@ from tcfuse.utils.time import to_compact_time
 
 IR_FLAG_TO_SOURCE: list[str | None] = [None, "ir_tcirar", "ir_hursat"]
 IR_SOURCE_IFOVS: dict[str, float] = {"ir_tcirar": 4.0, "ir_hursat": 8.0}
-# Storm-centered square crop on the native regular grid (no regridding).
+# Native grid spacing differs by product; crop half-width is in pixels, not km.
 IR_CENTER_CROP_HALF_WIDTH_PX: dict[str, int] = {"ir_tcirar": 200, "ir_hursat": 100}
 
 
@@ -40,6 +40,7 @@ def _read_ir_data(ir_grp: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     lat = np.ma.filled(ir_grp["latitude"][:].astype(float), np.nan)
     lon = (np.ma.filled(ir_grp["longitude"][:].astype(float), np.nan) + 180) % 360 - 180
 
+    # TC-PRIMED IR arrays vary: leading singleton dims or 1-D lat/lon vectors.
     while irwin.ndim > 2 and irwin.shape[0] == 1:
         irwin = irwin[0]
 
@@ -68,6 +69,7 @@ def process_ir_file(
             return False
         ir_grp = raw["infrared"]
         flag = int(ir_grp["infrared_availability_flag"][0])
+        # Flag values: 0=none, 1=TCIRAR, 2=HURSAT (maps to source_name below).
         source_name = IR_FLAG_TO_SOURCE[flag] if flag < len(IR_FLAG_TO_SOURCE) else None
         if source_name is None:
             return False
@@ -158,9 +160,6 @@ def main(raw_cfg: DictConfig) -> None:
     launch_local_or_slurm(
         cfg,
         "prepare_infrared",
-        lambda: _process_all_files(
-            all_files, sources_root, atcf_to_sid, num_workers, skip_existing
-        ),
         lambda: _process_all_files(
             all_files, sources_root, atcf_to_sid, num_workers, skip_existing
         ),

@@ -9,7 +9,6 @@ import numpy as np
 from pyresample.area_config import create_area_def
 from pyresample.bilinear._numpy_resampler import NumpyBilinearResampler
 from pyresample.geometry import AreaDefinition, SwathDefinition
-from pyresample.image import ImageContainerNearest
 from pyresample.utils import check_and_wrap
 
 
@@ -98,9 +97,7 @@ def create_storm_centered_equiangular_area(
             units="degrees",
         )
     if not isinstance(area, AreaDefinition):
-        raise TypeError(
-            f"Expected AreaDefinition from create_area_def, got {type(area).__name__}"
-        )
+        raise TypeError(f"Expected AreaDefinition from create_area_def, got {type(area).__name__}")
     return area
 
 
@@ -143,9 +140,7 @@ def regrid(
 
     swath = SwathDefinition(lons=lon, lats=lat)
 
-    resampler = NumpyBilinearResampler(
-        swath, target_area, BILINEAR_RADIUS_OF_INFLUENCE_M
-    )
+    resampler = NumpyBilinearResampler(swath, target_area, BILINEAR_RADIUS_OF_INFLUENCE_M)
     resampled_vars: dict[str, np.ndarray] = {}
     for var, arr in data.items():
         try:
@@ -162,54 +157,10 @@ def regrid(
 
     out_lons, out_lats = target_area.get_lonlats()
     if lons_were_shifted:
+        # Restore [-180, 180] longitudes after resampling in shifted coordinates.
         out_lons += 180.0
         out_lons = np.where(out_lons > 180.0, out_lons - 360.0, out_lons)
 
+    # Return shape: ((resampled_data, out_lats, out_lons), target_area).
     result = (resampled_vars, out_lats, out_lons)
     return result, target_area
-
-
-def regrid_to_grid(
-    lat: np.ndarray,
-    lon: np.ndarray,
-    data: dict[str, np.ndarray],
-    grid_lat: np.ndarray,
-    grid_lon: np.ndarray,
-) -> dict[str, np.ndarray]:
-    """Regrids swath data to a given target grid using nearest-neighbour resampling.
-
-    Args:
-        lat: Source latitude array of shape (H, W).
-        lon: Source longitude array of shape (H, W).
-        data: Dict mapping variable names to arrays of shape (H, W) or (H, W, C).
-        grid_lat: Target latitude grid of shape (H', W').
-        grid_lon: Target longitude grid of shape (H', W').
-        has_channel_dimension: Whether arrays in data have a trailing channel dimension.
-
-    Returns:
-        Dict mapping each key in data to its resampled array on the target grid.
-    """
-    lon, lat = check_and_wrap(lon, lat)
-
-    swath = SwathDefinition(lons=lon, lats=lat)
-    radius_of_influence = 100000  # 100 km
-    target_swath = SwathDefinition(lons=grid_lon, lats=grid_lat)
-
-    resampled_vars: dict[str, np.ndarray] = {}
-    for var, arr in data.items():
-        try:
-            resampler = ImageContainerNearest(
-                arr,
-                swath,
-                radius_of_influence,
-                fill_value=float("nan"),  # type: ignore
-            )
-            resampled_vars[var] = resampler.resample(target_swath).image_data
-        except Exception as e:
-            print("Longitude:", lon)
-            print("Latitude:", lat)
-            traceback.print_tb(e.__traceback__)
-            traceback.print_exc()
-            raise ResamplingError(f"Error resampling variable {var}") from e
-
-    return resampled_vars

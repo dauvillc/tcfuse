@@ -30,8 +30,9 @@ from typing import Any, cast
 import hydra
 import numpy as np
 import pandas as pd
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
+from scripts.preprocess.utils.runner import resolve_preproc_cfg
 from tcfuse.utils.time import to_compact_time
 
 
@@ -139,13 +140,14 @@ def build_window_index(
     for sid_value, storm_rows in best_track.groupby("sid", sort=True):
         sid = str(sid_value)
         rows_by_time = _first_rows_by_time(storm_rows)
+        # Every distinct best-track time is a candidate assimilation anchor t₀.
         for init_time in sorted(rows_by_time):
             lead_rows: dict[int, pd.Series | None] = {}
             for lead_hour in leads_hours:
                 lead_time = init_time + pd.Timedelta(hours=lead_hour)
                 lead_rows[lead_hour] = rows_by_time.get(lead_time)
 
-            # Required leads must have finite USA wind and position metadata.
+            # Required leads must be finite; optional leads may be absent (see _available).
             if not all(
                 _is_finite(lead_rows[lead_hour], required_columns)
                 for lead_hour in required_leads_hours
@@ -176,6 +178,7 @@ def build_window_index(
                 lead_time = init_time + pd.Timedelta(hours=lead_hour)
                 row = lead_rows[lead_hour]
                 sample[f"{prefix}_time_utc"] = _isoformat_naive_utc(lead_time)
+                # _available distinguishes missing optional leads from NaN channel values.
                 sample[f"{prefix}_available"] = row is not None
                 for column in required_columns:
                     sample[f"{prefix}_{column}"] = (
@@ -224,8 +227,7 @@ def split_by_season(
 @hydra.main(config_path="../../conf/", config_name="preproc", version_base=None)
 def main(raw_cfg: DictConfig) -> None:
     """Build season-based train/val/test best-track window index files."""
-    cfg = OmegaConf.to_container(raw_cfg, resolve=True)
-    cfg = cast(dict[str, Any], cfg)
+    cfg = resolve_preproc_cfg(raw_cfg)
 
     # Resolve paths from config.
     assembled_root = Path(cfg["paths"]["preprocessed_data"])

@@ -103,6 +103,7 @@ def process_pmw_file(
         if any(np.all(np.isnan(arr)) for arr in data89.values()):
             return False
 
+        # Target grid geometry follows the 89 GHz swath; 37 GHz is regridded onto it.
         regridding_res = get_regridding_resolution(sensat, swath_89, ifovs)
         target_area = create_storm_centered_equiangular_area(
             meta["storm_lon"],
@@ -124,6 +125,7 @@ def process_pmw_file(
         except ResamplingError as exc:
             raise RuntimeError(f"37 GHz regrid failed for {file}") from exc
 
+        # Channel stack order must match vars_37 + vars_89 in metadata.
         all_vars = vars_37 + vars_89
         merged = {**resampled37, **resampled89}
         values_np = np.stack([merged[v] for v in all_vars], axis=-1).astype(np.float32)
@@ -188,7 +190,9 @@ def _pmw_source_config(
     char_vars = {
         "target_resolution_km": get_regridding_resolution(sensat, swath_89, ifovs),
         "storm_grid_extent_half_km": extent_half_km,
-        "grid_shape_yx": list(get_storm_centered_grid_shape(sensat, swath_89, ifovs, extent_half_km)),
+        "grid_shape_yx": list(
+            get_storm_centered_grid_shape(sensat, swath_89, ifovs, extent_half_km)
+        ),
         "swaths": {"37": swath_37, "89": swath_89},
     }
     return source_name, channels, char_vars

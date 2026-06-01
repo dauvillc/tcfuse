@@ -55,6 +55,7 @@ def _center_fix_axis(
     n = fields[0].shape[axis]
     if n > target:
         start = (n - target) // 2
+        # Build a 2-D slice tuple selecting the center window along one axis.
         sl: list[slice] = [slice(None), slice(None)]
         sl[axis] = slice(start, start + target)
         return tuple(field[tuple(sl)] for field in fields)

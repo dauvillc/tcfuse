@@ -167,6 +167,7 @@ def ibtracs_rows_to_sources(
         else:
             iso_time_utc = iso_time.tz_convert("UTC")
         time_unix_s = float(iso_time_utc.timestamp())
+        # Naive UTC ISO string matches index/snapshot key convention across the pipeline.
         snapshot_time_utc = iso_time_utc.tz_localize(None).isoformat()
 
         channel_values = [_row_value(row, channel) for channel in IBTRACS_CHANNELS]

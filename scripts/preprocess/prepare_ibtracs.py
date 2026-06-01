@@ -179,6 +179,7 @@ def preprocess_ibtracs(ibtracs_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     )
     best_idx = cast(
         pd.Series,
+        # NaN usa_wind must not win the tie-break; treat missing as -inf.
         per_pair.assign(usa_wind_rank=per_pair["usa_wind"].fillna(float("-inf")))
         .groupby("sid")["usa_wind_rank"]
         .idxmax(),

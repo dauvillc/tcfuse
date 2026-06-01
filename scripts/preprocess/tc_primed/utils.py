@@ -63,6 +63,7 @@ def list_tc_primed_overpass_files_by_sensat(
     overpass_files, _ = list_tc_primed_storm_files(tc_primed_path, include_seasons=include_seasons)
     grouped_files: dict[str, list[Path]] = defaultdict(list)
     for file in chain(*overpass_files.values()):
+        # Filename layout: {season}_{basin}_{number}_{sensor}_{satellite}_....nc
         sensat_pair = "_".join(file.stem.split("_")[3:5])
         grouped_files[sensat_pair].append(file)
     return grouped_files

@@ -10,6 +10,7 @@ def read_tc_primed_overpass_meta(raw: Any) -> dict[str, Any]:
     meta_grp = raw["overpass_metadata"]
     season = int(meta_grp["season"][0])
     basin = str(meta_grp["basin"][0])
+    # cyclone_number is a short history vector; the active number is the last entry.
     storm_number = int(meta_grp["cyclone_number"][-1])
     storm_id = f"{basin}{storm_number:02d}{season}"
     time_unix_s = float(meta_grp["time"][0])

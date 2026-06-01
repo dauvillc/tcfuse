@@ -67,6 +67,7 @@ def _flatten_values_and_mask(
     elif kind == SourceKind.PROFILE:
         flat = values.astype(np.float32)
     else:
+        # FIELD: flatten spatial tokens to (H*W, C) for per-pixel normalization stats.
         h, w, _ = values.shape
         flat = values.reshape(h * w, -1).astype(np.float32)
 
@@ -82,6 +83,7 @@ def _flatten_values_and_mask(
     else:
         flat_mask = mask.reshape(flat.shape).astype(bool)
 
+    # Combine explicit availability mask with finiteness for Welford accumulation.
     return flat, flat_mask & np.isfinite(flat)
 
 

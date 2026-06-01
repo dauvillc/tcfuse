@@ -15,7 +15,9 @@ from tcfuse.data.window_index import snapshot_in_window
 from tcfuse.utils.time import to_compact_time
 
 # HDF5 attribute keys written at the root level of each assembled file.
-_ROOT_ATTRS = ("storm_id", "basin", "subbasin", "season", "atcf_id")
+ASSEMBLED_ROOT_ATTRS: frozenset[str] = frozenset(
+    {"storm_id", "basin", "subbasin", "season", "atcf_id"}
+)
 _STORM_DATA_DIR = "storm_data"
 
 
@@ -114,7 +116,7 @@ class StormData:
                 snap_group.attrs["snapshot_time_utc"] = snapshot_time_utc
 
                 for key, value in source.meta.items():
-                    if key not in _ROOT_ATTRS and key != "snapshot_time_utc":
+                    if key not in ASSEMBLED_ROOT_ATTRS and key != "snapshot_time_utc":
                         try:
                             snap_group.attrs[key] = value
                         except TypeError:
@@ -196,6 +198,7 @@ class StormData:
                         "basin": basin,
                         "snapshot_time_utc": snapshot_time_utc,
                     }
+                    # Merge snapshot attrs into meta; storm-level basin already set above.
                     skip_keys = {"source_name", "channels", "kind", "snapshot_time_utc"}
                     for key in snap_group.attrs:
                         if key not in skip_keys:

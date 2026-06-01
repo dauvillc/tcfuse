@@ -49,8 +49,9 @@ def load_translation(sources_root: Path) -> dict[str, str]:
     Returns:
         Mapping ``{usa_atcf_id: sid}`` for every main-track storm in IBTrACS.
     """
-    df = load_atcf_to_sid(sources_root)
-    table = dict(zip(cast(pd.Series, df["usa_atcf_id"]), cast(pd.Series, df["sid"]), strict=True))
+    from tcfuse.data.ibtracs import load_atcf_to_sid_dict
+
+    table = load_atcf_to_sid_dict(sources_root)
     print(
         f"Loaded ATCF→SID translation: {len(table)} entries "
         f"from {sources_root / 'ibtracs' / 'atcf_to_sid.csv'}"
@@ -90,17 +91,15 @@ def scan_source_snapshots(
         DataFrame with the columns listed in :data:`INDEX_COLUMNS`. Snapshots
         whose ``storm_id`` attr is not a known SID are dropped with a warning.
     """
-    snapshots_dir = source_dir / "snapshots"
-    if not snapshots_dir.is_dir():
-        return pd.DataFrame(columns=list(INDEX_COLUMNS))
-
     rows: list[dict[str, Any]] = []
     skipped: list[str] = []
-    for path in sorted(snapshots_dir.glob("*.h5")):
+    snapshots_dir = source_dir / "snapshots"
+    for path in sorted(snapshots_dir.glob("*.h5")) if snapshots_dir.is_dir() else []:
         with h5py.File(path, "r") as snapshot_file:
             attrs = dict(snapshot_file.attrs)
         sid = str(attrs["storm_id"])
         info = sid_attrs.get(sid)
+        # Stale snapshots from interrupted runs may reference unknown SIDs.
         if info is None:
             skipped.append(sid)
             continue
@@ -149,6 +148,7 @@ def map_files[R, F](
                     worker,
                     files,
                     *[repeat(arg) for arg in static_args],
+                    # Larger chunks amortize process-pool scheduling overhead.
                     chunksize=max(1, len(files) // (num_workers * 4)),
                 ),
                 total=len(files),
@@ -160,17 +160,18 @@ def map_files[R, F](
 def launch_local_or_slurm[T](
     cfg: dict[str, Any],
     job_name: str,
-    local_fn: Callable[[], T],
-    slurm_fn: Callable[[], T],
+    fn: Callable[[], T],
+    slurm_fn: Callable[[], T] | None = None,
 ) -> T:
     """Run locally or submit a single SLURM job via submitit."""
+    run_fn = slurm_fn if slurm_fn is not None else fn
     if not bool(cfg.get("submitit", False)):
-        return local_fn()
+        return fn()
 
     from tcfuse.utils.submitit_utils import make_executor
 
     executor = make_executor(cfg, job_name)
-    job = executor.submit(slurm_fn)
+    job = executor.submit(run_fn)
     return job.result()
 
 

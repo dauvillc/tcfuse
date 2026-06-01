@@ -4,11 +4,13 @@ from typing import Any
 
 from scripts.preprocess.utils.regridding import grid_shape_for_extent
 
+DEFAULT_STORM_GRID_EXTENT_HALF_KM = 750.0
+
 
 def storm_grid_extent_half_km_from_cfg(cfg: dict[str, Any]) -> float:
     """Return half-width (km) of storm-centered PMW/radar grids from preproc config."""
     tc_primed = cfg.get("tc_primed") or {}
-    return float(tc_primed.get("storm_grid_extent_half_km", 750.0))
+    return float(tc_primed.get("storm_grid_extent_half_km", DEFAULT_STORM_GRID_EXTENT_HALF_KM))
 
 
 def get_regridding_resolution(sensat: str, swath: str, ifovs: dict) -> float:
@@ -19,6 +21,7 @@ def get_regridding_resolution(sensat: str, swath: str, ifovs: dict) -> float:
             f"IFOV entry at {sensat}/{swath} must be VAR → [4 floats], "
             f"got {type(swath_entry).__name__}"
         )
+    # Use the finest IFOV across all variables and their four footprint components.
     return min(min(vals) for vals in swath_entry.values())
 
 
@@ -26,7 +29,7 @@ def get_storm_centered_grid_shape(
     sensat: str,
     swath: str,
     ifovs: dict,
-    extent_half_km: float = 750.0,
+    extent_half_km: float = DEFAULT_STORM_GRID_EXTENT_HALF_KM,
 ) -> tuple[int, int]:
     """Return fixed output grid shape for a storm-centered PMW/radar snapshot.
 
