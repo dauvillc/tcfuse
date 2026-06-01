@@ -1,0 +1,67 @@
+---
+description: Project-wide human-readable coding style — factorization, inline comments, validation policy
+globs: src/**/*.py, scripts/**/*.py, tests/**/*.py
+alwaysApply: false
+---
+
+# Human-readable coding style
+
+Full rules live in [`tcfuse-core.mdc`](mdc:.cursor/rules/tcfuse-core.mdc) § Human-readable code (priority). This file adds concrete examples.
+
+## Factorization
+
+**Don't** — one-liner helper used once:
+
+```python
+def should_skip_existing(dest_path: Path, skip_existing: bool) -> bool:
+    """Return True if an existing output snapshot should not be reprocessed."""
+    return skip_existing and dest_path.exists()
+```
+
+**Do** — inline at the call site:
+
+```python
+# Skip snapshots already on disk when skip_existing is enabled.
+if skip_existing and dest_path.exists():
+    return True
+```
+
+**Don't** — split a ~20-line reader into its own file consumed by 2–3 siblings in the same pipeline stage.
+
+**Do** — keep genuinely shared infrastructure in dedicated modules (`runner.py`, `Source.write`, training callbacks) when used across multiple entry scripts.
+
+## Inline comments
+
+**Don't** — dense logic with no step-by-step narration:
+
+```python
+sid = atcf_to_sid.get(atcf_id)
+if sid is None:
+    return False
+if skip_existing and dest_path.exists():
+    return True
+```
+
+**Do** — comment every logical step:
+
+```python
+# Resolve the IBTrACS SID for this TC-PRIMED ATCF storm id.
+sid = atcf_to_sid.get(atcf_id)
+# Unknown storms are discarded — never invent a SID.
+if sid is None:
+    return False
+# Skip snapshots already written when skip_existing is enabled.
+if skip_existing and dest_path.exists():
+    return True
+```
+
+## Validation
+
+**Don't** — add defensive checks on internal call paths:
+
+```python
+if not isinstance(swath_entry, dict):
+    raise TypeError(f"IFOV entry must be a dict, got {type(swath_entry).__name__}")
+```
+
+**Do** — ask the user before adding new validation; rely on natural tracebacks for config/path mistakes. Only keep checks listed as documented invariants in `tcfuse-core.mdc` or domain skills.

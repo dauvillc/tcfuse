@@ -7,7 +7,7 @@ description: Fix basedpyright diagnostics with clean, minimal Python typing chan
 
 ## Goal
 
-Fix basedpyright diagnostics with smart, clean code changes. Prefer correcting the program model over silencing the checker. If a diagnostic suggests a real runtime bug or unclear design intent, warn the user and ask before papering it over.
+Fix basedpyright diagnostics with smart, clean code changes. Prefer correcting the program model over silencing the checker. If a diagnostic suggests a real runtime bug or unclear design intent, warn the user and ask before papering it over. **Preserve inline comments** and do not introduce micro-helpers when fixing types.
 
 ## Workflow
 

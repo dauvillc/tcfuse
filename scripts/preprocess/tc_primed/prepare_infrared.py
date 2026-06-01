@@ -15,8 +15,10 @@ import torch
 from netCDF4 import Dataset
 from omegaconf import DictConfig
 
-from scripts.preprocess.tc_primed.tc_primed_meta import read_tc_primed_overpass_meta
-from scripts.preprocess.tc_primed.utils import list_tc_primed_storm_files, should_skip_existing
+from scripts.preprocess.tc_primed.utils import (
+    list_tc_primed_storm_files,
+    read_tc_primed_overpass_meta,
+)
 from scripts.preprocess.utils.field_grid import center_crop_or_pad_2d
 from scripts.preprocess.utils.runner import (
     finalize_source,
@@ -28,6 +30,7 @@ from scripts.preprocess.utils.runner import (
 from tcfuse.data.sources import Source, SourceKind
 from tcfuse.utils.time import to_compact_time
 
+# infrared_availability_flag → source_name (0 = none, 1 = TCIRAR, 2 = HURSAT).
 IR_FLAG_TO_SOURCE: list[str | None] = [None, "ir_tcirar", "ir_hursat"]
 IR_SOURCE_IFOVS: dict[str, float] = {"ir_tcirar": 4.0, "ir_hursat": 8.0}
 # Native grid spacing differs by product; crop half-width is in pixels, not km.
@@ -56,10 +59,7 @@ def process_ir_file(
     atcf_to_sid: dict[str, str],
     skip_existing: bool = False,
 ) -> bool:
-    """Process one TC-PRIMED overpass file and write a standard HDF5 IR snapshot.
-
-    Returns ``True`` when a snapshot was written or kept, ``False`` otherwise.
-    """
+    """Process one TC-PRIMED overpass file and write a standard HDF5 IR snapshot."""
     with Dataset(str(file)) as raw:
         meta = read_tc_primed_overpass_meta(raw)
         atcf_id = meta["storm_id"]
@@ -69,7 +69,6 @@ def process_ir_file(
             return False
         ir_grp = raw["infrared"]
         flag = int(ir_grp["infrared_availability_flag"][0])
-        # Flag values: 0=none, 1=TCIRAR, 2=HURSAT (maps to source_name below).
         source_name = IR_FLAG_TO_SOURCE[flag] if flag < len(IR_FLAG_TO_SOURCE) else None
         if source_name is None:
             return False
@@ -85,7 +84,7 @@ def process_ir_file(
         overpass_time = pd.Timestamp(time_unix_s, unit="s")
         overpass_time_utc = to_compact_time(time_unix_s, unit="s")
         dest_path = Source.path(sources_root, source_name, sid, overpass_time_utc)
-        if should_skip_existing(dest_path, skip_existing):
+        if skip_existing and dest_path.exists():
             return True
 
         irwin, lat2d, lon2d = _read_ir_data(ir_grp)
@@ -93,6 +92,7 @@ def process_ir_file(
     if np.all(np.isnan(irwin)):
         return False
 
+    # Center-crop or pad to fixed storm-centered square on the native IR grid.
     half_width_px = IR_CENTER_CROP_HALF_WIDTH_PX[source_name]
     side = 2 * half_width_px + 1
     irwin, lat2d, lon2d = center_crop_or_pad_2d(side, side, irwin, lat2d, lon2d)
@@ -121,25 +121,6 @@ def process_ir_file(
     return True
 
 
-def _process_all_files(
-    files: list[Path],
-    sources_root: Path,
-    atcf_to_sid: dict[str, str],
-    num_workers: int,
-    skip_existing: bool,
-) -> list[bool | None]:
-    """Process all overpass files for IR extraction."""
-    return map_files(
-        process_ir_file,
-        files,
-        sources_root,
-        atcf_to_sid,
-        skip_existing,
-        num_workers=num_workers,
-        desc="ir",
-    )
-
-
 @hydra.main(config_path="../../../conf/", config_name="preproc", version_base=None)
 def main(raw_cfg: DictConfig) -> None:
     """Preprocess all TC-PRIMED IR snapshots to the standard HDF5 format."""
@@ -160,8 +141,14 @@ def main(raw_cfg: DictConfig) -> None:
     launch_local_or_slurm(
         cfg,
         "prepare_infrared",
-        lambda: _process_all_files(
-            all_files, sources_root, atcf_to_sid, num_workers, skip_existing
+        lambda: map_files(
+            process_ir_file,
+            all_files,
+            sources_root,
+            atcf_to_sid,
+            skip_existing,
+            num_workers=num_workers,
+            desc="ir",
         ),
     )
 

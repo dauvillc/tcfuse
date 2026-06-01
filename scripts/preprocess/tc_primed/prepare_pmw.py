@@ -14,19 +14,15 @@ import torch
 from netCDF4 import Dataset
 from omegaconf import DictConfig
 
-from scripts.preprocess.tc_primed.regrid_utils import (
+from scripts.preprocess.tc_primed.utils import (
     get_regridding_resolution,
     get_storm_centered_grid_shape,
-    storm_grid_extent_half_km_from_cfg,
-)
-from scripts.preprocess.tc_primed.tc_primed_meta import read_tc_primed_overpass_meta
-from scripts.preprocess.tc_primed.utils import (
     list_tc_primed_overpass_files_by_sensat,
     load_tc_primed_ifovs,
-    should_skip_existing,
+    read_tc_primed_overpass_meta,
+    storm_grid_extent_half_km_from_cfg,
 )
 from scripts.preprocess.utils.regridding import (
-    ResamplingError,
     create_storm_centered_equiangular_area,
     regrid,
 )
@@ -40,6 +36,7 @@ from scripts.preprocess.utils.runner import (
 from tcfuse.data.sources import Source, SourceKind
 from tcfuse.utils.time import to_compact_time
 
+# Per-sensor swath groups and brightness-temperature variable names in TC-PRIMED NetCDF.
 SENSOR_VARIABLES: dict[str, dict[str, tuple[str, list[str]]]] = {
     "AMSR2": {"37": ("S4", ["TB_36.5H", "TB_36.5V"]), "89": ("S5", ["TB_A89.0H", "TB_A89.0V"])},
     "AMSRE": {"37": ("S4", ["TB_36.5H", "TB_36.5V"]), "89": ("S5", ["TB_A89.0H", "TB_A89.0V"])},
@@ -54,6 +51,7 @@ def _read_pmw_swath(
     grp: Any, variables: list[str]
 ) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
     """Read latitude, longitude, and brightness-temperature arrays from a swath group."""
+    # Fill masked NetCDF values with NaN; normalize longitude to [-180, 180).
     lat = np.ma.filled(grp["latitude"][:].astype(float), np.nan)
     lon = (np.ma.filled(grp["longitude"][:].astype(float), np.nan) + 180) % 360 - 180
     data = {v: np.ma.filled(grp[v][:].astype(float), np.nan) for v in variables}
@@ -74,6 +72,7 @@ def process_pmw_file(
     Returns ``True`` when a snapshot was written or kept, ``False`` when the
     file was discarded (missing data, unknown ATCF, etc.).
     """
+    # Look up swath groups and channel names for this sensor (e.g. AMSR2 → S4/S5).
     sensor = sensat.split("_")[0]
     swath_37, vars_37 = SENSOR_VARIABLES[sensor]["37"]
     swath_89, vars_89 = SENSOR_VARIABLES[sensor]["89"]
@@ -81,11 +80,14 @@ def process_pmw_file(
     channels = [v.lower() for v in vars_37 + vars_89]
 
     with Dataset(str(file)) as raw:
+        # Read storm id (ATCF), overpass time, and storm center from NetCDF metadata.
         meta = read_tc_primed_overpass_meta(raw)
         atcf_id = meta["storm_id"]
         time_unix_s = meta["time_unix_s"]
 
+        # Resolve the IBTrACS SID for this TC-PRIMED ATCF storm id.
         sid = atcf_to_sid.get(atcf_id)
+        # Unknown storms are discarded — never invent a SID.
         if sid is None:
             warnings.warn(
                 f"No IBTrACS SID for ATCF {atcf_id!r} — discarding {file}",
@@ -96,14 +98,16 @@ def process_pmw_file(
         overpass_time = pd.Timestamp(time_unix_s, unit="s")
         overpass_time_utc = to_compact_time(time_unix_s, unit="s")
         dest_path = Source.path(sources_root, source_name, sid, overpass_time_utc)
-        if should_skip_existing(dest_path, skip_existing):
+        # Skip snapshots already on disk when skip_existing is enabled.
+        if skip_existing and dest_path.exists():
             return True
 
+        # Read 89 GHz swath first — it defines the target grid geometry.
         lat89, lon89, data89 = _read_pmw_swath(raw["passive_microwave"][swath_89], vars_89)
         if any(np.all(np.isnan(arr)) for arr in data89.values()):
             return False
 
-        # Target grid geometry follows the 89 GHz swath; 37 GHz is regridded onto it.
+        # Build storm-centered equiangular target grid from finest 89 GHz IFOV.
         regridding_res = get_regridding_resolution(sensat, swath_89, ifovs)
         target_area = create_storm_centered_equiangular_area(
             meta["storm_lon"],
@@ -111,19 +115,13 @@ def process_pmw_file(
             regridding_res,
             extent_half_km=extent_half_km,
         )
-        try:
-            (resampled89, out_lats, out_lons), _ = regrid(lat89, lon89, data89, target_area)
-        except ResamplingError as exc:
-            raise RuntimeError(f"89 GHz regrid failed for {file}") from exc
+        (resampled89, out_lats, out_lons), _ = regrid(lat89, lon89, data89, target_area)
 
+        # Regrid 37 GHz onto the same target grid as 89 GHz.
         lat37, lon37, data37 = _read_pmw_swath(raw["passive_microwave"][swath_37], vars_37)
         if any(np.all(np.isnan(arr)) for arr in data37.values()):
             return False
-
-        try:
-            (resampled37, _, _), _ = regrid(lat37, lon37, data37, target_area)
-        except ResamplingError as exc:
-            raise RuntimeError(f"37 GHz regrid failed for {file}") from exc
+        (resampled37, _, _), _ = regrid(lat37, lon37, data37, target_area)
 
         # Channel stack order must match vars_37 + vars_89 in metadata.
         all_vars = vars_37 + vars_89
@@ -132,6 +130,7 @@ def process_pmw_file(
         lats = out_lats.astype(np.float32)
         lons = out_lons.astype(np.float32)
 
+    # Build per-pixel coords: (time_unix_s, lat, lon) — time broadcast to (H, W).
     src_h, src_w = lats.shape
     time_broadcast = np.full((src_h, src_w), time_unix_s, dtype=np.float32)
     coords_np = np.stack([time_broadcast, lats, lons], axis=-1)
@@ -163,7 +162,7 @@ def _process_sensat_files(
     skip_existing: bool,
     extent_half_km: float,
 ) -> list[bool | None]:
-    """Process all PMW files for one sensat."""
+    """Map ``process_pmw_file`` over all files for one sensor (local pool or SLURM worker)."""
     return map_files(
         process_pmw_file,
         files,
@@ -178,26 +177,6 @@ def _process_sensat_files(
     )
 
 
-def _pmw_source_config(
-    sensat: str, ifovs: dict, extent_half_km: float
-) -> tuple[str, list[str], dict[str, Any]]:
-    """Return source name, channels, and metadata char_vars for one sensat."""
-    sensor = sensat.split("_")[0]
-    swath_37, vars_37 = SENSOR_VARIABLES[sensor]["37"]
-    swath_89, vars_89 = SENSOR_VARIABLES[sensor]["89"]
-    source_name = f"pmw_{sensat.lower()}"
-    channels = [v.lower() for v in vars_37 + vars_89]
-    char_vars = {
-        "target_resolution_km": get_regridding_resolution(sensat, swath_89, ifovs),
-        "storm_grid_extent_half_km": extent_half_km,
-        "grid_shape_yx": list(
-            get_storm_centered_grid_shape(sensat, swath_89, ifovs, extent_half_km)
-        ),
-        "swaths": {"37": swath_37, "89": swath_89},
-    }
-    return source_name, channels, char_vars
-
-
 @hydra.main(config_path="../../../conf/", config_name="preproc", version_base=None)
 def main(raw_cfg: DictConfig) -> None:
     """Preprocess all TC-PRIMED PMW snapshots to the standard HDF5 format."""
@@ -207,14 +186,15 @@ def main(raw_cfg: DictConfig) -> None:
     num_workers = int(cfg.get("num_workers", 4))
     skip_existing = bool(cfg.get("skip_existing", False))
 
+    # Stage 0 translation table and IFOV lookup for regridding resolution.
     atcf_to_sid = load_translation(sources_root)
     ifovs = load_tc_primed_ifovs()
     extent_half_km = storm_grid_extent_half_km_from_cfg(cfg)
 
+    # Group raw overpass files by sensor_satellite pair (e.g. AMSR2_GCOMW1).
     pmw_files = list_tc_primed_overpass_files_by_sensat(
         tc_primed_path, include_seasons=cfg.get("include_seasons")
     )
-
     supported = {
         sensat: files
         for sensat, files in pmw_files.items()
@@ -266,9 +246,22 @@ def main(raw_cfg: DictConfig) -> None:
     else:
         run_all()
 
+    # Rebuild per-source index.parquet and metadata.yaml from written snapshots.
     written = 0
     for sensat in supported:
-        source_name, channels, char_vars = _pmw_source_config(sensat, ifovs, extent_half_km)
+        sensor = sensat.split("_")[0]
+        swath_37, vars_37 = SENSOR_VARIABLES[sensor]["37"]
+        swath_89, vars_89 = SENSOR_VARIABLES[sensor]["89"]
+        source_name = f"pmw_{sensat.lower()}"
+        channels = [v.lower() for v in vars_37 + vars_89]
+        char_vars = {
+            "target_resolution_km": get_regridding_resolution(sensat, swath_89, ifovs),
+            "storm_grid_extent_half_km": extent_half_km,
+            "grid_shape_yx": list(
+                get_storm_centered_grid_shape(sensat, swath_89, ifovs, extent_half_km)
+            ),
+            "swaths": {"37": swath_37, "89": swath_89},
+        }
         yx = char_vars["grid_shape_yx"]
         written += finalize_source(
             source_name,

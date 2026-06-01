@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 from netCDF4 import Dataset
 from omegaconf import DictConfig
-from scripts.preprocess.tc_primed.utils import should_skip_existing
+
 from scripts.preprocess.utils.field_grid import center_crop_or_pad_2d
 from scripts.preprocess.utils.runner import (
     finalize_source,
@@ -22,7 +22,6 @@ from scripts.preprocess.utils.runner import (
     map_files,
     resolve_preproc_cfg,
 )
-
 from tcfuse.data.sources import Source, SourceKind
 from tcfuse.utils.time import to_compact_time
 
@@ -54,7 +53,8 @@ def process_sar_file(
 
     snapshot_time_utc = to_compact_time(acq_time)
     dest_path = Source.path(sources_root, SOURCE_NAME, sid, snapshot_time_utc)
-    if should_skip_existing(dest_path, skip_existing):
+    # Skip snapshots already on disk when skip_existing is enabled.
+    if skip_existing and dest_path.exists():
         return True
 
     with Dataset(str(file)) as raw:

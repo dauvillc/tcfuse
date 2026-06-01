@@ -9,7 +9,7 @@ Always start by reading the project's core context rule:
 
 - [`.cursor/rules/tcfuse-core.mdc`](.cursor/rules/tcfuse-core.mdc) — project overview, data abstraction, repo structure, coding rules, architecture, W&B conventions, workflow rules.
 
-`tcfuse-core.mdc` is the alwaysApply Cursor rule and the single source of truth for project-wide context. Do not duplicate its content here.
+`tcfuse-core.mdc` is the alwaysApply Cursor rule and the single source of truth for project-wide context. **Coding style** (human readability, inline comments, factorization, validation policy) lives in the § Human-readable code section there, with examples in [`.cursor/rules/tcfuse-coding-style.mdc`](.cursor/rules/tcfuse-coding-style.mdc). Do not duplicate its content here.
 
 ## On-demand skills (`.cursor/skills/`)
 

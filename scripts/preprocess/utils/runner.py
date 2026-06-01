@@ -94,6 +94,7 @@ def scan_source_snapshots(
     rows: list[dict[str, Any]] = []
     skipped: list[str] = []
     snapshots_dir = source_dir / "snapshots"
+    # Walk every written snapshot HDF5 and read root attrs for index reconstruction.
     for path in sorted(snapshots_dir.glob("*.h5")) if snapshots_dir.is_dir() else []:
         with h5py.File(path, "r") as snapshot_file:
             attrs = dict(snapshot_file.attrs)
@@ -138,9 +139,11 @@ def map_files[R, F](
     ``*static_args`` are broadcast to every file (not zipped per file). Per-file
     metadata must be bundled into ``files`` (e.g. ``zip(paths, infos)``).
     """
+    # Sequential path when num_workers <= 1 (easier debugging).
     if num_workers <= 1:
         return [worker(file, *static_args) for file in tqdm(files, desc=desc)]
 
+    # Parallel path: broadcast static_args to every worker invocation.
     with ProcessPoolExecutor(max_workers=num_workers) as pool:
         return list(
             tqdm(
@@ -165,6 +168,7 @@ def launch_local_or_slurm[T](
 ) -> T:
     """Run locally or submit a single SLURM job via submitit."""
     run_fn = slurm_fn if slurm_fn is not None else fn
+    # Local run when submitit is disabled in config.
     if not bool(cfg.get("submitit", False)):
         return fn()
 
@@ -207,11 +211,13 @@ def finalize_source(
         The number of indexed snapshots (0 when nothing was written).
     """
     source_dir = sources_root / source_name
+    # Enrich index rows with season/basin/subbasin from Stage 0 translation table.
     sid_attrs = _sid_attrs_lookup(sources_root)
     index_df = scan_source_snapshots(source_dir, source_name, sid_attrs)
     if index_df.empty:
         return 0
 
+    # Write metadata.yaml (channels, shape, kind) and index.parquet for this source.
     source_meta = SourceMetadata(
         source_name,
         source_type,
@@ -224,6 +230,7 @@ def finalize_source(
     index_df.to_parquet(source_dir / "index.parquet", index=False)
     print(f"Wrote index ({source_name}): {len(index_df)} rows → {source_dir / 'index.parquet'}")
 
+    # Optional archival to $STORE when enabled in jz_* setup configs.
     tar_path = Path(cfg["paths"]["archives"]["preprocessed_sources"]) / f"{source_name}.tar.gz"
     submit_archive_job(source_dir, tar_path, cfg, job_name=f"archive_{source_name}")
     return len(index_df)

@@ -126,14 +126,15 @@ class TestPreprocessIbtracs:
         _, atcf_to_sid = preprocess_ibtracs(csv)
         assert list(atcf_to_sid["usa_atcf_id"]) == ["AL102016"]
 
-    def test_duplicate_sid_to_atcf_raises(self, tmp_path: Path) -> None:
+    def test_duplicate_sid_to_atcf_resolves_by_max_wind(self, tmp_path: Path) -> None:
         rows = [
-            _make_raw_row(sid="SID1", atcf_id="AL102016"),
-            _make_raw_row(sid="SID1", atcf_id="AL202016"),
+            _make_raw_row(sid="SID1", atcf_id="AL102016", usa_wind=30),
+            _make_raw_row(sid="SID1", atcf_id="AL202016", usa_wind=80),
         ]
         csv = _write_ibtracs_csv(tmp_path, rows)
-        with pytest.raises(ValueError, match="multiple USA_ATCF_IDs"):
-            preprocess_ibtracs(csv)
+        _, atcf_to_sid = preprocess_ibtracs(csv)
+        assert len(atcf_to_sid) == 1
+        assert atcf_to_sid.iloc[0]["usa_atcf_id"] == "AL202016"
 
     def test_multiple_atcf_to_one_sid_is_fine(self, tmp_path: Path) -> None:
         # A single ATCF mapping to two SIDs is NOT raised by the new check

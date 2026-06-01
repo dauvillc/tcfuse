@@ -108,12 +108,28 @@ project_root/
 
 ## Coding rules
 
+### Human-readable code (priority)
+
+Human readability beats clever abstraction. A reader should understand any file top-to-bottom without jumping across many modules. This applies to **all** project code: `src/tcfuse/`, `scripts/`, `tests/`, and config with logic.
+
+- **Factorization:** extract a function or module only if (a) reused in **2+ files**, or (b) the block is **~40+ lines** and naming it clarifies the main flow. Do **not** create one-liner helpers, docstring-heavy wrappers, or extra files used from a single call site.
+- **Inline comments:** put a `# comment` **before every logical step** — aim for roughly **one comment line per 1–2 code lines** at non-trivial sites (reads, transforms, tensor ops, writes, control flow). Docstrings stay one-line summaries (+ Args/Returns when needed); detailed narration lives in **inline comments**, not in docstrings.
+- **Validation policy:** this is a research codebase. Do **not** add `raise`/`assert`/defensive guards unless (i) the user asked, or (ii) it is a **documented invariant** below or in a skill. If unsure, **ask first**.
+
+**Documented invariants** (keep; not defensive fluff):
+
+- **Data abstraction:** `Source` tensor shape checks in `src/tcfuse/data/sources/source.py` — core API contract.
+- **Preprocessing pipeline** (details in [`tcfuse-preprocess`](mdc:.cursor/skills/tcfuse-preprocess/SKILL.md)): IBTrACS ATCF→SID resolution, NaN lat/lon skip for SCALAR sources, train-only normalization (no split leakage).
+
+See also [`.cursor/rules/tcfuse-coding-style.mdc`](mdc:.cursor/rules/tcfuse-coding-style.mdc) for concrete do/don't examples.
+
+### Other coding rules
+
 - Type hints on all function signatures.
 - Docstrings on all public classes and functions (one-line summary + Args/Returns for non-trivial ones).
 - Put configurable hyperparameters in `conf/`, not in code.
 - No magic numbers anywhere in `src/`; use named constants or config values.
 - Document tensor shapes in docstrings or comments, for example `# (B, L, C)`.
-- Add a short `# comment` above every logical code block (even small ones) to explain intent.
 - Ask before guessing unresolved design choices such as tensor layout, coordinate normalization, masking, or task head interfaces.
 
 ## Architecture philosophy

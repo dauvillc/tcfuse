@@ -13,6 +13,8 @@ Canonical tests: [`tests/data/predictions/`](../../../tests/data/predictions/).
 
 Claude Code: invoke `/predictions` (reads this skill). Do **not** load all Python modules under `src/tcfuse/data/predictions/` unless this skill points to a specific symbol.
 
+**Coding style:** follow [`.cursor/rules/tcfuse-core.mdc`](../../rules/tcfuse-core.mdc) § Human-readable code (priority).
+
 ## When to use
 
 - Writing or reading forecast runs under `cfg.paths.predictions/<run_id>/`

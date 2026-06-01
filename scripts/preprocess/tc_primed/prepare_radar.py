@@ -14,19 +14,15 @@ import torch
 from netCDF4 import Dataset
 from omegaconf import DictConfig
 
-from scripts.preprocess.tc_primed.regrid_utils import (
+from scripts.preprocess.tc_primed.utils import (
     get_regridding_resolution,
     get_storm_centered_grid_shape,
-    storm_grid_extent_half_km_from_cfg,
-)
-from scripts.preprocess.tc_primed.tc_primed_meta import read_tc_primed_overpass_meta
-from scripts.preprocess.tc_primed.utils import (
     list_tc_primed_overpass_files_by_sensat,
     load_tc_primed_ifovs,
-    should_skip_existing,
+    read_tc_primed_overpass_meta,
+    storm_grid_extent_half_km_from_cfg,
 )
 from scripts.preprocess.utils.regridding import (
-    ResamplingError,
     create_storm_centered_equiangular_area,
     regrid,
 )
@@ -40,6 +36,7 @@ from scripts.preprocess.utils.runner import (
 from tcfuse.data.sources import Source, SourceKind
 from tcfuse.utils.time import to_compact_time
 
+# Radar swath group and variable names per TC-PRIMED sensor/satellite pair.
 SENSAT_VARIABLES: dict[str, tuple[str, list[str]]] = {
     "GMI_GPM": (
         "KuGMI",
@@ -71,10 +68,7 @@ def process_radar_file(
     skip_existing: bool,
     extent_half_km: float,
 ) -> bool:
-    """Process one TC-PRIMED overpass file and write a standard HDF5 snapshot.
-
-    Returns ``True`` when a snapshot was written or kept, ``False`` otherwise.
-    """
+    """Process one TC-PRIMED overpass file and write a standard HDF5 snapshot."""
     swath, variables = SENSAT_VARIABLES[sensat]
     # Source name uses the first token only (e.g. GMI from GMI_GPM).
     sensor_abbrev = sensat.split("_")[0].lower()
@@ -86,6 +80,7 @@ def process_radar_file(
         atcf_id = meta["storm_id"]
         time_unix_s = meta["time_unix_s"]
 
+        # Resolve the IBTrACS SID for this TC-PRIMED ATCF storm id.
         sid = atcf_to_sid.get(atcf_id)
         if sid is None:
             warnings.warn(
@@ -97,9 +92,11 @@ def process_radar_file(
         overpass_time = pd.Timestamp(time_unix_s, unit="s")
         overpass_time_utc = to_compact_time(time_unix_s, unit="s")
         dest_path = Source.path(sources_root, source_name, sid, overpass_time_utc)
-        if should_skip_existing(dest_path, skip_existing):
+        # Skip snapshots already on disk when skip_existing is enabled.
+        if skip_existing and dest_path.exists():
             return True
 
+        # Radar group must exist and report availability for this swath.
         if "radar_radiometer" not in raw.groups:
             return False
         radar_grp = raw["radar_radiometer"]
@@ -110,6 +107,7 @@ def process_radar_file(
         if any(np.all(np.isnan(arr)) for arr in data.values()):
             return False
 
+        # Storm-centered regrid at finest IFOV for this sensor/swath.
         regridding_res = get_regridding_resolution(sensat, swath, ifovs)
         target_area = create_storm_centered_equiangular_area(
             meta["storm_lon"],
@@ -117,10 +115,7 @@ def process_radar_file(
             regridding_res,
             extent_half_km=extent_half_km,
         )
-        try:
-            (resampled, out_lats, out_lons), _ = regrid(lat, lon, data, target_area)
-        except ResamplingError as exc:
-            raise RuntimeError(f"Radar regrid failed for {file}") from exc
+        (resampled, out_lats, out_lons), _ = regrid(lat, lon, data, target_area)
 
         values_np = np.stack([resampled[v] for v in variables], axis=-1).astype(np.float32)
         lats = out_lats.astype(np.float32)
@@ -157,7 +152,7 @@ def _process_sensat_files(
     skip_existing: bool,
     extent_half_km: float,
 ) -> list[bool | None]:
-    """Process all radar files for one sensat."""
+    """Map ``process_radar_file`` over all files for one sensor (local pool or SLURM worker)."""
     return map_files(
         process_radar_file,
         files,
@@ -170,17 +165,6 @@ def _process_sensat_files(
         num_workers=num_workers,
         desc=sensat,
     )
-
-
-def _radar_source_char_vars(
-    sensat: str, swath: str, ifovs: dict, extent_half_km: float
-) -> dict[str, Any]:
-    """Return instrument-level char_vars for one radar source."""
-    return {
-        "target_resolution_km": get_regridding_resolution(sensat, swath, ifovs),
-        "storm_grid_extent_half_km": extent_half_km,
-        "grid_shape_yx": list(get_storm_centered_grid_shape(sensat, swath, ifovs, extent_half_km)),
-    }
 
 
 @hydra.main(config_path="../../../conf/", config_name="preproc", version_base=None)
@@ -250,7 +234,13 @@ def main(raw_cfg: DictConfig) -> None:
         swath, variables = SENSAT_VARIABLES[sensat]
         source_name = f"radar_{sensat.split('_')[0].lower()}"
         channels = [v.lower() for v in variables]
-        char_vars = _radar_source_char_vars(sensat, swath, ifovs, extent_half_km)
+        char_vars = {
+            "target_resolution_km": get_regridding_resolution(sensat, swath, ifovs),
+            "storm_grid_extent_half_km": extent_half_km,
+            "grid_shape_yx": list(
+                get_storm_centered_grid_shape(sensat, swath, ifovs, extent_half_km)
+            ),
+        }
         yx = char_vars["grid_shape_yx"]
         written += finalize_source(
             source_name,

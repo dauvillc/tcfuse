@@ -4,11 +4,11 @@ import numpy as np
 import pytest
 import torch
 from scripts.preprocess.tc_primed.prepare_radar import _read_radar_swath
-from scripts.preprocess.tc_primed.regrid_utils import (
+from scripts.preprocess.tc_primed.utils import (
     get_regridding_resolution,
     get_storm_centered_grid_shape,
+    load_tc_primed_ifovs,
 )
-from scripts.preprocess.tc_primed.utils import _validate_ifovs_table, load_tc_primed_ifovs
 
 from tcfuse.data.sources import Source, SourceKind
 
@@ -23,11 +23,6 @@ class TestLoadTcPrimedIfovs:
         gmi_kugmi = ifovs["GMI_GPM"]["KuGMI"]["nearSurfPrecipTotRate"]
         assert len(gmi_kugmi) == 4
         assert gmi_kugmi == [5.04, 5.04, 5.04, 5.57]
-
-    def test_validate_rejects_bare_swath_list(self) -> None:
-        """Swath-level list entries are rejected by the schema validator."""
-        with pytest.raises(ValueError, match="must be a dict"):
-            _validate_ifovs_table({"TEST_SAT": {"KuTMI": [5.0, 5.0, 5.0, 5.0]}})
 
 
 class TestGetRegriddingResolution:
@@ -74,12 +69,6 @@ class TestGetRegriddingResolution:
         }
         result = get_regridding_resolution("TEST_SAT", "TEST_SWATH", ifovs)
         assert result == 5.0
-
-    def test_rejects_bare_swath_list(self) -> None:
-        """Swath-level list entries raise TypeError."""
-        ifovs = {"GMI_GPM": {"KuKaGMI": [5.04, 5.04, 5.04, 5.04]}}
-        with pytest.raises(TypeError, match="must be VAR"):
-            get_regridding_resolution("GMI_GPM", "KuKaGMI", ifovs)
 
 
 class TestGetStormCenteredGridShape:

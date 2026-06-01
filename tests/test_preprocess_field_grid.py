@@ -63,8 +63,3 @@ class TestCenterCropOrPad2d:
         field = np.ones((401, 401))
         out = center_crop_or_pad_2d(201, 201, field)[0]
         assert out.shape == (201, 201)
-
-    def test_rejects_mismatched_shapes(self) -> None:
-        """Fields with different shapes raise ValueError."""
-        with pytest.raises(ValueError, match="Mismatched"):
-            center_crop_or_pad_2d(401, 401, np.zeros((10, 10)), np.zeros((11, 10)))

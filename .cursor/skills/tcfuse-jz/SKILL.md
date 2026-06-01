@@ -13,6 +13,8 @@ description: >-
 
 Claude Code: invoke `/jz` (reads this skill).
 
+**Coding style:** follow [`.cursor/rules/tcfuse-core.mdc`](../../rules/tcfuse-core.mdc) § Human-readable code (priority).
+
 ## When to use
 
 - Syncing the local project to Jean-Zay before any cluster job.

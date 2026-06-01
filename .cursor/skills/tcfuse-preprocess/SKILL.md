@@ -38,6 +38,19 @@ of previous stages — never raw inputs from earlier ones.
 For Jean-Zay submission, preflight, or SLURM setup, see [tcfuse-jz](../tcfuse-jz/SKILL.md).
 For forecast output storage (predictions, not preprocessing), see [tcfuse-predictions](../tcfuse-predictions/SKILL.md).
 
+**Coding style:** follow project-wide rules in [`.cursor/rules/tcfuse-core.mdc`](../../rules/tcfuse-core.mdc) § Human-readable code (priority). Preprocess-specific layout below.
+
+## Preprocess file layout
+
+- Entry script → `process_*_file` worker (multiprocessing boundary) → `main`.
+- Shared infra: `utils/runner.py`, `utils/regridding.py`, `utils/field_grid.py`, `tc_primed/utils.py`.
+- Model new preprocessors on `prepare_pmw.py` after the readability refactor.
+
+**Pipeline invariants** (keep; do not add other validation without asking):
+
+- IBTrACS ATCF→SID resolution and NaN lat/lon skip when building SCALAR sources.
+- Train-only normalization (no val/test leakage).
+
 ## Dataset inventory
 
 | Dataset | Kind | Sources extracted | Status | Raw path config key |
@@ -76,9 +89,8 @@ usa_r64_ne, usa_r64_se, usa_r64_sw, usa_r64_nw
 and `number` are nullable `Int64`; everything else numeric is `float64`.
 
 **`atcf_to_sid.csv` columns:** `sid, season, basin, subbasin, name, usa_atcf_id`,
-deduplicated on `[sid, usa_atcf_id]`. A `ValueError` is raised if any SID maps
-to more than one `USA_ATCF_ID` (the per-SID check; a single ATCF mapping to
-multiple SIDs across seasons is allowed).
+deduplicated on `[sid, usa_atcf_id]`. When a SID maps to multiple `USA_ATCF_ID`
+values, the mapping keeps the ATCF ID with the highest max `USA_WIND`.
 
 **Loader API** in `src/tcfuse/data/ibtracs.py`:
 
@@ -470,7 +482,7 @@ no `metadata.yaml` in `sources_root`; its channels are discovered from the HDF5 
 ## Adding a new dataset preprocessor
 
 1. Add source definitions to a new `conf/data/<name>.yaml` following the TC-PRIMED template.
-2. Create `scripts/preprocess/<name>.py` modelling it on `scripts/preprocess/tc_primed/prepare_pmw.py`.
+2. Create `scripts/preprocess/<name>.py` modelling it on `scripts/preprocess/tc_primed/prepare_pmw.py` (post-refactor layout; see "Preprocess file layout" above).
 3. Add the dataset to the table at the top of this skill.
 4. Update the dataset stack table in `.cursor/rules/tcfuse-core.mdc` with the confirmed `$SCRATCH` path once known.
 

@@ -16,6 +16,8 @@ Claude Code: invoke `/visualize` (reads this skill).
 
 Figures target LaTeX articles and preprints (AMS / AGU style) and are saved as SVG.
 
+**Coding style:** follow [`.cursor/rules/tcfuse-core.mdc`](../../rules/tcfuse-core.mdc) § Human-readable code (priority).
+
 ## When to use
 
 - Writing or modifying any function under `src/tcfuse/data/visualization/`.

@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from scripts.preprocess.tc_primed.regrid_utils import (
+from scripts.preprocess.tc_primed.utils import (
     get_storm_centered_grid_shape,
     storm_grid_extent_half_km_from_cfg,
 )

@@ -8,9 +8,11 @@ import numpy as np
 def center_fixed_length_1d(arr: np.ndarray, target_len: int) -> np.ndarray:
     """Center-crop or NaN-pad a 1-D array to ``target_len`` elements."""
     n = int(arr.shape[0])
+    # Crop symmetrically when the axis is longer than the target.
     if n > target_len:
         start = (n - target_len) // 2
         return arr[start : start + target_len]
+    # Pad with NaN when the axis is shorter than the target.
     if n < target_len:
         pad_total = target_len - n
         pad_before = pad_total // 2
@@ -32,14 +34,7 @@ def center_crop_or_pad_2d(
     if not fields:
         return ()
 
-    ref = fields[0]
-    if ref.ndim != 2:
-        raise ValueError(f"Expected 2-D field, got shape {ref.shape}")
-    h, w = ref.shape
-    for field in fields[1:]:
-        if field.shape != (h, w):
-            raise ValueError(f"Mismatched field shapes: {ref.shape} vs {field.shape}")
-
+    # Fix height first, then width — keeps lat/lon aligned with data fields.
     result: tuple[np.ndarray, ...] = fields
     result = _center_fix_axis(result, axis=0, target=target_h)
     result = _center_fix_axis(result, axis=1, target=target_w)

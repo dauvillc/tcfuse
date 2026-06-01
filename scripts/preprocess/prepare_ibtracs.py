@@ -32,52 +32,30 @@ _IBTRACS_DIR_NAME = "ibtracs"
 _RADIUS_QUADRANTS = ("NE", "SE", "SW", "NW")
 _RADIUS_THRESHOLDS = ("USA_R34", "USA_R50", "USA_R64")
 
+# Raw CSV column names read from the IBTrACS file (second row is units — skipped).
+_RAW_COLUMNS = [
+    "SID",
+    "USA_ATCF_ID",
+    "BASIN",
+    "SUBBASIN",
+    "SEASON",
+    "NAME",
+    "NUMBER",
+    "NATURE",
+    "ISO_TIME",
+    "LAT",
+    "LON",
+    "USA_WIND",
+    "USA_PRES",
+    "USA_SSHS",
+    "TRACK_TYPE",
+    *[f"{threshold}_{quad}" for threshold in _RADIUS_THRESHOLDS for quad in _RADIUS_QUADRANTS],
+]
 
-def _raw_columns() -> list[str]:
-    """Return the raw IBTrACS CSV columns that prepare_ibtracs reads."""
-    base = [
-        "SID",
-        "USA_ATCF_ID",
-        "BASIN",
-        "SUBBASIN",
-        "SEASON",
-        "NAME",
-        "NUMBER",
-        "NATURE",
-        "ISO_TIME",
-        "LAT",
-        "LON",
-        "USA_WIND",
-        "USA_PRES",
-        "USA_SSHS",
-        "TRACK_TYPE",
-    ]
-    radius_cols = [
-        f"{threshold}_{quad}" for threshold in _RADIUS_THRESHOLDS for quad in _RADIUS_QUADRANTS
-    ]
-    return [*base, *radius_cols]
-
-
-def _radius_output_columns() -> list[str]:
-    """Return the lowercased radius output names (e.g. ``usa_r34_ne``)."""
-    return [f"{t.lower()}_{q.lower()}" for t in _RADIUS_THRESHOLDS for q in _RADIUS_QUADRANTS]
-
-
-def _coerce_string(series: pd.Series) -> pd.Series:
-    """Coerce a Series to stripped strings, mapping missing entries to empty string."""
-    return cast(pd.Series, series.fillna("").astype(str).str.strip())
-
-
-def _coerce_nullable_int(series: pd.Series) -> pd.Series:
-    """Coerce a Series to pandas nullable Int64, preserving NA for missing entries."""
-    numeric = cast(pd.Series, pd.to_numeric(series, errors="coerce"))
-    return cast(pd.Series, numeric.astype("Int64"))
-
-
-def _coerce_float(series: pd.Series) -> pd.Series:
-    """Coerce a Series to float64, mapping non-numeric entries to NaN."""
-    numeric = cast(pd.Series, pd.to_numeric(series, errors="coerce"))
-    return cast(pd.Series, numeric.astype(float))
+# Lowercased radius column names written to ibtracs.parquet.
+_RADIUS_OUTPUT_COLUMNS = [
+    f"{t.lower()}_{q.lower()}" for t in _RADIUS_THRESHOLDS for q in _RADIUS_QUADRANTS
+]
 
 
 def _col(df: pd.DataFrame, name: str) -> pd.Series:
@@ -85,45 +63,51 @@ def _col(df: pd.DataFrame, name: str) -> pd.Series:
     return cast(pd.Series, df[name])
 
 
+def _coerce_string(series: pd.Series) -> pd.Series:
+    """Coerce a Series to stripped strings; missing entries become empty string."""
+    return cast(pd.Series, series.fillna("").astype(str).str.strip())
+
+
+def _coerce_nullable_int(series: pd.Series) -> pd.Series:
+    """Coerce a Series to pandas nullable Int64; non-numeric entries become NA."""
+    numeric = cast(pd.Series, pd.to_numeric(series, errors="coerce"))
+    return cast(pd.Series, numeric.astype("Int64"))
+
+
+def _coerce_float(series: pd.Series) -> pd.Series:
+    """Coerce a Series to float64; non-numeric entries become NaN."""
+    numeric = cast(pd.Series, pd.to_numeric(series, errors="coerce"))
+    return cast(pd.Series, numeric.astype(float))
+
+
 def preprocess_ibtracs(ibtracs_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Load and clean the raw IBTrACS CSV into the two output DataFrames.
-
-    Args:
-        ibtracs_csv: Path to the raw IBTrACS CSV (the second row contains units).
-
-    Returns:
-        ``(snapshots, atcf_to_sid)`` where:
-        - ``snapshots`` is the per-(SID, ISO_TIME) DataFrame written to
-          ``ibtracs.parquet``.
-        - ``atcf_to_sid`` is the translation table written to
-          ``atcf_to_sid.csv`` (columns: ``sid, season, basin, subbasin, name,
-          usa_atcf_id``).
-
-    Raises:
-        ValueError: When any main-track row has a missing SEASON.
-    """
+    """Load and clean the raw IBTrACS CSV into the two output DataFrames."""
+    # Row 2 of the IBTrACS CSV is units — skip it on read.
     df = pd.read_csv(
         ibtracs_csv,
         skiprows=[1],
-        usecols=_raw_columns(),
+        usecols=_RAW_COLUMNS,
         na_values=[" "],
         keep_default_na=True,
         low_memory=False,
     )
 
+    # Keep main track only (exclude spurs, merges, etc.).
     track_type = _col(df, "TRACK_TYPE").astype(str).str.strip().str.lower()
     df = cast(pd.DataFrame, df[track_type == "main"].copy())
 
+    # Normalize string ids; empty string means missing ATCF id.
     df["SID"] = _coerce_string(_col(df, "SID"))
     df["USA_ATCF_ID"] = _coerce_string(_col(df, "USA_ATCF_ID"))
 
-    iso_time_utc = cast(pd.Series, pd.to_datetime(df["ISO_TIME"], utc=True))
-    # Keep only IBTrACS rows from 1987 onward.
+    # Filter to 1987+ and store iso_time as naive UTC strings.
+    iso_time_utc = cast(pd.Series, pd.to_datetime(_col(df, "ISO_TIME"), utc=True))
     min_iso_time = pd.Timestamp("1987-01-01T00:00:00Z")
     df = cast(pd.DataFrame, df[iso_time_utc >= min_iso_time].copy())
     iso_time_utc = cast(pd.Series, iso_time_utc[iso_time_utc >= min_iso_time])
     iso_time_str = iso_time_utc.dt.tz_localize(None).dt.strftime("%Y-%m-%dT%H:%M:%S")
 
+    # SEASON is required for train/val/test split assignment — fail if any row lacks it.
     season_int = _coerce_nullable_int(_col(df, "SEASON"))
     if bool(season_int.isna().any()):
         n_missing = int(season_int.isna().sum())
@@ -132,6 +116,7 @@ def preprocess_ibtracs(ibtracs_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
             "cannot derive a per-storm split season from these rows."
         )
 
+    # Build the snapshots table (one row per sid x iso_time).
     snapshots_data: dict[str, Any] = {
         "sid": _col(df, "SID").to_numpy(),
         "season": season_int.astype(int).to_numpy(),
@@ -150,7 +135,7 @@ def preprocess_ibtracs(ibtracs_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     }
     for raw_col, out_col in zip(
         [f"{t}_{q}" for t in _RADIUS_THRESHOLDS for q in _RADIUS_QUADRANTS],
-        _radius_output_columns(),
+        _RADIUS_OUTPUT_COLUMNS,
         strict=True,
     ):
         snapshots_data[out_col] = _coerce_float(_col(df, raw_col)).to_numpy()
@@ -161,12 +146,12 @@ def preprocess_ibtracs(ibtracs_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         snapshots.sort_values(["sid", "iso_time"]).reset_index(drop=True),
     )
 
+    # Build ATCF→SID translation: one row per (sid, usa_atcf_id), resolving duplicates by max wind.
     pairs = cast(
         pd.DataFrame,
         snapshots[["sid", "season", "basin", "subbasin", "name", "usa_atcf_id", "usa_wind"]],
     )
     pairs = cast(pd.DataFrame, pairs[pairs["usa_atcf_id"] != ""])
-    # Resolve multiple ATCF IDs per SID by selecting the ATCF with highest max USA wind.
     per_pair = cast(
         pd.DataFrame,
         pairs.groupby(["sid", "usa_atcf_id"], as_index=False).agg(
@@ -177,9 +162,9 @@ def preprocess_ibtracs(ibtracs_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
             usa_wind=("usa_wind", "max"),
         ),
     )
+    # NaN usa_wind must not win the tie-break; treat missing as -inf.
     best_idx = cast(
         pd.Series,
-        # NaN usa_wind must not win the tie-break; treat missing as -inf.
         per_pair.assign(usa_wind_rank=per_pair["usa_wind"].fillna(float("-inf")))
         .groupby("sid")["usa_wind_rank"]
         .idxmax(),
@@ -211,25 +196,14 @@ def write_outputs(
     )
 
 
-def ibtracs_output_dir(sources_root: Path) -> Path:
-    """Return the directory holding ``atcf_to_sid.csv`` and ``ibtracs.parquet``."""
-    return sources_root / _IBTRACS_DIR_NAME
-
-
 @hydra.main(config_path="../../conf/", config_name="preproc", version_base=None)
 def main(raw_cfg: DictConfig) -> None:
     """Convert the raw IBTrACS CSV into the Stage 0 artifacts used downstream."""
     cfg: dict[str, Any] = resolve_preproc_cfg(raw_cfg)
 
     ibtracs_csv = Path(cfg["paths"]["raw_datasets"]["ibtracs"])
-    if not ibtracs_csv.exists():
-        raise FileNotFoundError(
-            f"IBTrACS CSV not found at {ibtracs_csv}. "
-            "Set paths.raw_datasets.ibtracs in your config."
-        )
-
     sources_root = Path(cfg["paths"]["preprocessed_sources"])
-    out_dir = ibtracs_output_dir(sources_root)
+    out_dir = sources_root / _IBTRACS_DIR_NAME
 
     print(f"Reading IBTrACS CSV from {ibtracs_csv} …")
     snapshots, atcf_to_sid = preprocess_ibtracs(ibtracs_csv)
