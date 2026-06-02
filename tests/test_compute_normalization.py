@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
+import tempfile
+from pathlib import Path
 
-from scripts.preprocess.compute_normalization import _flatten_values_and_mask
+import h5py
+
+from scripts.preprocess.compute_normalization import _ensure_unbatched_group, _flatten_values_and_mask
 from tcfuse.data.sources import SourceKind
 
 
@@ -26,3 +31,24 @@ def test_flatten_values_and_mask_preserves_channel_availability() -> None:
 
     assert first_channel.tolist() == [1.0, 2.0, 3.0]
     assert second_channel.tolist() == [20.0, 30.0, 40.0]
+
+
+def test_ensure_unbatched_group_rejects_batched_source() -> None:
+    """Normalization helpers should fail fast on batched Source snapshots."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "tmp.h5"
+        with h5py.File(path, "w") as f:
+            group = f.create_group("snapshot")
+            group.attrs["batched"] = True
+            with pytest.raises(ValueError, match="normalization only supports non-batched"):
+                _ensure_unbatched_group(group, "sid/time/source")
+
+
+def test_ensure_unbatched_group_requires_batched_attr() -> None:
+    """Normalization helpers should require explicit batched metadata."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "tmp.h5"
+        with h5py.File(path, "w") as f:
+            group = f.create_group("snapshot")
+            with pytest.raises(ValueError, match="missing mandatory 'batched'"):
+                _ensure_unbatched_group(group, "sid/time/source")

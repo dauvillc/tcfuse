@@ -17,7 +17,14 @@ import pytest
 import torch
 
 from tcfuse.data.sources import Source, SourceKind
-from tests.test_sources import make_field_source, make_profile_source, make_scalar_source
+from tests.test_sources import (
+    make_batched_field_source,
+    make_batched_profile_source,
+    make_batched_scalar_source,
+    make_field_source,
+    make_profile_source,
+    make_scalar_source,
+)
 
 # ---------------------------------------------------------------------------
 # Shared per-item storm metadata used across tests
@@ -94,6 +101,21 @@ class TestRoundTrip:
         src = make_scalar_source(source_name="era5_surface")
         result = _write_read(src)
         assert result.source_name == "era5_surface"
+
+    def test_batched_flag_preserved_scalar(self) -> None:
+        src = make_batched_scalar_source()
+        result = _write_read(src)
+        assert result.batched
+
+    def test_batched_flag_preserved_profile(self) -> None:
+        src = make_batched_profile_source()
+        result = _write_read(src)
+        assert result.batched
+
+    def test_batched_flag_preserved_field(self) -> None:
+        src = make_batched_field_source()
+        result = _write_read(src)
+        assert result.batched
 
     def test_nan_values_preserved(self) -> None:
         src = make_profile_source(L=8, C=3)
@@ -204,6 +226,30 @@ class TestMaskRoundTrip:
                 group.attrs["char_vars"] = "{}"
 
             with pytest.raises(ValueError, match="missing mandatory 'mask'"):
+                Source.from_disk(path)
+
+    def test_missing_batched_attr_raises_when_reading_legacy_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "legacy.h5"
+            with h5py.File(path, "w") as f:
+                group = f.create_group("scalar/best_track")
+                group.create_dataset(
+                    "values",
+                    data=np.array([1.0, np.nan, 3.0], dtype=np.float32),
+                )
+                group.create_dataset(
+                    "coords",
+                    data=np.array([0.0, 25.0, -80.0], dtype=np.float64),
+                )
+                group.create_dataset(
+                    "mask",
+                    data=np.array([True, False, True], dtype=bool),
+                )
+                group.attrs["source_name"] = "best_track"
+                group.attrs["channels"] = '["a", "b", "c"]'
+                group.attrs["char_vars"] = "{}"
+
+            with pytest.raises(ValueError, match="missing mandatory 'batched'"):
                 Source.from_disk(path)
 
 

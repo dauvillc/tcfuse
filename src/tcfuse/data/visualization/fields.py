@@ -56,6 +56,11 @@ def _panel_grid(n_channels: int) -> tuple[int, int]:
 
 def _field_coords_arrays(source: Source) -> tuple[np.ndarray, np.ndarray]:
     """Extract 2D lat/lon grids from a FIELD source, shape (H, W) each."""
+    # Visualization utilities operate on single snapshots only.
+    if source.batched:
+        raise ValueError(
+            f"Visualization expects non-batched FIELD sources, got batched=True for {source.source_name}."
+        )
     coords = source.coords.detach().cpu().numpy()
     lats = coords[..., 1]
     lons = coords[..., 2]
@@ -64,6 +69,11 @@ def _field_coords_arrays(source: Source) -> tuple[np.ndarray, np.ndarray]:
 
 def _field_channel_values(source: Source, channel_idx: int) -> np.ndarray:
     """Extract one 2D channel from a FIELD source with mask applied, shape (H, W)."""
+    # Visualization utilities operate on single snapshots only.
+    if source.batched:
+        raise ValueError(
+            f"Visualization expects non-batched FIELD sources, got batched=True for {source.source_name}."
+        )
     values = source.values.detach().cpu().numpy()[..., channel_idx]
     if source.mask is not None:
         mask_np = source.mask.detach().cpu().numpy()

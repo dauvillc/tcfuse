@@ -78,6 +78,11 @@ def _footprint_from_source(
     Returns:
         Discriminated tuple as described above.
     """
+    # StormData visualization is defined for single snapshot tensors only.
+    if source.batched:
+        raise ValueError(
+            f"Visualization expects non-batched Source objects, got batched=True for {source.source_name}."
+        )
     coords_np = source.coords.detach().cpu().numpy()
 
     # --- SCALAR: single (time, lat, lon) coordinate ---

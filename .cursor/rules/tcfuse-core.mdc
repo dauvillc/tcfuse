@@ -45,6 +45,7 @@ Every source, regardless of its dimensionality, is represented as a set of **(va
 - Coordinates are always **continuous and physical** (degrees, seconds since epoch, meters). No learned bin embeddings for coordinates.
 - Coordinates are stored **alongside** values, not inferred from array indices.
 - A source may have **missing values**; every `Source` carries a per-value availability mask with the same shape as `values`, where `True` means finite/available and `False` means NaN/missing.
+- `Source` may be **batched** (leading `B` axis) only inside ML pipeline internals (dataset/collate/model flow). Preprocessing, evaluation, and visualization code paths must use non-batched `Source` objects.
 - The number of sources per sample is **variable**. No fixed-size source list.
 - All snapshots within a given source share the same **spatial shape** `(H, W)` for FIELD sources (or `()` / `(L,)` for SCALAR / PROFILE). The shape is stored in `SourceMetadata.shape` and therefore knowable without loading any HDF5 file.
 - IBTrACS USA and WMO best-track quantities are **distinct definitions**; store them in separate channels/columns and preserve NaN rather than falling back or coalescing across providers.

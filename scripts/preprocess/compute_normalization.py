@@ -87,6 +87,16 @@ def _flatten_values_and_mask(
     return flat, flat_mask & np.isfinite(flat)
 
 
+def _ensure_unbatched_group(group: h5py.Group, group_name: str) -> None:
+    """Fail fast when normalization sees a batched Source snapshot."""
+    if "batched" not in group.attrs:
+        raise ValueError(f"{group_name} is missing mandatory 'batched' Source attribute.")
+    if bool(group.attrs["batched"]):
+        raise ValueError(
+            f"{group_name} has batched=True, but normalization only supports non-batched Source snapshots."
+        )
+
+
 def _welford_update(
     count: float,
     mean: float,
@@ -134,6 +144,7 @@ def process_source(
                 if compact not in src_grp:
                     continue
                 grp = cast(h5py.Group, src_grp[compact])
+                _ensure_unbatched_group(grp, f"{sid}/{compact}/{source_name}")
                 kind = SourceKind[str(grp.attrs["kind"])]
                 if channels is None:
                     channels = json.loads(str(grp.attrs["channels"]))
@@ -166,6 +177,7 @@ def process_source(
                 if compact not in src_grp:
                     continue
                 grp = cast(h5py.Group, src_grp[compact])
+                _ensure_unbatched_group(grp, f"{sid}/{compact}/{source_name}")
                 values: np.ndarray = cast(h5py.Dataset, grp["values"])[:]
                 if "mask" not in grp:
                     raise ValueError(

@@ -50,6 +50,7 @@ For forecast output storage (predictions, not preprocessing), see [tcfuse-predic
 
 - IBTrACS ATCF→SID resolution and NaN lat/lon skip when building SCALAR sources.
 - Train-only normalization (no val/test leakage).
+- Preprocessing scripts must use non-batched `Source` snapshots (`batched=False`); batched `Source` is reserved for ML dataset/collate/model flow.
 
 ## Dataset inventory
 
@@ -178,20 +179,20 @@ is written via `SourceMetadata.to_yaml`; the index is written separately as
 │   └── {source_name}/
 │       ├── values    float32 (C,),       gzip-4
 │       ├── coords    float64 (3,),       gzip-4  [time_unix_s, lat, lon]
-│       ├── [mask]    bool    (C,)        (optional)
-│       └── attrs:    {source_name, channels (JSON), char_vars (JSON)}
+│       ├── mask      bool    (C,)
+│       └── attrs:    {source_name, batched (bool), channels (JSON), char_vars (JSON)}
 ├── profile/
 │   └── {source_name}/
 │       ├── values    float32 (L, C),     gzip-4
 │       ├── coords    float64 (L, 4),     gzip-4  [time_unix_s, lat, lon, alt_m]
-│       ├── [mask]    bool    (L, C)      (optional)
-│       └── attrs:    {source_name, channels (JSON), char_vars (JSON)}
+│       ├── mask      bool    (L, C)
+│       └── attrs:    {source_name, batched (bool), channels (JSON), char_vars (JSON)}
 └── field/
     └── {source_name}/
         ├── values    float32 (H, W, C),  gzip-4
         ├── coords    float32 (H, W, 3),  gzip-4  [time_unix_s broadcast, lat, lon]
-        ├── [mask]    bool    (H, W)      (optional)
-        └── attrs:    {source_name, channels (JSON), char_vars (JSON)}
+        ├── mask      bool    (H, W, C)
+        └── attrs:    {source_name, batched (bool), channels (JSON), char_vars (JSON)}
 ```
 
 **Missing sources:** simply absent from the HDF5 file — no empty groups.
@@ -241,7 +242,7 @@ Use `StormData.path(assembled_root, sid)` to compute canonical paths.
     └── {compact_snapshot_time}/     # e.g., "20160912T010942Z"
         ├── values    float32, gzip-4
         ├── coords    float32 (FIELD) or float64 (SCALAR/PROFILE), gzip-4
-        ├── [mask]    bool (only when present in Source)
+        ├── mask      bool (always present; same shape as values)
         └── attrs:
             ├── source_name        str
             ├── channels           JSON list

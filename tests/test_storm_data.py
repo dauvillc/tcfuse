@@ -13,7 +13,14 @@ import pytest
 import torch
 
 from tcfuse.data.sources import Source, SourceKind, StormData
-from tests.test_sources import make_field_source, make_profile_source, make_scalar_source
+from tests.test_sources import (
+    make_batched_field_source,
+    make_batched_profile_source,
+    make_batched_scalar_source,
+    make_field_source,
+    make_profile_source,
+    make_scalar_source,
+)
 
 # ---------------------------------------------------------------------------
 # Shared constants
@@ -179,6 +186,21 @@ class TestStormDataRoundTrip:
         src = make_field_source(source_name="pmw_amsr2_gcomw1")
         result = _write_read(_make_storm_data({("pmw_amsr2_gcomw1", _TIME_0): src}))
         assert result.sources[("pmw_amsr2_gcomw1", _TIME_0)].source_name == "pmw_amsr2_gcomw1"
+
+    def test_batched_scalar_flag_preserved(self) -> None:
+        src = make_batched_scalar_source()
+        result = _write_read(_make_storm_data({("best_track", _TIME_0): src}))
+        assert result.sources[("best_track", _TIME_0)].batched
+
+    def test_batched_profile_flag_preserved(self) -> None:
+        src = make_batched_profile_source()
+        result = _write_read(_make_storm_data({("dropsonde", _TIME_0): src}))
+        assert result.sources[("dropsonde", _TIME_0)].batched
+
+    def test_batched_field_flag_preserved(self) -> None:
+        src = make_batched_field_source()
+        result = _write_read(_make_storm_data({("pmw_ssmi", _TIME_0): src}))
+        assert result.sources[("pmw_ssmi", _TIME_0)].batched
 
     def test_channels_preserved(self) -> None:
         src = make_scalar_source(C=2)

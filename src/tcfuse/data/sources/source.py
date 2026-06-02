@@ -51,22 +51,23 @@ class Source:
 
     Args:
         kind: Dimensionality class of this source.
+        batched: Whether tensors include a leading batch axis.
         values: Observed measurements.
-            - SCALAR:  (C,)
-            - PROFILE: (L, C)   — L levels, C channels
-            - FIELD:   (H, W, C)
+            - SCALAR:  (C,) or (B, C)
+            - PROFILE: (L, C) or (B, L, C)   — L levels, C channels
+            - FIELD:   (H, W, C) or (B, H, W, C)
         coords: Spatio-temporal coordinates paired with each measurement.
-            - SCALAR:  (3,)         — [time, lat, lon]
-            - PROFILE: (L, 4)       — [time, lat, lon, alt] per level
-            - FIELD:   (H, W, 3)    — [time (scalar broadcast), lat, lon] per pixel
+            - SCALAR:  (3,) or (B, 3)             — [time, lat, lon]
+            - PROFILE: (L, 4) or (B, L, 4)        — [time, lat, lon, alt] per level
+            - FIELD:   (H, W, 3) or (B, H, W, 3)  — [time (scalar broadcast), lat, lon] per pixel
         source_name: Human-readable source identifier, e.g. "pmw_amsr2" or "era5_surface".
         channels: Names of each channel in the last axis of ``values``, in order.
             Length must equal ``values.shape[-1]``.
         mask: Per-value availability mask; True = finite/available, False = missing.
             Must have the same shape as ``values``:
-            - SCALAR:  (C,)
-            - PROFILE: (L, C)
-            - FIELD:   (H, W, C)
+            - SCALAR:  (C,) or (B, C)
+            - PROFILE: (L, C) or (B, L, C)
+            - FIELD:   (H, W, C) or (B, H, W, C)
         char_vars: Instrument-level descriptor variables that are constant across all
             snapshots of this source (e.g. ``{"ifov": {"tb_89.0h": [7.2, 4.4, 7.2, 4.4]}}``).
             Values must be JSON-serialisable (lists, dicts, scalars).
@@ -78,6 +79,7 @@ class Source:
     source_name: str
     channels: list[str]
     mask: Tensor
+    batched: bool = False
     meta: dict[str, Any] = dataclasses.field(default_factory=dict)
     char_vars: dict[str, Any] = dataclasses.field(default_factory=dict)
 
@@ -91,29 +93,60 @@ class Source:
         v, c = self.values, self.coords
 
         if self.kind is SourceKind.SCALAR:
-            if v.ndim != 1:
-                raise ValueError(f"SCALAR values must be 1-D, got shape {v.shape}")
-            if c.shape != (3,):
-                raise ValueError(f"SCALAR coords must be (3,), got {c.shape}")
+            # SCALAR uses either (C) or (B, C), and coords must mirror that choice.
+            expected_values_ndim = 2 if self.batched else 1
+            if v.ndim != expected_values_ndim:
+                raise ValueError(
+                    f"SCALAR values must be {expected_values_ndim}-D when batched={self.batched}, "
+                    f"got shape {v.shape}"
+                )
+            expected_coords_shape = (v.shape[0], 3) if self.batched else (3,)
+            if c.shape != expected_coords_shape:
+                raise ValueError(
+                    f"SCALAR coords must be {expected_coords_shape} when batched={self.batched}, "
+                    f"got {c.shape}"
+                )
 
         elif self.kind is SourceKind.PROFILE:
-            if v.ndim != 2:
-                raise ValueError(f"PROFILE values must be 2-D (L, C), got {v.shape}")
-            if c.ndim != 2 or c.shape[0] != v.shape[0] or c.shape[1] != 4:
+            # PROFILE uses either (L, C) or (B, L, C); coords must align on leading axes.
+            expected_values_ndim = 3 if self.batched else 2
+            if v.ndim != expected_values_ndim:
                 raise ValueError(
-                    f"PROFILE coords must be (L, 4), got {c.shape} for values {v.shape}"
+                    f"PROFILE values must be {expected_values_ndim}-D for "
+                    f"batched={self.batched}, got {v.shape}"
+                )
+            if self.batched:
+                expected_coords_shape = (v.shape[0], v.shape[1], 4)
+            else:
+                expected_coords_shape = (v.shape[0], 4)
+            if c.shape != expected_coords_shape:
+                raise ValueError(
+                    f"PROFILE coords must be {expected_coords_shape} when batched={self.batched}, "
+                    f"got {c.shape} for values {v.shape}"
                 )
 
         elif self.kind is SourceKind.FIELD:
-            if v.ndim != 3:
-                raise ValueError(f"FIELD values must be 3-D (H, W, C), got {v.shape}")
-            if c.shape != (*v.shape[:2], 3):
+            # FIELD uses either (H, W, C) or (B, H, W, C); coords must align on spatial grid.
+            expected_values_ndim = 4 if self.batched else 3
+            if v.ndim != expected_values_ndim:
                 raise ValueError(
-                    f"FIELD coords must be (H, W, 3), got {c.shape} for values {v.shape}"
+                    f"FIELD values must be {expected_values_ndim}-D when batched={self.batched}, "
+                    f"got {v.shape}"
+                )
+            if self.batched:
+                expected_coords_shape = (v.shape[0], v.shape[1], v.shape[2], 3)
+            else:
+                expected_coords_shape = (*v.shape[:2], 3)
+            if c.shape != expected_coords_shape:
+                raise ValueError(
+                    f"FIELD coords must be {expected_coords_shape} when batched={self.batched}, "
+                    f"got {c.shape} for values {v.shape}"
                 )
 
         if self.mask.shape != v.shape:
-            raise ValueError(f"mask shape {self.mask.shape} must match values shape {v.shape}")
+            raise ValueError(
+                f"mask shape {self.mask.shape} must match values shape {v.shape}"
+            )
 
     @property
     def shape(self) -> tuple[int, ...]:
@@ -127,9 +160,23 @@ class Source:
         if self.kind is SourceKind.SCALAR:
             return ()
         elif self.kind is SourceKind.PROFILE:
-            return (self.values.shape[0],)
+            level_axis = 1 if self.batched else 0
+            return (self.values.shape[level_axis],)
         else:  # FIELD
-            return (self.values.shape[0], self.values.shape[1])
+            height_axis = 1 if self.batched else 0
+            width_axis = 2 if self.batched else 1
+            return (self.values.shape[height_axis], self.values.shape[width_axis])
+
+    @property
+    def batch_size(self) -> int:
+        """Leading batch size for batched sources.
+
+        Raises:
+            ValueError: If this Source is not batched.
+        """
+        if not self.batched:
+            raise ValueError("batch_size is only defined when Source.batched is True.")
+        return int(self.values.shape[0])
 
     @property
     def n_tokens(self) -> int:
@@ -141,6 +188,7 @@ class Source:
         """Move tensors to device, returning a new Source."""
         return Source(
             kind=self.kind,
+            batched=self.batched,
             values=self.values.to(device),
             coords=self.coords.to(device),
             source_name=self.source_name,
@@ -181,6 +229,7 @@ class Source:
             data=_as_numpy_dtype(self.mask, np.dtype(bool)),
         )
         group.attrs["source_name"] = self.source_name
+        group.attrs["batched"] = self.batched
         group.attrs["channels"] = json.dumps(self.channels)
         # Instrument-level descriptors (same for every snapshot of this source).
         group.attrs["char_vars"] = json.dumps(self.char_vars)
@@ -201,12 +250,16 @@ class Source:
         coords = torch.from_numpy(np.array(group["coords"], dtype=coord_dtype))
         if "mask" not in group:
             raise ValueError("Source HDF5 group is missing mandatory 'mask' dataset.")
+        if "batched" not in group.attrs:
+            raise ValueError("Source HDF5 group is missing mandatory 'batched' attribute.")
         mask = torch.from_numpy(np.array(group["mask"], dtype=bool))
         source_name = str(group.attrs["source_name"])
+        batched = bool(group.attrs["batched"])
         channels: list[str] = json.loads(str(group.attrs["channels"]))
         char_vars: dict[str, Any] = json.loads(str(group.attrs["char_vars"]))
         return cls(
             kind=kind,
+            batched=batched,
             values=values,
             coords=coords,
             source_name=source_name,
