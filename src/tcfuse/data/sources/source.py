@@ -52,6 +52,8 @@ class Source:
     Args:
         kind: Dimensionality class of this source.
         batched: Whether tensors include a leading batch axis.
+            When True, ``values``, ``coords``, and ``mask`` all include a first
+            dimension ``B`` (batch size), and shape rules below apply per sample.
         values: Observed measurements.
             - SCALAR:  (C,) or (B, C)
             - PROFILE: (L, C) or (B, L, C)   — L levels, C channels
@@ -68,6 +70,10 @@ class Source:
             - SCALAR:  (C,) or (B, C)
             - PROFILE: (L, C) or (B, L, C)
             - FIELD:   (H, W, C) or (B, H, W, C)
+        meta: Snapshot/storm metadata stored alongside tensor data.
+            Free-form key/value mapping used for contextual attributes
+            (e.g. ``storm_id``, ``basin``, ``snapshot_time_utc``, ``lat``, ``lon``).
+            Values should be HDF5-attribute compatible for round-trip persistence.
         char_vars: Instrument-level descriptor variables that are constant across all
             snapshots of this source (e.g. ``{"ifov": {"tb_89.0h": [7.2, 4.4, 7.2, 4.4]}}``).
             Values must be JSON-serialisable (lists, dicts, scalars).
