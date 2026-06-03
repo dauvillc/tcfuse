@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast, override
 
 import lightning
+import torch
 from torch.utils.data import DataLoader
 
-from tcfuse.data.collate import collate_window_samples
-from tcfuse.data.dataset import TCWindowDataset, WindowSample
+from tcfuse.data.collate import WindowBatch, collate_window_samples
+from tcfuse.data.dataset import TCWindowDataset
 from tcfuse.data.sources.metadata import MultisourceMetadata
-
-if TYPE_CHECKING:
-    pass
 
 _SOURCES_METADATA_FILENAME = "sources_metadata.yaml"
 
@@ -98,30 +96,46 @@ class TCWindowDataModule(lightning.LightningDataModule):
 
     def _make_dataloader(
         self, dataset: TCWindowDataset, *, shuffle: bool
-    ) -> DataLoader[WindowSample]:
-        return DataLoader(
-            dataset,
-            collate_fn=collate_window_samples,
-            shuffle=shuffle,
-            **self._dataloader_kwargs,
+    ) -> DataLoader[WindowBatch]:
+        # collate_fn yields WindowBatch; cast because DataLoader infers WindowSample from dataset.
+        return cast(
+            DataLoader[WindowBatch],
+            DataLoader(
+                dataset,
+                collate_fn=collate_window_samples,
+                shuffle=shuffle,
+                **self._dataloader_kwargs,
+            ),
         )
 
-    def train_dataloader(self) -> DataLoader[WindowSample]:
+    @override
+    def transfer_batch_to_device(
+        self, batch: Any, device: torch.device, dataloader_idx: int
+    ) -> Any:
+        """Move TorchSource tensors in a WindowBatch to ``device``."""
+        if isinstance(batch, WindowBatch):
+            # Move every batched source tensor bundle to the target device.
+            batch.sources = {key: src.to(device) for key, src in batch.sources.items()}
+            return batch
+        # Fallback for any unexpected batch type.
+        return super().transfer_batch_to_device(batch, device, dataloader_idx)
+
+    def train_dataloader(self) -> DataLoader[WindowBatch]:
         """DataLoader for the training split (shuffle=True)."""
         assert self._train_dataset is not None, "Call setup('fit') first."
         return self._make_dataloader(self._train_dataset, shuffle=True)
 
-    def val_dataloader(self) -> DataLoader[WindowSample]:
+    def val_dataloader(self) -> DataLoader[WindowBatch]:
         """DataLoader for the validation split (shuffle=False)."""
         assert self._val_dataset is not None, "Call setup('fit') or setup('validate') first."
         return self._make_dataloader(self._val_dataset, shuffle=False)
 
-    def test_dataloader(self) -> DataLoader[WindowSample]:
+    def test_dataloader(self) -> DataLoader[WindowBatch]:
         """DataLoader for the test split (shuffle=False)."""
         assert self._test_dataset is not None, "Call setup('test') first."
         return self._make_dataloader(self._test_dataset, shuffle=False)
 
-    def predict_dataloader(self) -> DataLoader[WindowSample]:
+    def predict_dataloader(self) -> DataLoader[WindowBatch]:
         """DataLoader for inference over the test split (shuffle=False)."""
         assert self._test_dataset is not None, "Call setup('predict') first."
         return self._make_dataloader(self._test_dataset, shuffle=False)
