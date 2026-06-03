@@ -1,0 +1,7 @@
+# CosineAnnealingWarmupRestarts kwargs — forwarded as lr_scheduler_kwargs.
+first_cycle_steps: 2000
+warmup_steps: 200
+max_lr: 1.0e-4
+min_lr: 1.0e-6
+cycle_mult: 1.0
+gamma: 1.0

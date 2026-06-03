@@ -1,0 +1,5 @@
+# torch.optim.AdamW kwargs — forwarded as adamw_kwargs on the Lightning module.
+lr: 1.0e-4
+weight_decay: 0.01
+betas: [0.9, 0.999]
+eps: 1.0e-8

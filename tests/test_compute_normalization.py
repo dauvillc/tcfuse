@@ -9,7 +9,10 @@ from pathlib import Path
 
 import h5py
 
-from scripts.preprocess.compute_normalization import _ensure_unbatched_group, _flatten_values_and_mask
+from scripts.preprocess.compute_normalization import (
+    _ensure_unbatched_group,
+    _flatten_values_and_mask,
+)
 from tcfuse.data.sources import SourceKind
 
 

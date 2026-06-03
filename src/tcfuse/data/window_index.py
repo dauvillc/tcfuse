@@ -74,8 +74,7 @@ def load_split_index(assembled_root: Path, split: SplitName) -> pd.DataFrame:
     index_path = assembled_root / _SPLIT_FILENAMES[split]
     if not index_path.exists():
         raise FileNotFoundError(
-            f"Window index not found at {index_path}. "
-            "Run scripts/preprocess/build_splits.py first."
+            f"Window index not found at {index_path}. Run scripts/preprocess/build_splits.py first."
         )
 
     index = pd.read_parquet(index_path)

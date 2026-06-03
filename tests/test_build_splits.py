@@ -112,9 +112,7 @@ def test_window_bounds_span_assimilation_window() -> None:
     assert (
         samples.loc[0, "window_start_time_utc"] == (INIT_TIME - pd.Timedelta(hours=6)).isoformat()
     )
-    assert (
-        samples.loc[0, "window_end_time_utc"] == (INIT_TIME + pd.Timedelta(hours=24)).isoformat()
-    )
+    assert samples.loc[0, "window_end_time_utc"] == (INIT_TIME + pd.Timedelta(hours=24)).isoformat()
 
 
 def test_season_split_assigns_samples_to_one_split() -> None:

@@ -45,7 +45,6 @@ einops = "*"
 timm = "*"
 ruff = ">=0.15.11, <0.16"
 lightning = "==2.5.6"
-
 [tasks]
 notebook = "jupyter lab --no-browser"
 test = "pytest tests/"

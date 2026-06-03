@@ -150,9 +150,7 @@ class Source:
                 )
 
         if self.mask.shape != v.shape:
-            raise ValueError(
-                f"mask shape {self.mask.shape} must match values shape {v.shape}"
-            )
+            raise ValueError(f"mask shape {self.mask.shape} must match values shape {v.shape}")
 
     @property
     def shape(self) -> tuple[int, ...]:

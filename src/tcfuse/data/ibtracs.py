@@ -97,14 +97,10 @@ def ibtracs_rows_to_sources(
         lat_val = row.get("lat")
         lon_val = row.get("lon")
         lat = (
-            float("nan")
-            if lat_val is None or bool(pd.isna(lat_val))
-            else float(cast(Any, lat_val))
+            float("nan") if lat_val is None or bool(pd.isna(lat_val)) else float(cast(Any, lat_val))
         )
         lon = (
-            float("nan")
-            if lon_val is None or bool(pd.isna(lon_val))
-            else float(cast(Any, lon_val))
+            float("nan") if lon_val is None or bool(pd.isna(lon_val)) else float(cast(Any, lon_val))
         )
         iso_time_raw = str(row["iso_time"])
 
