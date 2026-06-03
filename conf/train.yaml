@@ -1,6 +1,7 @@
 # Main configuration file for training.
 defaults:
-  - data: default
+  - dataloader: default
+  - datamodule: default
   - model: default
   - optimizer: default
   - lr_scheduler: default

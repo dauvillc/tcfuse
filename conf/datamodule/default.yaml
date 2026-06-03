@@ -1,0 +1,4 @@
+# @package _global_
+_target_: tcfuse.lightning.datamodule.TCWindowDataModule
+assembled_root: ${paths.preprocessed_data}
+dataloader_kwargs: ${dataloader}

@@ -67,18 +67,23 @@ On-disk layouts (Stage 0–3, HDF5 schemas, index.parquet columns, I/O API) → 
 
 ```
 project_root/
-├── conf/                      ← Hydra config tree (data/, model/, paths/, training/, experiment/)
+├── conf/                      ← Hydra config tree (dataloader/, datamodule/, model/, paths/, optimizer/, lr_scheduler/, experiment/)
 ├── src/tcfuse/
 │   ├── data/
 │   │   ├── sources/           ← Source, SourceKind, SourceMetadata, MultisourceMetadata, StormData
 │   │   ├── collocation.py     ← spatiotemporal window queries
 │   │   ├── transforms.py      ← normalization, coordinate encoding
-│   │   └── dataset.py         ← PyTorch Dataset / LightningDataModule
+│   │   ├── collate.py         ← collate_window_samples → WindowBatch
+│   │   └── dataset.py         ← TCWindowDataset (PyTorch map-style Dataset)
+│   ├── lightning/
+│   │   ├── datamodule.py      ← TCWindowDataModule (LightningDataModule)
+│   │   ├── ibtracs_forecast.py ← IBTrACSForecastLightningModule
+│   │   └── lr_scheduler.py    ← CosineAnnealingWarmupRestarts
 │   ├── model/
 │   │   ├── embeddings/        ← value embedders per source type (0D, 1D, 2D)
 │   │   ├── encoders/          ← interchangeable backbone architectures
 │   │   ├── decoders/          ← task heads (regression, generative, classification)
-│   │   └── model.py           ← top-level LightningModule
+│   │   └── model.py           ← top-level nn.Module backbone
 │   ├── training/              ← losses.py, callbacks.py
 │   └── utils/                 ← coords.py, archive.py
 ├── scripts/preprocess/        ← prepare_*.py, assemble.py, build_splits.py, compute_normalization.py
