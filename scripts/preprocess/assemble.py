@@ -101,15 +101,15 @@ def _find_single_source_group(source_file: h5py.File) -> tuple[h5py.Group, Sourc
 def _set_snapshot_attrs(
     snap_group: h5py.Group,
     kind: SourceKind,
-    snapshot_time_utc: str,
+    time_utc: str,
     meta: dict[str, Any],
 ) -> None:
     """Write assembled snapshot attributes shared by copied and injected sources."""
     snap_group.attrs["kind"] = kind.name
-    snap_group.attrs["snapshot_time_utc"] = snapshot_time_utc
+    snap_group.attrs["time_utc"] = time_utc
     for key, value in meta.items():
         # Storm-level root attrs live on the file root, not per snapshot.
-        if key in ASSEMBLED_ROOT_ATTRS or key == "snapshot_time_utc":
+        if key in ASSEMBLED_ROOT_ATTRS or key == "time_utc":
             continue
         snap_group.attrs[key] = value
 
@@ -118,10 +118,10 @@ def _copy_snapshot_to_assembled(
     source_path: Path,
     dest_file: h5py.File,
     source_name: str,
-    snapshot_time_utc: str,
+    time_utc: str,
 ) -> None:
     """Copy one per-source snapshot into an open assembled storm HDF5 file."""
-    compact_time = to_compact_time(snapshot_time_utc)
+    compact_time = to_compact_time(time_utc)
     source_group = dest_file.require_group(source_name)
     if compact_time in source_group:
         del source_group[compact_time]
@@ -132,23 +132,23 @@ def _copy_snapshot_to_assembled(
         snap_group = source_group[compact_time]
         if not isinstance(snap_group, h5py.Group):
             raise TypeError(f"Copied snapshot is not an HDF5 group: {source_path}")
-        _set_snapshot_attrs(snap_group, kind, snapshot_time_utc, dict(source_file.attrs))
+        _set_snapshot_attrs(snap_group, kind, time_utc, dict(source_file.attrs))
 
 
 def _write_source_to_assembled(
     source: Source,
     dest_file: h5py.File,
     source_name: str,
-    snapshot_time_utc: str,
+    time_utc: str,
 ) -> None:
     """Write one in-memory Source into an open assembled storm HDF5 file."""
-    compact_time = to_compact_time(snapshot_time_utc)
+    compact_time = to_compact_time(time_utc)
     source_group = dest_file.require_group(source_name)
     if compact_time in source_group:
         del source_group[compact_time]
     snap_group = source_group.create_group(compact_time)
     source.to_hdf5_group(snap_group)
-    _set_snapshot_attrs(snap_group, source.kind, snapshot_time_utc, source.meta)
+    _set_snapshot_attrs(snap_group, source.kind, time_utc, source.meta)
 
 
 def assemble_storm(
@@ -198,24 +198,24 @@ def assemble_storm(
 
         for _, row in rows.iterrows():
             source_name = str(row["source_name"])
-            snapshot_time_utc = str(row["snapshot_time_utc"])
+            time_utc = str(row["time_utc"])
             file_path = Source.path(
                 sources_root,
                 source_name,
                 sid,
-                to_compact_time(snapshot_time_utc),
+                to_compact_time(time_utc),
             )
             if not file_path.exists():
                 raise FileNotFoundError(f"Snapshot file missing: {file_path}")
-            _copy_snapshot_to_assembled(file_path, dest_file, source_name, snapshot_time_utc)
+            _copy_snapshot_to_assembled(file_path, dest_file, source_name, time_utc)
             written_snapshots += 1
 
-        for snapshot_time_utc, source in ibtracs_sources:
+        for time_utc, source in ibtracs_sources:
             _write_source_to_assembled(
                 source,
                 dest_file,
                 IBTRACS_SOURCE_NAME,
-                snapshot_time_utc,
+                time_utc,
             )
             written_snapshots += 1
 
@@ -303,12 +303,12 @@ def _scan_storm_satellite_index(
                 for snap_group in source_group.values():
                     if not isinstance(snap_group, h5py.Group):
                         continue
-                    snapshot_time_utc = str(snap_group.attrs["snapshot_time_utc"])
+                    time_utc = str(snap_group.attrs["time_utc"])
                     rows.append(
                         {
                             "sid": sid,
                             "source_name": source_name,
-                            "snapshot_time_utc": snapshot_time_utc,
+                            "time_utc": time_utc,
                             "season": info["season"],
                             "basin": info["basin"],
                             "subbasin": info["subbasin"],
@@ -331,7 +331,7 @@ def build_assembled_index(
     Satellite rows carry the trimmed schema in :data:`INDEX_COLUMNS`
     (IBTrACS-specific columns are NaN). IBTrACS rows carry the full Stage 0
     schema with ``source_name = "ibtracs_best_track"`` and the IBTrACS
-    ``iso_time`` column renamed to ``snapshot_time_utc`` for the union schema.
+    ``iso_time`` column renamed to ``time_utc`` for the union schema.
     """
     sat_index = _scan_storm_satellite_index(assembled_root, assembled_sids, sid_attrs)
 
@@ -339,7 +339,7 @@ def build_assembled_index(
         pd.DataFrame,
         ibtracs_snapshots[ibtracs_snapshots["sid"].isin(assembled_sids)].copy(),
     )
-    ibt_rows = cast(pd.DataFrame, ibt_rows.rename(columns={"iso_time": "snapshot_time_utc"}))
+    ibt_rows = cast(pd.DataFrame, ibt_rows.rename(columns={"iso_time": "time_utc"}))
     ibt_rows["source_name"] = IBTRACS_SOURCE_NAME
 
     combined = cast(
@@ -362,7 +362,7 @@ def build_assembled_index(
 
     return cast(
         pd.DataFrame,
-        combined.sort_values(["sid", "snapshot_time_utc"]).reset_index(drop=True),
+        combined.sort_values(["sid", "time_utc"]).reset_index(drop=True),
     )
 
 

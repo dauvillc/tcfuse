@@ -1,7 +1,6 @@
 """Round-trip tests for the Source HDF5 I/O layer.
 
-All tests use synthetic tensors — no real data required.
-Tests import the source factories defined in test_sources.py.
+All tests use synthetic numpy arrays — no real data required.
 """
 
 from __future__ import annotations
@@ -11,16 +10,15 @@ import tempfile
 from pathlib import Path
 from typing import cast
 
+from typing import cast
+
 import h5py
 import numpy as np
+import pandas as pd
 import pytest
-import torch
 
 from tcfuse.data.sources import Source, SourceKind
 from tests.test_sources import (
-    make_batched_field_source,
-    make_batched_profile_source,
-    make_batched_scalar_source,
     make_field_source,
     make_profile_source,
     make_scalar_source,
@@ -33,12 +31,13 @@ from tests.test_sources import (
 _META = {
     "storm_id": "AL012020",
     "basin": "AL",
-    "snapshot_time_utc": "2020-08-01T12:00:00+00:00",
     "lat": 25.0,
     "lon": -80.0,
     "vmax_kt": 65.0,
     "mslp_hpa": 975.0,
 }
+
+_TIME_UTC = cast(pd.Timestamp, pd.Timestamp("2020-08-01T12:00:00"))
 
 
 def _write_read(source: Source) -> Source:
@@ -58,32 +57,32 @@ class TestRoundTrip:
     def test_scalar_values_match(self) -> None:
         src = make_scalar_source(C=4)
         result = _write_read(src)
-        assert torch.allclose(result.values, src.values, atol=1e-6)
+        assert np.allclose(result.values, src.values, atol=1e-6)
 
     def test_scalar_coords_match(self) -> None:
         src = make_scalar_source()
         result = _write_read(src)
-        assert torch.allclose(result.coords.double(), src.coords.double(), atol=1e-9)
+        assert np.allclose(result.coords, src.coords, atol=1e-9)
 
     def test_profile_values_match(self) -> None:
         src = make_profile_source(L=15, C=6)
         result = _write_read(src)
-        assert torch.allclose(result.values, src.values, atol=1e-6)
+        assert np.allclose(result.values, src.values, atol=1e-6)
 
     def test_profile_coords_match(self) -> None:
         src = make_profile_source(L=15, C=6)
         result = _write_read(src)
-        assert torch.allclose(result.coords.double(), src.coords.double(), atol=1e-9)
+        assert np.allclose(result.coords, src.coords, atol=1e-9)
 
     def test_field_values_match(self) -> None:
         src = make_field_source(H=12, W=10, C=4)
         result = _write_read(src)
-        assert torch.allclose(result.values, src.values, atol=1e-5)
+        assert np.allclose(result.values, src.values, atol=1e-5)
 
     def test_field_coords_match(self) -> None:
         src = make_field_source(H=12, W=10, C=4)
         result = _write_read(src)
-        assert torch.allclose(result.coords, src.coords.float(), atol=1e-5)
+        assert np.allclose(result.coords, src.coords, atol=1e-5)
 
     def test_source_kind_preserved_scalar(self) -> None:
         result = _write_read(make_scalar_source())
@@ -102,20 +101,10 @@ class TestRoundTrip:
         result = _write_read(src)
         assert result.source_name == "era5_surface"
 
-    def test_batched_flag_preserved_scalar(self) -> None:
-        src = make_batched_scalar_source()
+    def test_time_utc_preserved(self) -> None:
+        src = make_scalar_source()
         result = _write_read(src)
-        assert result.batched
-
-    def test_batched_flag_preserved_profile(self) -> None:
-        src = make_batched_profile_source()
-        result = _write_read(src)
-        assert result.batched
-
-    def test_batched_flag_preserved_field(self) -> None:
-        src = make_batched_field_source()
-        result = _write_read(src)
-        assert result.batched
+        assert result.time_utc == src.time_utc
 
     def test_nan_values_preserved(self) -> None:
         src = make_profile_source(L=8, C=3)
@@ -175,28 +164,26 @@ class TestPath:
 class TestMaskRoundTrip:
     def test_mask_written_and_read_back(self) -> None:
         L, C = 10, 4
-        mask = torch.ones(L, C, dtype=torch.bool)
+        mask = np.ones((L, C), dtype=bool)
         mask[3, :] = False
         src = Source(
             kind=SourceKind.PROFILE,
-            values=torch.randn(L, C),
-            coords=torch.randn(L, 4),
+            values=np.random.randn(L, C).astype(np.float32),
+            coords=np.random.randn(L, 3).astype(np.float64),
             source_name="dropsonde_masked",
             channels=[f"ch{i}" for i in range(C)],
             mask=mask,
+            time_utc=_TIME_UTC,
         )
         result = _write_read(src)
-        assert result.mask is not None
         assert not result.mask[3, 0]
         assert result.mask[0, 0]
 
     def test_explicit_mask_round_trips_for_unmasked_values(self) -> None:
         src = make_scalar_source()
-        assert src.mask is not None
         result = _write_read(src)
-        assert result.mask is not None
         assert result.mask.shape == result.values.shape
-        assert torch.equal(result.mask, torch.isfinite(result.values))
+        np.testing.assert_array_equal(result.mask, np.isfinite(result.values))
 
     def test_mask_always_written(self) -> None:
         src = make_scalar_source()
@@ -219,37 +206,14 @@ class TestMaskRoundTrip:
                 )
                 group.create_dataset(
                     "coords",
-                    data=np.array([0.0, 25.0, -80.0], dtype=np.float64),
+                    data=np.array([25.0, -80.0], dtype=np.float64),
                 )
                 group.attrs["source_name"] = "best_track"
                 group.attrs["channels"] = '["a", "b", "c"]'
                 group.attrs["char_vars"] = "{}"
+                group.attrs["time_utc"] = "2020-01-01T00:00:00"
 
             with pytest.raises(ValueError, match="missing mandatory 'mask'"):
-                Source.from_disk(path)
-
-    def test_missing_batched_attr_raises_when_reading_legacy_snapshot(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "legacy.h5"
-            with h5py.File(path, "w") as f:
-                group = f.create_group("scalar/best_track")
-                group.create_dataset(
-                    "values",
-                    data=np.array([1.0, np.nan, 3.0], dtype=np.float32),
-                )
-                group.create_dataset(
-                    "coords",
-                    data=np.array([0.0, 25.0, -80.0], dtype=np.float64),
-                )
-                group.create_dataset(
-                    "mask",
-                    data=np.array([True, False, True], dtype=bool),
-                )
-                group.attrs["source_name"] = "best_track"
-                group.attrs["channels"] = '["a", "b", "c"]'
-                group.attrs["char_vars"] = "{}"
-
-            with pytest.raises(ValueError, match="missing mandatory 'batched'"):
                 Source.from_disk(path)
 
 

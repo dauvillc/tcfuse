@@ -9,14 +9,11 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import pytest
-import torch
 
 from tcfuse.data.sources import Source, SourceKind, StormData
 from tests.test_sources import (
-    make_batched_field_source,
-    make_batched_profile_source,
-    make_batched_scalar_source,
     make_field_source,
     make_profile_source,
     make_scalar_source,
@@ -119,41 +116,41 @@ class TestStormDataRoundTrip:
         src = make_field_source(H=8, W=8, C=2)
         result = _write_read(_make_storm_data({("pmw_ssmi", _TIME_0): src}))
         recovered = result.sources[("pmw_ssmi", _TIME_0)]
-        assert torch.allclose(recovered.values, src.values, atol=1e-5)
+        assert np.allclose(recovered.values, src.values, atol=1e-5)
 
     def test_field_coords_preserved(self) -> None:
         src = make_field_source(H=8, W=8, C=2)
         result = _write_read(_make_storm_data({("pmw_ssmi", _TIME_0): src}))
         recovered = result.sources[("pmw_ssmi", _TIME_0)]
-        assert torch.allclose(recovered.coords, src.coords.float(), atol=1e-5)
+        assert np.allclose(recovered.coords, src.coords, atol=1e-5)
 
     def test_scalar_values_preserved(self) -> None:
         src = make_scalar_source(C=4)
         result = _write_read(_make_storm_data({("best_track", _TIME_0): src}))
         recovered = result.sources[("best_track", _TIME_0)]
-        assert torch.allclose(recovered.values, src.values, atol=1e-6)
+        assert np.allclose(recovered.values, src.values, atol=1e-6)
 
     def test_scalar_coords_preserved(self) -> None:
         src = make_scalar_source()
         result = _write_read(_make_storm_data({("best_track", _TIME_0): src}))
         recovered = result.sources[("best_track", _TIME_0)]
-        assert torch.allclose(recovered.coords.double(), src.coords.double(), atol=1e-9)
+        assert np.allclose(recovered.coords, src.coords, atol=1e-9)
 
     def test_profile_values_preserved(self) -> None:
         src = make_profile_source(L=15, C=6)
         result = _write_read(_make_storm_data({("dropsonde", _TIME_0): src}))
         recovered = result.sources[("dropsonde", _TIME_0)]
-        assert torch.allclose(recovered.values, src.values, atol=1e-6)
+        assert np.allclose(recovered.values, src.values, atol=1e-6)
 
     def test_profile_coords_preserved(self) -> None:
         src = make_profile_source(L=15, C=6)
         result = _write_read(_make_storm_data({("dropsonde", _TIME_0): src}))
         recovered = result.sources[("dropsonde", _TIME_0)]
-        assert torch.allclose(recovered.coords.double(), src.coords.double(), atol=1e-9)
+        assert np.allclose(recovered.coords, src.coords, atol=1e-9)
 
     def test_mask_preserved(self) -> None:
         src = make_field_source(H=6, W=6, C=2)
-        mask = torch.ones(6, 6, 2, dtype=torch.bool)
+        mask = np.ones((6, 6, 2), dtype=bool)
         mask[2, 3, 1] = False
         src.mask = mask
         result = _write_read(_make_storm_data({("pmw_ssmi", _TIME_0): src}))
@@ -187,21 +184,6 @@ class TestStormDataRoundTrip:
         result = _write_read(_make_storm_data({("pmw_amsr2_gcomw1", _TIME_0): src}))
         assert result.sources[("pmw_amsr2_gcomw1", _TIME_0)].source_name == "pmw_amsr2_gcomw1"
 
-    def test_batched_scalar_flag_preserved(self) -> None:
-        src = make_batched_scalar_source()
-        result = _write_read(_make_storm_data({("best_track", _TIME_0): src}))
-        assert result.sources[("best_track", _TIME_0)].batched
-
-    def test_batched_profile_flag_preserved(self) -> None:
-        src = make_batched_profile_source()
-        result = _write_read(_make_storm_data({("dropsonde", _TIME_0): src}))
-        assert result.sources[("dropsonde", _TIME_0)].batched
-
-    def test_batched_field_flag_preserved(self) -> None:
-        src = make_batched_field_source()
-        result = _write_read(_make_storm_data({("pmw_ssmi", _TIME_0): src}))
-        assert result.sources[("pmw_ssmi", _TIME_0)].batched
-
     def test_channels_preserved(self) -> None:
         src = make_scalar_source(C=2)
         src.channels = ["vmax_kt", "mslp_hpa"]
@@ -221,7 +203,7 @@ class TestStormDataRoundTrip:
         assert result.season == _SEASON
         assert isinstance(result.season, int)
 
-    def test_snapshot_time_utc_key_preserved(self) -> None:
+    def test_time_utc_key_preserved(self) -> None:
         # The isoformat timestamp used as the dict key must survive the round-trip
         # exactly, including any timezone suffix.
         result = _write_read(_make_storm_data({("pmw_ssmi", _TIME_0): make_field_source()}))

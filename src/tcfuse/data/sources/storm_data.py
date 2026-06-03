@@ -25,9 +25,9 @@ _STORM_DATA_DIR = "storm_data"
 class StormData:
     """All preprocessed sources for a single tropical cyclone.
 
-    Sources are indexed by ``(source_name, snapshot_time_utc)`` because the same
+    Sources are indexed by ``(source_name, time_utc)`` because the same
     instrument can produce multiple overpasses for a storm at different times.
-    The ``snapshot_time_utc`` key is the isoformat string as it appears in the
+    The ``time_utc`` key is the isoformat string as it appears in the
     per-source ``index.parquet`` files.
 
     ``season`` is the TC season year (e.g. 2016). It is the primary axis used
@@ -38,7 +38,7 @@ class StormData:
         basin: Ocean basin code, e.g. ``"AL"``.
         subbasin: IBTrACS sub-basin code, e.g. ``"GM"``.
         season: TC season year, e.g. 2016.
-        sources: Mapping from ``(source_name, snapshot_time_utc)`` to the
+        sources: Mapping from ``(source_name, time_utc)`` to the
             corresponding :class:`~tcfuse.data.sources.source.Source`.
             FIELD, PROFILE, and SCALAR sources may coexist.
         atcf_id: USA ATCF identifier when available (e.g. ``"AL102016"``).
@@ -89,7 +89,7 @@ class StormData:
                         ├── source_name        str
                         ├── channels           JSON list
                         ├── kind               "SCALAR" | "PROFILE" | "FIELD"
-                        ├── snapshot_time_utc  isoformat str (for round-trip key recovery)
+                        ├── time_utc  isoformat str (for round-trip key recovery)
                         └── [other meta]       lat, lon, … from Source.meta
 
         Args:
@@ -107,16 +107,17 @@ class StormData:
             if self.atcf_id is not None:
                 f.attrs["atcf_id"] = self.atcf_id
 
-            for (source_name, snapshot_time_utc), source in self.sources.items():
-                compact_time = to_compact_time(snapshot_time_utc)
+            for (source_name, time_utc), source in self.sources.items():
+                compact_time = to_compact_time(time_utc)
                 snap_group = f.require_group(f"{source_name}/{compact_time}")
 
                 source.to_hdf5_group(snap_group)
+                # The dict key is canonical; override whatever to_hdf5_group wrote.
+                snap_group.attrs["time_utc"] = time_utc
                 snap_group.attrs["kind"] = source.kind.name
-                snap_group.attrs["snapshot_time_utc"] = snapshot_time_utc
 
                 for key, value in source.meta.items():
-                    if key not in ASSEMBLED_ROOT_ATTRS and key != "snapshot_time_utc":
+                    if key not in ASSEMBLED_ROOT_ATTRS and key != "time_utc":
                         try:
                             snap_group.attrs[key] = value
                         except TypeError:
@@ -136,12 +137,12 @@ class StormData:
     ) -> StormData:
         """Load sources for a storm from its assembled HDF5 file.
 
-        Reconstructs the ``sources`` dict with ``(source_name, snapshot_time_utc)``
+        Reconstructs the ``sources`` dict with ``(source_name, time_utc)``
         keys matching the original isoformat strings, so the keys are compatible
         with the per-source ``index.parquet`` index.
 
         When ``window_start_utc`` and ``window_end_utc`` are both provided, only
-        snapshots whose ``snapshot_time_utc`` falls in the closed interval
+        snapshots whose ``time_utc`` falls in the closed interval
         ``[window_start_utc, window_end_utc]`` are loaded.
 
         Args:
@@ -181,10 +182,10 @@ class StormData:
                     if not isinstance(snap_group, h5py.Group):
                         continue
 
-                    snapshot_time_utc = str(snap_group.attrs["snapshot_time_utc"])
+                    time_utc = str(snap_group.attrs["time_utc"])
                     if window_start_utc is not None and window_end_utc is not None:
                         if not snapshot_in_window(
-                            snapshot_time_utc,
+                            time_utc,
                             window_start_utc,
                             window_end_utc,
                         ):
@@ -196,16 +197,18 @@ class StormData:
                     meta: dict[str, Any] = {
                         "storm_id": loaded_storm_id,
                         "basin": basin,
-                        "snapshot_time_utc": snapshot_time_utc,
+                        "time_utc": time_utc,
                     }
-                    # Merge snapshot attrs into meta; storm-level basin already set above.
-                    skip_keys = {"source_name", "channels", "kind", "snapshot_time_utc"}
+                    # Merge extra snapshot attrs into meta; skip keys already on Source fields.
+                    skip_keys = {
+                        "source_name", "channels", "kind", "time_utc", "char_vars"
+                    }
                     for key in snap_group.attrs:
                         if key not in skip_keys:
                             meta[key] = snap_group.attrs[key]
                     source.meta = meta
 
-                    sources[(source_name, snapshot_time_utc)] = source
+                    sources[(source_name, time_utc)] = source
 
         return cls(
             storm_id=loaded_storm_id,

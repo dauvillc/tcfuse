@@ -28,7 +28,7 @@ from tcfuse.utils.archive import submit_archive_job
 INDEX_COLUMNS: tuple[str, ...] = (
     "sid",
     "source_name",
-    "snapshot_time_utc",
+    "time_utc",
     "season",
     "basin",
     "subbasin",
@@ -108,7 +108,7 @@ def scan_source_snapshots(
             {
                 "sid": sid,
                 "source_name": source_name,
-                "snapshot_time_utc": str(attrs["snapshot_time_utc"]),
+                "time_utc": str(attrs["time_utc"]),
                 "season": info["season"],
                 "basin": info["basin"],
                 "subbasin": info["subbasin"],

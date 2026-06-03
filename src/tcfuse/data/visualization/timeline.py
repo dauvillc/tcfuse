@@ -82,7 +82,7 @@ def plot_source_timeline(
 
     Args:
         index_df:  Assembled dataset index DataFrame.  Must contain columns
-                   ``source_name`` and ``snapshot_time_utc``.
+                   ``source_name`` and ``time_utc``.
         title:     Optional figure title string.
         save_path: If provided, save the figure as SVG at this path.
 
@@ -90,7 +90,7 @@ def plot_source_timeline(
         ``(fig, ax)`` tuple.
     """
     # --- Parse timestamps to UTC-aware datetimes --------------------------------
-    times = pd.to_datetime(index_df["snapshot_time_utc"], utc=True)
+    times = pd.to_datetime(index_df["time_utc"], utc=True)
     df = index_df[["source_name"]].copy()
     df["time"] = times
 

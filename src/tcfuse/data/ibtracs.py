@@ -15,7 +15,6 @@ from typing import Any, cast
 
 import numpy as np
 import pandas as pd
-import torch
 
 from tcfuse.data.sources import Source, SourceKind
 
@@ -88,7 +87,7 @@ def ibtracs_rows_to_sources(
     sid: str,
     basin: str,
 ) -> list[tuple[str, Source]]:
-    """Convert per-storm IBTrACS rows into ``(snapshot_time_utc, Source)`` pairs."""
+    """Convert per-storm IBTrACS rows into ``(time_utc, Source)`` pairs."""
     storm_rows = cast(pd.DataFrame, storm_rows.sort_values("iso_time"))
     results: list[tuple[str, Source]] = []
 
@@ -111,16 +110,16 @@ def ibtracs_rows_to_sources(
             )
             continue
 
-        # Normalize snapshot time to naive UTC ISO string (pipeline index convention).
+        # Normalize snapshot time to a tz-naive UTC Timestamp.
         iso_time = cast(pd.Timestamp, pd.Timestamp(iso_time_raw))
         if iso_time.tzinfo is None:
             iso_time_utc = iso_time.tz_localize("UTC")
         else:
             iso_time_utc = iso_time.tz_convert("UTC")
-        time_unix_s = float(iso_time_utc.timestamp())
-        snapshot_time_utc = iso_time_utc.tz_localize(None).isoformat()
+        # Tz-naive Timestamp for Source.time_utc; .isoformat() used as pipeline index key.
+        time_utc = iso_time_utc.tz_localize(None)
 
-        # Stack all 16 channels; missing numeric entries become NaN in the tensor.
+        # Stack all 16 channels; missing numeric entries become NaN.
         channel_values: list[float] = []
         for channel in IBTRACS_CHANNELS:
             val = row.get(channel)
@@ -129,8 +128,9 @@ def ibtracs_rows_to_sources(
             else:
                 channel_values.append(float(cast(Any, val)))
 
-        values = torch.tensor(channel_values, dtype=torch.float32)
-        coords = torch.tensor([time_unix_s, lat, lon], dtype=torch.float64)
+        values = np.array(channel_values, dtype=np.float32)
+        # Spatial coords only: [lat, lon] (time stored separately in time_utc).
+        coords = np.array([lat, lon], dtype=np.float64)
 
         source = Source(
             kind=SourceKind.SCALAR,
@@ -138,14 +138,15 @@ def ibtracs_rows_to_sources(
             coords=coords,
             source_name=IBTRACS_SOURCE_NAME,
             channels=IBTRACS_CHANNELS,
-            mask=torch.isfinite(values),
+            mask=np.isfinite(values),
+            time_utc=time_utc,
             meta={
                 "storm_id": sid,
                 "basin": basin,
-                "snapshot_time_utc": snapshot_time_utc,
+                "time_utc": time_utc.isoformat(),
             },
         )
-        results.append((snapshot_time_utc, source))
+        results.append((time_utc.isoformat(), source))
 
     return results
 

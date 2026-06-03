@@ -101,10 +101,10 @@ def example_snapshot_path(sources_root: Path, meta: SourceMetadata) -> Path | No
     index = pd.read_parquet(index_path)
     if index.empty:
         return None
-    row = index.sort_values(["sid", "snapshot_time_utc"]).iloc[0]
+    row = index.sort_values(["sid", "time_utc"]).iloc[0]
     sid = str(row["sid"])
-    snapshot_time_utc = to_compact_time(str(row["snapshot_time_utc"]))
-    path = Source.path(sources_root, meta.name, sid, snapshot_time_utc)
+    time_utc = to_compact_time(str(row["time_utc"]))
+    path = Source.path(sources_root, meta.name, sid, time_utc)
     if not path.is_file():
         print(f"WARNING: index points to missing file: {path}")
         return None
@@ -113,7 +113,7 @@ def example_snapshot_path(sources_root: Path, meta: SourceMetadata) -> Path | No
 
 def suptitle_for_source(source: Source) -> str:
     """Compose a figure suptitle from source name and snapshot metadata."""
-    snapshot_time = source.meta.get("snapshot_time_utc", "")
+    snapshot_time = source.meta.get("time_utc", "")
     return f"{source.source_name}  {snapshot_time}"
 
 

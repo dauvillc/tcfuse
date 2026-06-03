@@ -40,7 +40,7 @@ def _make_index(
                 "season": season,
                 "usa_atcf_id": "AL102016",
                 "source_name": SOURCE_NAME,
-                "snapshot_time_utc": (init_time + pd.Timedelta(hours=lead_hour)).isoformat(),
+                "time_utc": (init_time + pd.Timedelta(hours=lead_hour)).isoformat(),
                 "lat": lat,
                 "lon": lon,
                 "usa_wind": usa_wind,

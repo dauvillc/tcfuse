@@ -52,7 +52,7 @@ def load_training_snapshot_index(assembled_root: Path) -> pd.DataFrame:
     training_snapshots = snapshot_index[snapshot_index["sid"].astype(str).isin(train_sids)].copy()
 
     return training_snapshots.drop_duplicates(
-        subset=["sid", "source_name", "snapshot_time_utc"]
+        subset=["sid", "source_name", "time_utc"]
     ).reset_index(drop=True)
 
 
@@ -86,15 +86,6 @@ def _flatten_values_and_mask(
     # Combine explicit availability mask with finiteness for Welford accumulation.
     return flat, flat_mask & np.isfinite(flat)
 
-
-def _ensure_unbatched_group(group: h5py.Group, group_name: str) -> None:
-    """Fail fast when normalization sees a batched Source snapshot."""
-    if "batched" not in group.attrs:
-        raise ValueError(f"{group_name} is missing mandatory 'batched' Source attribute.")
-    if bool(group.attrs["batched"]):
-        raise ValueError(
-            f"{group_name} has batched=True, but normalization only supports non-batched Source snapshots."
-        )
 
 
 def _welford_update(
@@ -131,7 +122,7 @@ def process_source(
 
     for _, row in rows.iterrows():
         sid = str(row["sid"])
-        snap_time = str(row["snapshot_time_utc"])
+        snap_time = str(row["time_utc"])
         compact = to_compact_time(snap_time)
         storm_path = StormData.path(assembled_root, sid)
         if not storm_path.exists():
@@ -144,7 +135,6 @@ def process_source(
                 if compact not in src_grp:
                     continue
                 grp = cast(h5py.Group, src_grp[compact])
-                _ensure_unbatched_group(grp, f"{sid}/{compact}/{source_name}")
                 kind = SourceKind[str(grp.attrs["kind"])]
                 if channels is None:
                     channels = json.loads(str(grp.attrs["channels"]))
@@ -163,7 +153,7 @@ def process_source(
 
     for _, row in tqdm(rows.iterrows(), total=len(rows), desc=source_name, leave=False):
         sid = str(row["sid"])
-        snap_time = str(row["snapshot_time_utc"])
+        snap_time = str(row["time_utc"])
         compact = to_compact_time(snap_time)
         storm_path = StormData.path(assembled_root, sid)
         if not storm_path.exists():
@@ -177,7 +167,6 @@ def process_source(
                 if compact not in src_grp:
                     continue
                 grp = cast(h5py.Group, src_grp[compact])
-                _ensure_unbatched_group(grp, f"{sid}/{compact}/{source_name}")
                 values: np.ndarray = cast(h5py.Dataset, grp["values"])[:]
                 if "mask" not in grp:
                     raise ValueError(

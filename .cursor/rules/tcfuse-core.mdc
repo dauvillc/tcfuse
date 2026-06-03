@@ -66,7 +66,7 @@ See the [`tcfuse-preprocess`](mdc:.cursor/skills/tcfuse-preprocess/SKILL.md) ski
 Quick reference; full schemas live in [`tcfuse-preprocess`](mdc:.cursor/skills/tcfuse-preprocess/SKILL.md):
 
 - **Stage 0** (`cfg.paths.preprocessed_sources/ibtracs/`): `ibtracs.parquet` + `atcf_to_sid.csv`, produced by `scripts/preprocess/prepare_ibtracs.py`. Stage 0 must run first; every Stage 1 worker consumes `atcf_to_sid.csv`.
-- **Stage 1** (`cfg.paths.preprocessed_sources`): one HDF5 per source snapshot — `Source.path(sources_root, source_name, sid, time)`. Per-source `index.parquet` schema: `sid, source_name, snapshot_time_utc, season, basin, subbasin`.
+- **Stage 1** (`cfg.paths.preprocessed_sources`): one HDF5 per source snapshot — `Source.path(sources_root, source_name, sid, time)`. Per-source `index.parquet` schema: `sid, source_name, time_utc, season, basin, subbasin`.
 - **Stage 2** (`cfg.paths.preprocessed_data`): one HDF5 per storm under `storm_data/` — `StormData.path(assembled_root, sid)`. The concatenated `index.parquet` carries satellite rows plus full IBTrACS rows (`source_name = "ibtracs_best_track"`); IBTrACS-specific columns are NaN on satellite rows. `sources_metadata.yaml` holds merged source descriptors (channels, shape, kind) for the ML pipeline.
 - **Window splits** (`train.parquet`, `val.parquet`, `test.parquet`): one model sample per assimilation window (t₀ = `init_time_utc`, leads −6h…+24h), built from the assembled `index.parquet`.
 - I/O API: `Source`, `StormData`, `SourceMetadata`, `MultisourceMetadata` in `src/tcfuse/data/sources/`. IBTrACS-specific loaders live in `src/tcfuse/data/ibtracs.py`.

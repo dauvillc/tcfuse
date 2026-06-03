@@ -128,7 +128,7 @@ ${paths.preprocessed_sources}/
 ```
 
 Each per-source HDF5 file holds **exactly one source**, written by `Source.write(path)`.
-Use `Source.path(sources_root, source_name, sid, snapshot_time_utc)` to compute canonical paths.
+Use `Source.path(sources_root, source_name, sid, time_utc)` to compute canonical paths.
 
 **TC-PRIMED infrared (native grid fixed size):** `prepare_infrared.py` outputs a
 storm-centered square on each source's regular lat/lon grid (no regridding):
@@ -155,18 +155,18 @@ per-file worker:
 2. Looks up the IBTrACS SID; if missing, the worker emits `warnings.warn(...)` and
    **discards** the file — no snapshot is written.
 3. Uses the SID in the HDF5 filename and writes `Source.meta = {"storm_id": sid,
-   "snapshot_time_utc": <iso>}`. **`storm_lat` and `storm_lon` are no longer written**
+   "time_utc": <iso>}`. **`storm_lat` and `storm_lon` are no longer written**
    to `Source.meta` — per-pixel coordinates already live in `Source.coords`.
 
 **Per-source `index.parquet` schema (canonical for every source):**
 
 ```
-sid, source_name, snapshot_time_utc, season, basin, subbasin
+sid, source_name, time_utc, season, basin, subbasin
 ```
 
 The index is rebuilt at the end of every Stage 1 run by `finalize_source` in
 `scripts/preprocess/utils/runner.py`, which scans `snapshots/*.h5`, reads each
-file's `storm_id` (=SID) and `snapshot_time_utc` root attrs, and left-joins
+file's `storm_id` (=SID) and `time_utc` root attrs, and left-joins
 the Stage 0 translation table to populate `season / basin / subbasin`. Metadata
 is written via `SourceMetadata.to_yaml`; the index is written separately as
 ``index.parquet`` in the same source directory.
@@ -174,7 +174,7 @@ is written via `SourceMetadata.to_yaml`; the index is written separately as
 **HDF5 file structure per snapshot:**
 ```
 /
-├── attrs: {storm_id (=SID), snapshot_time_utc, …}     ← Source.meta
+├── attrs: {storm_id (=SID), time_utc, …}     ← Source.meta
 ├── scalar/
 │   └── {source_name}/
 │       ├── values    float32 (C,),       gzip-4
@@ -248,7 +248,7 @@ Use `StormData.path(assembled_root, sid)` to compute canonical paths.
             ├── channels           JSON list
             ├── char_vars          JSON list
             ├── kind               "SCALAR" | "PROFILE" | "FIELD"
-            ├── snapshot_time_utc  isoformat str (for round-trip key recovery)
+            ├── time_utc  isoformat str (for round-trip key recovery)
             └── […]                from Source.meta
 ```
 
@@ -275,15 +275,15 @@ no ATCF translation happens at this stage.
   `lat` and `lon` are intentionally duplicated as values so the embedding
   layer can treat storm position as a feature, not only as a coordinate.
 
-**`StormData` sources dict key:** `(source_name, snapshot_time_utc)` where
-`snapshot_time_utc` is the isoformat string as it appears in per-source `index.parquet`.
+**`StormData` sources dict key:** `(source_name, time_utc)` where
+`time_utc` is the isoformat string as it appears in per-source `index.parquet`.
 
 **Assembled `index.parquet` schema:** the concatenation of two row blocks
 (satellite snapshots first, IBTrACS rows second), sharing a union schema with
 columns in this order:
 
 ```
-sid, source_name, snapshot_time_utc, season, basin, subbasin,
+sid, source_name, time_utc, season, basin, subbasin,
 name, number, nature, lat, lon,
 usa_atcf_id, usa_wind, usa_pres, usa_sshs,
 usa_r34_*, usa_r50_*, usa_r64_*
@@ -292,7 +292,7 @@ usa_r34_*, usa_r50_*, usa_r64_*
 Satellite rows leave the IBTrACS-specific columns (`usa_wind`, radii, etc.)
 NaN; IBTrACS rows carry their full Stage 0 schema with `source_name =
 "ibtracs_best_track"` and the IBTrACS `iso_time` column renamed to
-`snapshot_time_utc`.
+`time_utc`.
 
 ## Running the preprocessor
 
@@ -353,7 +353,7 @@ print(src.kind, src.values.shape, src.channels)
 
 # Check per-source index
 df = pd.read_parquet(sources_root / "pmw_amsr2_gcomw1" / "index.parquet")
-print(df.head())  # sid, source_name, snapshot_time_utc, season, basin, subbasin
+print(df.head())  # sid, source_name, time_utc, season, basin, subbasin
 print(df["source_name"].value_counts())
 ```
 
@@ -496,7 +496,7 @@ All read/write operations go through `src/tcfuse/data/sources/`:
 | `Source.write(path)` | `sources/source.py` | Write one Source to a self-contained HDF5 file |
 | `Source.from_disk(path)` | `sources/source.py` | Load Source + meta from HDF5 |
 | `Source.read_meta(path)` | `sources/source.py` | Read root attrs only (no tensors) |
-| `Source.path(sources_root, source_name, storm_id, snapshot_time_utc)` | `sources/source.py` | Compute canonical per-source snapshot path |
+| `Source.path(sources_root, source_name, storm_id, time_utc)` | `sources/source.py` | Compute canonical per-source snapshot path |
 | `Source.to_hdf5_group(group)` | `sources/source.py` | Low-level: write tensors into an open HDF5 group |
 | `Source.from_hdf5_group(group, kind)` | `sources/source.py` | Low-level: read tensors from an open HDF5 group |
 | `StormData.write(assembled_root)` | `sources/storm_data.py` | Write assembled per-storm HDF5 (all sources) |

@@ -148,10 +148,11 @@ class TestIbtracsRowsToSources:
         _, source = ibtracs_rows_to_sources(df, "SID1", "AL")[0]
         assert source.values.shape == (16,)
 
-    def test_coords_shape_is_3(self) -> None:
+    def test_coords_shape_is_2(self) -> None:
+        # SCALAR coords are [lat, lon] — no time channel.
         df = _make_ibtracs_df(_make_ibtracs_row())
         _, source = ibtracs_rows_to_sources(df, "SID1", "AL")[0]
-        assert source.coords.shape == (3,)
+        assert source.coords.shape == (2,)
 
     def test_lat_lon_duplicated_in_values(self) -> None:
         df = _make_ibtracs_df(_make_ibtracs_row(lat=15.0, lon=-60.0))
@@ -160,9 +161,9 @@ class TestIbtracsRowsToSources:
         lon_idx = IBTRACS_CHANNELS.index("lon")
         assert float(source.values[lat_idx]) == pytest.approx(15.0)
         assert float(source.values[lon_idx]) == pytest.approx(-60.0)
-        # And also in coords.
-        assert float(source.coords[1]) == pytest.approx(15.0)
-        assert float(source.coords[2]) == pytest.approx(-60.0)
+        # And also in coords: coords = [lat, lon].
+        assert float(source.coords[0]) == pytest.approx(15.0)
+        assert float(source.coords[1]) == pytest.approx(-60.0)
 
     def test_usa_wind_first_channel(self) -> None:
         df = _make_ibtracs_df(_make_ibtracs_row(usa_wind=80.0))
@@ -214,7 +215,7 @@ def _stage1_snapshot(
     src = make_field_source(H=2, W=3, C=1, source_name=source_name)
     src.meta = {
         "storm_id": sid,
-        "snapshot_time_utc": snapshot_time,
+        "time_utc": snapshot_time,
     }
     # Mirror real Stage 1 file naming.
     from tcfuse.utils.time import to_compact_time
@@ -251,7 +252,7 @@ class TestAssembleStorm:
                 {
                     "sid": self._SID,
                     "source_name": "pmw_ssmi",
-                    "snapshot_time_utc": snapshot_time,
+                    "time_utc": snapshot_time,
                     "season": 2016,
                     "basin": "AL",
                     "subbasin": "GM",
@@ -282,7 +283,7 @@ class TestAssembleStorm:
     def test_skips_storm_without_attrs(self, tmp_path: Path) -> None:
         sources_root = tmp_path / "sources"
         assembled_root = tmp_path / "assembled"
-        rows = pd.DataFrame(columns=["sid", "source_name", "snapshot_time_utc"])
+        rows = pd.DataFrame(columns=["sid", "source_name", "time_utc"])
         # Empty sid_attrs → not in IBTrACS.
         result = assemble_storm(
             "UNKNOWN_SID",
@@ -301,7 +302,7 @@ class TestAssembleStorm:
         sources_root = tmp_path / "sources"
         assembled_root = tmp_path / "assembled"
         ibtracs_by_sid, sid_attrs, atcf_for_sid = self._fixtures()
-        empty_rows = pd.DataFrame(columns=["sid", "source_name", "snapshot_time_utc"])
+        empty_rows = pd.DataFrame(columns=["sid", "source_name", "time_utc"])
 
         result = assemble_storm(
             self._SID,
@@ -338,7 +339,7 @@ class TestBuildAssembledIndex:
                 {
                     "sid": self._SID,
                     "source_name": "pmw_ssmi",
-                    "snapshot_time_utc": snapshot_time,
+                    "time_utc": snapshot_time,
                     "season": 2016,
                     "basin": "AL",
                     "subbasin": "GM",
@@ -389,11 +390,11 @@ class TestBuildAssembledIndex:
     def test_snapshot_time_renamed_from_iso_time(self, tmp_path: Path) -> None:
         ibtracs_snapshots, sid_attrs, assembled_root = self._setup(tmp_path)
         result = build_assembled_index(ibtracs_snapshots, assembled_root, [self._SID], sid_attrs)
-        assert "snapshot_time_utc" in result.columns
+        assert "time_utc" in result.columns
         assert "iso_time" not in result.columns
 
     def test_columns_include_trimmed_schema(self, tmp_path: Path) -> None:
         ibtracs_snapshots, sid_attrs, assembled_root = self._setup(tmp_path)
         result = build_assembled_index(ibtracs_snapshots, assembled_root, [self._SID], sid_attrs)
-        expected_first = ["sid", "source_name", "snapshot_time_utc", "season", "basin", "subbasin"]
+        expected_first = ["sid", "source_name", "time_utc", "season", "basin", "subbasin"]
         assert list(result.columns)[: len(expected_first)] == expected_first

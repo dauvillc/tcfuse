@@ -7,11 +7,9 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
-import pytest
-
 from tcfuse.data.visualization.fields import ChannelPlotSpec, plot_field_source_channels
 from tcfuse.data.visualization.style import UNIT_MM_H, format_text_for_renderer
-from tests.test_sources import make_batched_field_source, make_field_source
+from tests.test_sources import make_field_source
 
 
 def test_format_text_for_renderer_escapes_underscore_with_usetex() -> None:
@@ -39,10 +37,3 @@ def test_plot_field_source_channels_multi_panel() -> None:
     plt.close(fig)
 
 
-def test_plot_field_source_channels_rejects_batched_source() -> None:
-    """Field visualization helpers should reject batched Source inputs."""
-    source = make_batched_field_source(B=2, H=6, W=8, C=2, source_name="pmw_test")
-    specs = [ChannelPlotSpec("tb", "K") for _ in range(2)]
-
-    with pytest.raises(ValueError, match="expects non-batched FIELD sources"):
-        plot_field_source_channels(source, specs, suptitle="test")

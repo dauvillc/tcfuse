@@ -45,12 +45,12 @@ def parse_utc_timestamp(value: Any) -> pd.Timestamp:
 
 
 def snapshot_in_window(
-    snapshot_time_utc: Any,
+    time_utc: Any,
     window_start_utc: Any,
     window_end_utc: Any,
 ) -> bool:
     """Return True when a snapshot falls inside a closed assimilation window."""
-    snapshot_ts = parse_utc_timestamp(snapshot_time_utc)
+    snapshot_ts = parse_utc_timestamp(time_utc)
     start_ts = parse_utc_timestamp(window_start_utc)
     end_ts = parse_utc_timestamp(window_end_utc)
     return start_ts <= snapshot_ts <= end_ts

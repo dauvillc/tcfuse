@@ -1,105 +1,123 @@
 """Unit tests for the base Source abstraction.
 
-All tests use synthetic tensors — no real data required.
+All tests use synthetic numpy arrays — no real data required.
 """
 
+from typing import cast
+
+import numpy as np
+import pandas as pd
 import pytest
 import torch
 
-from tcfuse.data.sources import Source, SourceKind
+from tcfuse.data.sources import Source, SourceKind, TorchSource
 
 # ---------------------------------------------------------------------------
-# Helpers: synthetic source factories
+# Shared test timestamp
+# ---------------------------------------------------------------------------
+
+_TIME_UTC = cast(pd.Timestamp, pd.Timestamp("2020-08-01T12:00:00"))
+
+# ---------------------------------------------------------------------------
+# Helpers: synthetic numpy Source factories
 # ---------------------------------------------------------------------------
 
 
 def make_scalar_source(C: int = 3, source_name: str = "buoy") -> Source:
-    """Create a minimal valid 0D (scalar) source."""
-    values = torch.randn(C)  # (C,)
+    """Create a minimal valid 0D (scalar) Source with numpy arrays."""
+    values = np.random.randn(C).astype(np.float32)  # (C,)
     return Source(
         kind=SourceKind.SCALAR,
         values=values,
-        coords=torch.tensor([0.0, 25.0, -80.0]),  # [time, lat, lon]
+        coords=np.array([25.0, -80.0], dtype=np.float64),  # [lat, lon]
         source_name=source_name,
         channels=[f"ch{i}" for i in range(C)],
-        mask=torch.isfinite(values),
+        mask=np.isfinite(values),
+        time_utc=_TIME_UTC,
     )
 
 
 def make_profile_source(L: int = 10, C: int = 5, source_name: str = "dropsonde") -> Source:
-    """Create a minimal valid 1D (profile) source with L levels and C channels."""
-    values = torch.randn(L, C)  # (L, C)
+    """Create a minimal valid 1D (profile) Source with L levels and C channels."""
+    values = np.random.randn(L, C).astype(np.float32)  # (L, C)
     return Source(
         kind=SourceKind.PROFILE,
         values=values,
-        coords=torch.randn(L, 4),  # (L, 4): [time, lat, lon, alt]
+        coords=np.random.randn(L, 3).astype(np.float64),  # (L, 3): [lat, lon, alt]
         source_name=source_name,
         channels=[f"ch{i}" for i in range(C)],
-        mask=torch.isfinite(values),
+        mask=np.isfinite(values),
+        time_utc=_TIME_UTC,
     )
 
 
 def make_field_source(H: int = 8, W: int = 8, C: int = 2, source_name: str = "pmw_ssmi") -> Source:
-    """Create a minimal valid 2D (field/image) source."""
-    values = torch.randn(H, W, C)  # (H, W, C)
+    """Create a minimal valid 2D (field/image) Source."""
+    values = np.random.randn(H, W, C).astype(np.float32)  # (H, W, C)
     return Source(
         kind=SourceKind.FIELD,
         values=values,
-        coords=torch.randn(H, W, 3),  # (H, W, 3): [time, lat, lon]
+        coords=np.random.randn(H, W, 2).astype(np.float32),  # (H, W, 2): [lat, lon]
         source_name=source_name,
         channels=[f"ch{i}" for i in range(C)],
-        mask=torch.isfinite(values),
+        mask=np.isfinite(values),
+        time_utc=_TIME_UTC,
     )
 
 
-def make_batched_scalar_source(B: int = 4, C: int = 3, source_name: str = "buoy") -> Source:
-    """Create a minimal valid batched 0D (scalar) source."""
+# ---------------------------------------------------------------------------
+# Helpers: synthetic TorchSource factories (always batched)
+# ---------------------------------------------------------------------------
+
+
+def make_batched_scalar_source(B: int = 4, C: int = 3, source_name: str = "buoy") -> TorchSource:
+    """Create a minimal valid batched 0D (scalar) TorchSource."""
     values = torch.randn(B, C)  # (B, C)
-    return Source(
+    return TorchSource(
         kind=SourceKind.SCALAR,
         values=values,
-        coords=torch.randn(B, 3),  # (B, 3): [time, lat, lon]
+        coords=torch.randn(B, 2),  # (B, 2): [lat, lon]
         source_name=source_name,
         channels=[f"ch{i}" for i in range(C)],
         mask=torch.isfinite(values),
-        batched=True,
+        time=torch.rand(B, 2),
     )
 
 
 def make_batched_profile_source(
     B: int = 3, L: int = 10, C: int = 5, source_name: str = "dropsonde"
-) -> Source:
-    """Create a minimal valid batched 1D (profile) source."""
+) -> TorchSource:
+    """Create a minimal valid batched 1D (profile) TorchSource."""
     values = torch.randn(B, L, C)  # (B, L, C)
-    return Source(
+    return TorchSource(
         kind=SourceKind.PROFILE,
         values=values,
-        coords=torch.randn(B, L, 4),  # (B, L, 4): [time, lat, lon, alt]
+        coords=torch.randn(B, L, 3),  # (B, L, 3): [lat, lon, alt]
         source_name=source_name,
         channels=[f"ch{i}" for i in range(C)],
         mask=torch.isfinite(values),
-        batched=True,
+        time=torch.rand(B, 2),
     )
 
 
 def make_batched_field_source(
     B: int = 2, H: int = 8, W: int = 8, C: int = 2, source_name: str = "pmw_ssmi"
-) -> Source:
-    """Create a minimal valid batched 2D (field/image) source."""
+) -> TorchSource:
+    """Create a minimal valid batched 2D (field/image) TorchSource."""
     values = torch.randn(B, H, W, C)  # (B, H, W, C)
-    return Source(
+    return TorchSource(
         kind=SourceKind.FIELD,
         values=values,
-        coords=torch.randn(B, H, W, 3),  # (B, H, W, 3): [time, lat, lon]
+        coords=torch.randn(B, H, W, 2),  # (B, H, W, 2): [lat, lon]
         source_name=source_name,
         channels=[f"ch{i}" for i in range(C)],
         mask=torch.isfinite(values),
-        batched=True,
+        time=torch.rand(B, 2),
     )
 
 
 # ---------------------------------------------------------------------------
-# Construction and shape validation
+# Construction and shape validation — Source
 # ---------------------------------------------------------------------------
 
 
@@ -107,104 +125,95 @@ class TestSourceConstruction:
     def test_scalar_valid(self) -> None:
         src = make_scalar_source()
         assert src.kind is SourceKind.SCALAR
-        assert src.mask is not None
         assert src.mask.shape == src.values.shape
 
     def test_profile_valid(self) -> None:
         src = make_profile_source()
         assert src.kind is SourceKind.PROFILE
-        assert src.mask is not None
         assert src.mask.shape == src.values.shape
 
     def test_field_valid(self) -> None:
         src = make_field_source()
         assert src.kind is SourceKind.FIELD
-        assert not src.batched
-        assert src.mask is not None
         assert src.mask.shape == src.values.shape
 
-    def test_batched_scalar_valid(self) -> None:
-        src = make_batched_scalar_source()
-        assert src.batched
-        assert src.mask.shape == src.values.shape
-
-    def test_batched_profile_valid(self) -> None:
-        src = make_batched_profile_source()
-        assert src.batched
-        assert src.mask.shape == src.values.shape
-
-    def test_batched_field_valid(self) -> None:
-        src = make_batched_field_source()
-        assert src.batched
-        assert src.mask.shape == src.values.shape
+    def test_time_utc_preserved(self) -> None:
+        src = make_scalar_source()
+        assert src.time_utc == _TIME_UTC
 
     def test_scalar_wrong_values_shape_raises(self) -> None:
         with pytest.raises(ValueError):
             Source(
                 kind=SourceKind.SCALAR,
-                values=torch.randn(3, 3),  # should be 1-D
-                coords=torch.zeros(3),
+                values=np.zeros((3, 3), dtype=np.float32),  # should be 1-D
+                coords=np.zeros(2),
                 source_name="bad",
                 channels=["a", "b", "c"],
-                mask=torch.ones(3, 3, dtype=torch.bool),
+                mask=np.ones((3, 3), dtype=bool),
+                time_utc=_TIME_UTC,
             )
 
     def test_profile_wrong_coords_shape_raises(self) -> None:
+        # PROFILE coords should be (L, 3) = [lat, lon, alt]; passing (L, 2) raises.
         with pytest.raises(ValueError):
             Source(
                 kind=SourceKind.PROFILE,
-                values=torch.randn(10, 5),
-                coords=torch.randn(10, 3),  # should be (L, 4)
+                values=np.zeros((10, 5), dtype=np.float32),
+                coords=np.zeros((10, 2)),  # should be (L, 3)
                 source_name="bad",
                 channels=[f"ch{i}" for i in range(5)],
-                mask=torch.ones(10, 5, dtype=torch.bool),
+                mask=np.ones((10, 5), dtype=bool),
+                time_utc=_TIME_UTC,
             )
 
     def test_field_wrong_coords_shape_raises(self) -> None:
+        # FIELD coords should be (H, W, 2) = [lat, lon]; passing (H, W, 3) raises.
         with pytest.raises(ValueError):
             Source(
                 kind=SourceKind.FIELD,
-                values=torch.randn(8, 8, 2),
-                coords=torch.randn(8, 8, 4),  # should be (H, W, 3)
+                values=np.zeros((8, 8, 2), dtype=np.float32),
+                coords=np.zeros((8, 8, 3)),  # should be (H, W, 2)
                 source_name="bad",
                 channels=["ch0", "ch1"],
-                mask=torch.ones(8, 8, 2, dtype=torch.bool),
+                mask=np.ones((8, 8, 2), dtype=bool),
+                time_utc=_TIME_UTC,
             )
 
-    def test_batched_scalar_wrong_values_shape_raises(self) -> None:
+
+# ---------------------------------------------------------------------------
+# Construction and shape validation — TorchSource
+# ---------------------------------------------------------------------------
+
+
+class TestTorchSourceConstruction:
+    def test_batched_scalar_valid(self) -> None:
+        src = make_batched_scalar_source()
+        assert src.kind is SourceKind.SCALAR
+        assert src.mask.shape == src.values.shape
+        assert src.time.shape == (src.batch_size, 2)
+
+    def test_batched_profile_valid(self) -> None:
+        src = make_batched_profile_source()
+        assert src.kind is SourceKind.PROFILE
+        assert src.mask.shape == src.values.shape
+
+    def test_batched_field_valid(self) -> None:
+        src = make_batched_field_source()
+        assert src.kind is SourceKind.FIELD
+        assert src.mask.shape == src.values.shape
+
+    def test_torch_source_wrong_time_shape_raises(self) -> None:
+        B, C = 4, 3
+        values = torch.randn(B, C)
         with pytest.raises(ValueError):
-            Source(
+            TorchSource(
                 kind=SourceKind.SCALAR,
-                values=torch.randn(3),  # should be (B, C) when batched=True
-                coords=torch.randn(3, 3),
+                values=values,
+                coords=torch.randn(B, 2),
                 source_name="bad",
-                channels=["a", "b", "c"],
-                mask=torch.ones(3, dtype=torch.bool),
-                batched=True,
-            )
-
-    def test_batched_profile_wrong_coords_shape_raises(self) -> None:
-        with pytest.raises(ValueError):
-            Source(
-                kind=SourceKind.PROFILE,
-                values=torch.randn(2, 10, 5),
-                coords=torch.randn(10, 4),  # should be (B, L, 4) when batched=True
-                source_name="bad",
-                channels=[f"ch{i}" for i in range(5)],
-                mask=torch.ones(2, 10, 5, dtype=torch.bool),
-                batched=True,
-            )
-
-    def test_batched_field_wrong_coords_shape_raises(self) -> None:
-        with pytest.raises(ValueError):
-            Source(
-                kind=SourceKind.FIELD,
-                values=torch.randn(2, 8, 8, 2),
-                coords=torch.randn(8, 8, 3),  # should be (B, H, W, 3) when batched=True
-                source_name="bad",
-                channels=["ch0", "ch1"],
-                mask=torch.ones(2, 8, 8, 2, dtype=torch.bool),
-                batched=True,
+                channels=[f"ch{i}" for i in range(C)],
+                mask=torch.isfinite(values),
+                time=torch.rand(B, 3),  # should be (B, 2)
             )
 
 
@@ -235,14 +244,9 @@ class TestNTokens:
 
 
 class TestBatchSize:
-    def test_batch_size_for_batched_source(self) -> None:
+    def test_batch_size_for_torch_source(self) -> None:
         src = make_batched_field_source(B=7)
         assert src.batch_size == 7
-
-    def test_batch_size_raises_for_unbatched_source(self) -> None:
-        src = make_field_source()
-        with pytest.raises(ValueError, match="batch_size is only defined"):
-            _ = src.batch_size
 
 
 # ---------------------------------------------------------------------------
@@ -254,63 +258,66 @@ class TestMissingValues:
     def test_scalar_nan_values_preserved(self) -> None:
         src = make_scalar_source(C=4)
         src.values[1] = float("nan")
-        assert torch.isnan(src.values).any()
+        assert np.isnan(src.values).any()
 
     def test_scalar_nan_mask_is_explicit_per_channel(self) -> None:
-        values = torch.tensor([1.0, float("nan"), 3.0], dtype=torch.float32)
-        mask = torch.isfinite(values)
+        values = np.array([1.0, float("nan"), 3.0], dtype=np.float32)
+        mask = np.isfinite(values)
         src = Source(
             kind=SourceKind.SCALAR,
             values=values,
-            coords=torch.tensor([0.0, 25.0, -80.0]),
+            coords=np.array([25.0, -80.0], dtype=np.float64),
             source_name="best_track",
             channels=["a", "b", "c"],
             mask=mask,
+            time_utc=_TIME_UTC,
         )
-        assert src.mask is not None
         assert src.mask.tolist() == [True, False, True]
 
     def test_profile_with_mask(self) -> None:
         L, C = 10, 5
-        mask = torch.ones(L, C, dtype=torch.bool)
+        mask = np.ones((L, C), dtype=bool)
         mask[3, 2] = False  # channel 2 at level 3 is missing
         src = Source(
             kind=SourceKind.PROFILE,
-            values=torch.randn(L, C),
-            coords=torch.randn(L, 4),
+            values=np.random.randn(L, C).astype(np.float32),
+            coords=np.random.randn(L, 3).astype(np.float64),
             source_name="dropsonde",
             channels=[f"ch{i}" for i in range(C)],
             mask=mask,
+            time_utc=_TIME_UTC,
         )
-        assert src.mask is not None
         assert not src.mask[3, 2]
 
     def test_mask_shape_must_match_values_shape(self) -> None:
         with pytest.raises(ValueError):
             Source(
                 kind=SourceKind.FIELD,
-                values=torch.randn(8, 8, 2),
-                coords=torch.randn(8, 8, 3),
+                values=np.zeros((8, 8, 2), dtype=np.float32),
+                coords=np.zeros((8, 8, 2)),
                 source_name="pmw",
                 channels=["a", "b"],
-                mask=torch.ones(8, 8, dtype=torch.bool),
+                mask=np.ones((8, 8), dtype=bool),  # wrong shape
+                time_utc=_TIME_UTC,
             )
 
 
 # ---------------------------------------------------------------------------
-# Device transfer
+# Device transfer — TorchSource only
 # ---------------------------------------------------------------------------
 
 
 class TestDeviceTransfer:
-    def test_scalar_to_cpu(self) -> None:
-        src = make_scalar_source()
+    def test_torch_source_to_cpu(self) -> None:
+        src = make_batched_scalar_source()
         moved = src.to("cpu")
         assert moved.values.device.type == "cpu"
         assert moved.coords.device.type == "cpu"
+        assert moved.time.device.type == "cpu"
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    def test_scalar_to_cuda(self) -> None:
-        src = make_scalar_source()
+    def test_torch_source_to_cuda(self) -> None:
+        src = make_batched_scalar_source()
         moved = src.to("cuda")
         assert moved.values.is_cuda
+        assert moved.time.is_cuda

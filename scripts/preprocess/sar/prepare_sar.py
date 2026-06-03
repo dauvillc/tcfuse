@@ -10,7 +10,6 @@ from typing import Any, cast
 import hydra
 import numpy as np
 import pandas as pd
-import torch
 from netCDF4 import Dataset
 from omegaconf import DictConfig
 
@@ -41,7 +40,6 @@ def process_sar_file(
     """Process one CyclObs SAR overpass file and write a standard HDF5 snapshot."""
     atcf_id = str(file_info["sid"])
     acq_time = cast(pd.Timestamp, pd.Timestamp(file_info["acquisition_start_time"]))
-    time_unix_s = float(acq_time.timestamp())
 
     sid = atcf_to_sid.get(atcf_id)
     if sid is None:
@@ -51,8 +49,8 @@ def process_sar_file(
         )
         return False
 
-    snapshot_time_utc = to_compact_time(acq_time)
-    dest_path = Source.path(sources_root, SOURCE_NAME, sid, snapshot_time_utc)
+    time_utc = to_compact_time(acq_time)
+    dest_path = Source.path(sources_root, SOURCE_NAME, sid, time_utc)
     # Skip snapshots already on disk when skip_existing is enabled.
     if skip_existing and dest_path.exists():
         return True
@@ -80,19 +78,20 @@ def process_sar_file(
     h, w = lat_2d.shape
     values_np = wind_speed[:, :, np.newaxis].astype(np.float32)
     mask_np = np.isfinite(values_np)
-    time_broadcast = np.full((h, w), time_unix_s, dtype=np.float32)
-    coords_np = np.stack([time_broadcast, lat_2d, lon_2d], axis=-1)
+    # Spatial coords only: [lat, lon] per pixel — time goes to Source.time_utc.
+    coords_np = np.stack([lat_2d, lon_2d], axis=-1)
 
     source = Source(
         kind=SourceKind.FIELD,
-        values=torch.from_numpy(values_np),
-        coords=torch.from_numpy(coords_np),
+        values=values_np,
+        coords=coords_np,
         source_name=SOURCE_NAME,
         channels=CHANNELS,
-        mask=torch.from_numpy(mask_np),
+        mask=mask_np,
+        time_utc=acq_time,
         meta={
             "storm_id": sid,
-            "snapshot_time_utc": acq_time.isoformat(),
+            "time_utc": acq_time.isoformat(),
         },
     )
     source.write(dest_path)

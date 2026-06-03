@@ -3,7 +3,7 @@
 A :class:`SamplePrediction` is the per-window analogue of
 :class:`~tcfuse.data.sources.storm_data.StormData`. It holds the model's predicted
 sources for one ``(storm_id, init_time)`` forecast window, plus the matching
-ground-truth sources, both keyed by ``(source_name, snapshot_time_utc)`` so the
+ground-truth sources, both keyed by ``(source_name, time_utc)`` so the
 key matches the input :class:`StormData`.
 
 Tensor serialisation is delegated verbatim to
@@ -53,8 +53,8 @@ class SamplePrediction:
         atcf_id: Optional ATCF identifier carried over from the split parquet.
         run_id: Optional run identifier; written to the file root attrs to make
             each per-window file self-identifying.
-        pred_sources: Predicted sources keyed by ``(source_name, snapshot_time_utc)``.
-        target_sources: Ground-truth sources keyed by ``(source_name, snapshot_time_utc)``.
+        pred_sources: Predicted sources keyed by ``(source_name, time_utc)``.
+        target_sources: Ground-truth sources keyed by ``(source_name, time_utc)``.
             Same keys as ``pred_sources`` are expected when both are present, but the
             container does not enforce equality so partial coverage is allowed.
     """
@@ -141,28 +141,30 @@ class SamplePrediction:
         parent: h5py.Group,
         sources: dict[tuple[str, str], Source],
     ) -> None:
-        """Write a {(source_name, snapshot_time_utc): Source} mapping under ``parent``."""
-        for (source_name, snapshot_time_utc), source in sources.items():
-            compact_time = to_compact_time(snapshot_time_utc)
+        """Write a {(source_name, time_utc): Source} mapping under ``parent``."""
+        for (source_name, time_utc), source in sources.items():
+            compact_time = to_compact_time(time_utc)
             snap_group = parent.require_group(f"{source_name}/{compact_time}")
 
-            # Reuse the existing Source -> HDF5 group serializer verbatim.
+            # Reuse the existing Source → HDF5 group serializer verbatim.
             source.to_hdf5_group(snap_group)
-
-            # Round-trip support: kind + the original isoformat timestamp.
+            # The dict key is canonical; override whatever to_hdf5_group wrote.
+            snap_group.attrs["time_utc"] = time_utc
             snap_group.attrs["kind"] = source.kind.name
-            snap_group.attrs["snapshot_time_utc"] = snapshot_time_utc
 
             # Lead hour is a convenience attr; it is derivable from the timestamps
             # but cheap to store and useful for ad-hoc inspection of HDF5 files.
             try:
-                lead_hour = lead_hours_rounded(self.init_time_utc, snapshot_time_utc)
+                lead_hour = lead_hours_rounded(self.init_time_utc, time_utc)
                 snap_group.attrs["lead_hour"] = int(lead_hour)
             except (TypeError, ValueError):
                 pass
 
             # Forward Source.meta (lat, lon, vmax_kt, ...) as snapshot-level attrs.
-            skip_keys = {"source_name", "channels", "kind", "snapshot_time_utc", "lead_hour"}
+            skip_keys = {
+                "source_name", "channels", "kind", "time_utc",
+                "lead_hour", "char_vars",
+            }
             for key, value in source.meta.items():
                 if key in skip_keys:
                     continue
@@ -237,19 +239,21 @@ class SamplePrediction:
 
                 kind = SourceKind[str(snap_group.attrs["kind"])]
                 source = Source.from_hdf5_group(snap_group, kind)
-                snapshot_time_utc = str(snap_group.attrs["snapshot_time_utc"])
+                time_utc = str(snap_group.attrs["time_utc"])
 
                 # Forward snapshot-level attrs into Source.meta.
                 meta: dict[str, Any] = {
-                    "snapshot_time_utc": snapshot_time_utc,
+                    "time_utc": time_utc,
                 }
-                skip_keys = {"source_name", "channels", "kind", "snapshot_time_utc"}
+                skip_keys = {
+                    "source_name", "channels", "kind", "time_utc", "char_vars"
+                }
                 for key in snap_group.attrs:
                     if key not in skip_keys:
                         meta[key] = snap_group.attrs[key]
                 source.meta = meta
 
-                sources[(source_name, snapshot_time_utc)] = source
+                sources[(source_name, time_utc)] = source
         return sources
 
     @staticmethod

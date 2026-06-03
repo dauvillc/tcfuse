@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 import torch
 
 from tcfuse.data.dataset import WindowSample
 from tcfuse.data.sources.source import Source
+from tcfuse.data.sources.torch_source import TorchSource
 
 
 @dataclass
@@ -16,20 +18,21 @@ class WindowBatch:
     """Batched collection of window samples for use in a DataLoader.
 
     Holds data from B independent windows / storms. Scalar attributes are lists
-    (one entry per sample). Source tensors are batched along a leading B axis.
+    (one entry per sample). Source tensors are batched along a leading B axis
+    and represented as :class:`~tcfuse.data.sources.torch_source.TorchSource`.
 
     The ``sources`` dict maps ``(source_name, source_index)`` to a batched
-    :class:`~tcfuse.data.sources.source.Source` (``batched=True``).
+    :class:`~tcfuse.data.sources.torch_source.TorchSource`.
     ``source_index`` is the chronological rank of a snapshot within a single
     sample: if every sample has at most one snapshot of source "S", only
     ``("S", 0)`` will ever appear.  When a source appears K times in some
     sample, indices 0 … K-1 are all present.
 
     Samples that are missing a given ``(source_name, source_index)`` slot are
-    represented as NaN tensors (values and coords all NaN, mask all False).
+    represented as NaN tensors (values, coords, and time all NaN, mask all False).
 
     Args:
-        sources: Dict from ``(source_name, source_index)`` to a batched Source.
+        sources: Dict from ``(source_name, source_index)`` to a TorchSource.
             Keys are sorted lexicographically for deterministic ordering.
         sample_ids: Window identifier strings, one per sample.
         init_times_utc: Assimilation anchor times ``t0``, one per sample.
@@ -43,7 +46,7 @@ class WindowBatch:
         labels: Lead-time target columns from the split index, one Series per sample.
     """
 
-    sources: dict[tuple[str, int], Source]
+    sources: dict[tuple[str, int], TorchSource]
     sample_ids: list[str]
     init_times_utc: list[str]
     window_start_times_utc: list[str]
@@ -61,25 +64,48 @@ class WindowBatch:
         return len(self.sample_ids)
 
 
+def _time_encoding(time_utc: pd.Timestamp) -> torch.Tensor:
+    """Encode a UTC timestamp as a 2-vector [day_of_year / 366, minute_of_day / 1440].
+
+    The year is discarded; only the seasonal position and time-of-day are kept.
+
+    Args:
+        time_utc: UTC observation timestamp.
+
+    Returns:
+        Float32 tensor of shape (2,).
+    """
+    # day_of_year is 1-indexed (1–366); normalise to [1/366, 1.0].
+    day_norm = time_utc.day_of_year / 366.0
+    # minute_of_day spans [0, 1439]; normalise to [0, 1439/1440].
+    minute_norm = (time_utc.hour * 60 + time_utc.minute) / 1440.0
+    return torch.tensor([day_norm, minute_norm], dtype=torch.float32)
+
+
 def collate_window_samples(samples: list[WindowSample]) -> WindowBatch:
     """Collate a list of WindowSamples into a single WindowBatch.
 
     Sources are merged across samples using a ``(source_name, source_index)``
     key space.  Within each sample, snapshots of the same source are ordered
-    chronologically by ``snapshot_time_utc``; the earliest gets index 0.
+    chronologically by ``time_utc``; the earliest gets index 0.
 
     Samples that lack a particular ``(source_name, source_index)`` slot receive
-    NaN-filled values and coords, and an all-False mask (``batched=True``).
+    NaN-filled values, coords, and time, and an all-False mask.
+
+    Numpy arrays from each :class:`~tcfuse.data.sources.source.Source` are
+    converted to torch tensors during stacking; the time encoding
+    ``[day_of_year / 366, minute_of_day / 1440]`` is computed from
+    ``source.time_utc`` and stacked into a ``(B, 2)`` tensor.
 
     Args:
         samples: Non-empty list of WindowSamples from the same dataset.
 
     Returns:
-        A :class:`WindowBatch` with all tensors on CPU and ``batched=True``
-        on every Source.
+        A :class:`WindowBatch` with all tensors on CPU, one
+        :class:`~tcfuse.data.sources.torch_source.TorchSource` per key.
     """
     # Step 1 — build a per-sample dict {(source_name, source_index): Source}.
-    # Snapshots of the same source_name are sorted ascending by snapshot_time_utc
+    # Snapshots of the same source_name are sorted ascending by time_utc
     # so that index 0 always corresponds to the earliest overpass.
     per_sample: list[dict[tuple[str, int], Source]] = []
     for sample in samples:
@@ -87,7 +113,7 @@ def collate_window_samples(samples: list[WindowSample]) -> WindowBatch:
         # the StormData key tuple).
         sorted_items = sorted(
             sample.storm_data.sources.items(),
-            key=lambda kv: kv[0][1],  # kv[0] = (source_name, snapshot_time_utc)
+            key=lambda kv: kv[0][1],  # kv[0] = (source_name, time_utc)
         )
 
         # Assign a chronological index to each occurrence of each source_name.
@@ -107,53 +133,53 @@ def collate_window_samples(samples: list[WindowSample]) -> WindowBatch:
         all_keys.update(indexed.keys())
 
     # Step 3 — for each key, find a reference Source (any sample that has it).
-    # The reference provides kind, channels, char_vars, and the canonical tensor
-    # shapes — all guaranteed constant across samples for the same source_name.
+    # The reference provides kind, channels, and canonical tensor shapes.
     ref_source: dict[tuple[str, int], Source] = {}
     for indexed in per_sample:
         for key, source in indexed.items():
             if key not in ref_source:
                 ref_source[key] = source
 
-    # Step 4 — for each key, stack B per-sample tensors along dim 0.
-    # Samples missing the key are NaN-filled (values/coords = NaN, mask = False).
-    batched_sources: dict[tuple[str, int], Source] = {}
+    # Step 4 — for each key, convert numpy→torch and stack B per-sample tensors.
+    # Samples missing the key are NaN-filled (values/coords/time = NaN, mask = False).
+    batched_sources: dict[tuple[str, int], TorchSource] = {}
     for key in sorted(all_keys):
         ref = ref_source[key]
+        # Pre-build reference torch tensors so that NaN-fill shapes are consistent.
+        ref_values_t = torch.from_numpy(np.array(ref.values, dtype=np.float32))
+        ref_coords_t = torch.from_numpy(ref.coords)
+        ref_mask_t = torch.from_numpy(np.array(ref.mask, dtype=bool))
 
         values_list: list[torch.Tensor] = []
         coords_list: list[torch.Tensor] = []
         mask_list: list[torch.Tensor] = []
-        metas: list[dict] = []  # type: ignore[type-arg]
+        time_list: list[torch.Tensor] = []
 
         for indexed in per_sample:
             if key in indexed:
                 src = indexed[key]
-                values_list.append(src.values)
-                coords_list.append(src.coords)
-                mask_list.append(src.mask)
-                metas.append(src.meta)
+                values_list.append(torch.from_numpy(np.array(src.values, dtype=np.float32)))
+                coords_list.append(torch.from_numpy(src.coords))
+                mask_list.append(torch.from_numpy(np.array(src.mask, dtype=bool)))
+                time_list.append(_time_encoding(src.time_utc))
             else:
-                # NaN-fill: full_like preserves dtype and device automatically.
-                values_list.append(torch.full_like(ref.values, float("nan")))
-                coords_list.append(torch.full_like(ref.coords, float("nan")))
+                # NaN-fill missing slots: full_like preserves shape automatically.
+                values_list.append(torch.full_like(ref_values_t, float("nan")))
+                coords_list.append(torch.full_like(ref_coords_t, float("nan")))
                 # mask is bool — zeros_like gives all-False (all missing).
-                mask_list.append(torch.zeros_like(ref.mask))
-                metas.append({})
+                mask_list.append(torch.zeros_like(ref_mask_t))
+                # time is NaN for missing slots so the model can detect absence.
+                time_list.append(torch.full((2,), float("nan"), dtype=torch.float32))
 
         # Stack along new leading batch dim → (B, ...) tensors.
-        batched_sources[key] = Source(
+        batched_sources[key] = TorchSource(
             kind=ref.kind,
             values=torch.stack(values_list, dim=0),
             coords=torch.stack(coords_list, dim=0),
             source_name=ref.source_name,
             channels=ref.channels,
             mask=torch.stack(mask_list, dim=0),
-            batched=True,
-            # Store per-sample snapshot metas under a single list entry so the
-            # dict[str, Any] contract of Source.meta is preserved.
-            meta={"per_sample": metas},
-            char_vars=ref.char_vars,
+            time=torch.stack(time_list, dim=0),
         )
 
     # Step 5 — collect the scalar list attributes from each sample.

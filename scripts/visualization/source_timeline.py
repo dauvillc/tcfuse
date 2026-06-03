@@ -36,7 +36,7 @@ def main(raw_cfg: DictConfig) -> None:
     index_df = pd.read_parquet(index_path)
     n_rows = len(index_df)
     sources = sorted(index_df["source_name"].unique())
-    times = pd.to_datetime(index_df["snapshot_time_utc"], utc=True)
+    times = pd.to_datetime(index_df["time_utc"], utc=True)
     print(
         f"Loaded index: {n_rows:,} rows, {len(sources)} sources, "
         f"{times.min().date()} → {times.max().date()}"

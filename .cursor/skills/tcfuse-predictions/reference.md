@@ -86,14 +86,14 @@ Empty runs still get an empty `ibtracs.parquet` (so readers can rely on the file
     └── {source_name}/{compact_valid_time}/
 ```
 
-`compact_valid_time` from `to_compact_time(snapshot_time_utc)` (same as preprocessed sources).
+`compact_valid_time` from `to_compact_time(time_utc)` (same as preprocessed sources).
 
 Per-snapshot group attrs (in addition to `Source` datasets):
 
 - `kind` — `SourceKind` name (`SCALAR`, `PROFILE`, `FIELD`)
-- `snapshot_time_utc` — ISO string (round-trip key)
+- `time_utc` — ISO string (round-trip key)
 - `lead_hour` — int, when derivable from init vs snapshot
-- Forwarded keys from `Source.meta` (except `source_name`, `channels`, `kind`, `snapshot_time_utc`, `lead_hour`)
+- Forwarded keys from `Source.meta` (except `source_name`, `channels`, `kind`, `time_utc`, `lead_hour`)
 
 Tensor layout inside each group: delegated to `Source.to_hdf5_group` / `from_hdf5_group` (same as preprocessing).
 

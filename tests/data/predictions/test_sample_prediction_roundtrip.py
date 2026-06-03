@@ -8,6 +8,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from tcfuse.data.predictions import SamplePrediction
@@ -82,21 +83,21 @@ class TestSamplePredictionRoundTrip:
         sample = _make_sample(pred_sources={("pmw_ssmi", _VALID_TIME_0): src})
         result = _write_read(sample)
         recovered = result.pred_sources[("pmw_ssmi", _VALID_TIME_0)]
-        assert torch.allclose(recovered.values, src.values, atol=1e-5)
+        assert np.allclose(recovered.values, src.values, atol=1e-5)
 
     def test_pred_field_coords_preserved(self) -> None:
         src = make_field_source(H=4, W=4, C=2)
         sample = _make_sample(pred_sources={("pmw_ssmi", _VALID_TIME_0): src})
         result = _write_read(sample)
         recovered = result.pred_sources[("pmw_ssmi", _VALID_TIME_0)]
-        assert torch.allclose(recovered.coords, src.coords.float(), atol=1e-5)
+        assert np.allclose(recovered.coords, src.coords, atol=1e-5)
 
     def test_target_field_values_preserved(self) -> None:
         target = make_field_source(H=4, W=4, C=2)
         sample = _make_sample(target_sources={("pmw_ssmi", _VALID_TIME_0): target})
         result = _write_read(sample)
         recovered = result.target_sources[("pmw_ssmi", _VALID_TIME_0)]
-        assert torch.allclose(recovered.values, target.values, atol=1e-5)
+        assert np.allclose(recovered.values, target.values, atol=1e-5)
 
     def test_pred_and_target_coexist(self) -> None:
         # Writing the same source under pred/ and target/ creates two distinct copies.
@@ -109,12 +110,12 @@ class TestSamplePredictionRoundTrip:
         result = _write_read(sample)
         assert ("pmw_ssmi", _VALID_TIME_0) in result.pred_sources
         assert ("pmw_ssmi", _VALID_TIME_0) in result.target_sources
-        assert torch.allclose(
+        assert np.allclose(
             result.pred_sources[("pmw_ssmi", _VALID_TIME_0)].values,
             pred.values,
             atol=1e-5,
         )
-        assert torch.allclose(
+        assert np.allclose(
             result.target_sources[("pmw_ssmi", _VALID_TIME_0)].values,
             target.values,
             atol=1e-5,
@@ -128,11 +129,11 @@ class TestSamplePredictionRoundTrip:
         recovered = result.pred_sources[("ibtracs_best_track", _VALID_TIME_0)]
         assert recovered.kind is SourceKind.SCALAR
         assert recovered.channels == ["usa_vmax_kt", "usa_mslp_hpa"]
-        assert torch.allclose(recovered.values, src.values, atol=1e-6)
+        assert np.allclose(recovered.values, src.values, atol=1e-6)
 
     def test_mask_preserved(self) -> None:
         src = make_field_source(H=4, W=4, C=2)
-        mask = torch.ones(4, 4, 2, dtype=torch.bool)
+        mask = np.ones((4, 4, 2), dtype=bool)
         mask[1, 2, 0] = False
         src.mask = mask
         sample = _make_sample(pred_sources={("pmw_ssmi", _VALID_TIME_0): src})

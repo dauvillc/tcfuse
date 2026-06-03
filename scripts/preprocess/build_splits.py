@@ -99,9 +99,9 @@ def _is_finite(row: pd.Series | None, columns: list[str]) -> bool:
 def _first_rows_by_time(rows: pd.DataFrame) -> dict[pd.Timestamp, pd.Series]:
     """Index a storm's best-track rows by timestamp, keeping the first duplicate."""
     indexed: dict[pd.Timestamp, pd.Series] = {}
-    sort_column = "_time" if "_time" in rows.columns else "snapshot_time_utc"
+    sort_column = "_time" if "_time" in rows.columns else "time_utc"
     for _, row in rows.sort_values(sort_column).iterrows():
-        timestamp = _parse_time(row["snapshot_time_utc"])
+        timestamp = _parse_time(row["time_utc"])
         indexed.setdefault(timestamp, row)
     return indexed
 
@@ -133,7 +133,7 @@ def build_window_index(
         return _empty_window_index(leads_hours, required_columns)
 
     # Parse timestamps once so sorting and lead matching use a consistent timezone.
-    best_track["_time"] = best_track["snapshot_time_utc"].map(_parse_time)
+    best_track["_time"] = best_track["time_utc"].map(_parse_time)
     best_track = cast(Any, best_track).sort_values(["sid", "_time"]).reset_index(drop=True)
 
     sample_rows: list[dict[str, Any]] = []

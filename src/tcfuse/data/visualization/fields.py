@@ -56,32 +56,21 @@ def _panel_grid(n_channels: int) -> tuple[int, int]:
 
 def _field_coords_arrays(source: Source) -> tuple[np.ndarray, np.ndarray]:
     """Extract 2D lat/lon grids from a FIELD source, shape (H, W) each."""
-    # Visualization utilities operate on single snapshots only.
-    if source.batched:
-        raise ValueError(
-            f"Visualization expects non-batched FIELD sources, got batched=True for {source.source_name}."
-        )
-    coords = source.coords.detach().cpu().numpy()
-    lats = coords[..., 1]
-    lons = coords[..., 2]
+    # Coords are (H, W, 2) = [lat, lon]; no time channel.
+    lats = source.coords[..., 0]
+    lons = source.coords[..., 1]
     return lats, lons
 
 
 def _field_channel_values(source: Source, channel_idx: int) -> np.ndarray:
     """Extract one 2D channel from a FIELD source with mask applied, shape (H, W)."""
-    # Visualization utilities operate on single snapshots only.
-    if source.batched:
-        raise ValueError(
-            f"Visualization expects non-batched FIELD sources, got batched=True for {source.source_name}."
-        )
-    values = source.values.detach().cpu().numpy()[..., channel_idx]
-    if source.mask is not None:
-        mask_np = source.mask.detach().cpu().numpy()
-        if mask_np.ndim == 3:
-            valid = mask_np[..., channel_idx]
-        else:
-            valid = mask_np
-        values = np.where(valid, values, np.nan)
+    values = source.values[..., channel_idx]
+    # Apply per-channel mask: mask shape is (H, W, C).
+    if source.mask.ndim == 3:
+        valid = source.mask[..., channel_idx]
+    else:
+        valid = source.mask
+    values = np.where(valid, values, np.nan)
     return values
 
 

@@ -22,7 +22,7 @@ class WindowSample:
     """One training sample: window metadata plus filtered storm sources.
 
     Args:
-        storm_data: Sources whose ``snapshot_time_utc`` falls inside the
+        storm_data: Sources whose ``time_utc`` falls inside the
             assimilation window.
         sample_id: Window identifier from the split index.
         init_time_utc: Assimilation anchor time ``t0``.

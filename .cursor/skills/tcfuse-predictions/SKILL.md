@@ -56,7 +56,7 @@ flowchart TB
 
 **Mental model:**
 
-- `SamplePrediction` is the per-window analogue of `StormData`: both index `Source` by `(source_name, snapshot_time_utc)`. StormData = one HDF5 per **storm**; SamplePrediction = one HDF5 per **forecast window** with `pred/` and `target/` subtrees.
+- `SamplePrediction` is the per-window analogue of `StormData`: both index `Source` by `(source_name, time_utc)`. StormData = one HDF5 per **storm**; SamplePrediction = one HDF5 per **forecast window** with `pred/` and `target/` subtrees.
 - `PredictionRun` coordinates manifest, streaming `ibtracs.parquet`, `index.parquet`, and many sample HDF5 files.
 - **Dual IBTrACS:** scalar track metrics → tidy-long parquet; full field/profile/scalar reconstructions → sample HDF5 under `pred/` / `target/`.
 
@@ -124,7 +124,7 @@ meta = SamplePrediction.read_meta(run_root, sample_id)
 
 - `sample_id` = `f"{storm_id}_{init_time:%Y%m%dT%H%M%SZ}"` (matches `build_splits.py` `init_time_utc`).
 - `run_root` = `{cfg.paths.predictions}/{run_id}` — never hardcode filesystem paths.
-- Source dict keys: `(source_name, snapshot_time_utc)` with repository ISO timestamp strings.
+- Source dict keys: `(source_name, time_utc)` with repository ISO timestamp strings.
 - IBTrACS `mask`: `True` only when **both** `pred` and `target` are finite (same as `Source.mask` for paired values).
 - Writer is **single-pass**: `add_sample` per window, then `close` (or `with PredictionRun.create(...) as run`).
 - Reopened runs are read-only; `add_sample` raises if `_closed`.

@@ -78,41 +78,29 @@ def _footprint_from_source(
     Returns:
         Discriminated tuple as described above.
     """
-    # StormData visualization is defined for single snapshot tensors only.
-    if source.batched:
-        raise ValueError(
-            f"Visualization expects non-batched Source objects, got batched=True for {source.source_name}."
-        )
-    coords_np = source.coords.detach().cpu().numpy()
-
-    # --- SCALAR: single (time, lat, lon) coordinate ---
+    # --- SCALAR: single (lat, lon) coordinate ---
     if source.kind == SourceKind.SCALAR:
-        lat = float(coords_np[1])
-        lon = float(coords_np[2])
+        lat = float(source.coords[0])
+        lon = float(source.coords[1])
         return ("point", lon, lat)
 
-    # --- PROFILE: (L, 4) coords — use mean lat/lon across levels ---
+    # --- PROFILE: (L, 3) coords = [lat, lon, alt] — use mean lat/lon across levels ---
     if source.kind == SourceKind.PROFILE:
-        lat = float(coords_np[:, 1].mean())
-        lon = float(coords_np[:, 2].mean())
+        lat = float(source.coords[:, 0].mean())
+        lon = float(source.coords[:, 1].mean())
         return ("point", lon, lat)
 
-    # --- FIELD: (H, W, 3) coords — convex hull of non-NaN pixels ---
-    values_np = source.values.detach().cpu().numpy()  # (H, W, C)
-
+    # --- FIELD: (H, W, 2) coords = [lat, lon] — convex hull of non-NaN pixels ---
     # A pixel is valid if any of its C channels is finite (not NaN).
-    valid = np.any(np.isfinite(values_np), axis=-1)  # (H, W) bool
+    valid = np.any(np.isfinite(source.values), axis=-1)  # (H, W) bool
 
-    # Combine with per-value availability when present (True = available).
-    if source.mask is not None:
-        mask_np = source.mask.detach().cpu().numpy()
-        # Collapse channel dimension if mask has shape (H, W, C).
-        if mask_np.ndim == 3:
-            mask_np = np.any(mask_np, axis=-1)  # (H, W)
-        valid = valid & mask_np
+    # Combine with per-value availability mask (True = available).
+    # Collapse channel dimension: mask has shape (H, W, C).
+    mask_2d = np.any(source.mask, axis=-1)  # (H, W)
+    valid = valid & mask_2d
 
-    lats = coords_np[valid, 1]  # (N,)
-    lons = coords_np[valid, 2]  # (N,)
+    lats = source.coords[valid, 0]  # (N,)
+    lons = source.coords[valid, 1]  # (N,)
 
     # No valid pixels — skip this source entirely.
     if len(lats) == 0:
@@ -245,8 +233,8 @@ class StormDataVisualizer:
 
         transform = ccrs.PlateCarree()
 
-        # --- Plot footprint for each (source_name, snapshot_time_utc) pair ---
-        for (source_name, snapshot_time_utc), source in self._storm_data.sources.items():
+        # --- Plot footprint for each (source_name, time_utc) pair ---
+        for (source_name, time_utc), source in self._storm_data.sources.items():
             color = _get_source_color(source_name, color_cache, fallback_cycle)
             footprint = _footprint_from_source(source)
 
@@ -256,10 +244,10 @@ class StormDataVisualizer:
 
             # Only annotate ibtracs best-track entries at exactly 00:00 UTC.
             is_ibtracs = source_name == "ibtracs_best_track"
-            is_midnight = snapshot_time_utc[11:16] == "00:00"  # "YYYY-MM-DDTHH:MM..."
+            is_midnight = time_utc[11:16] == "00:00"  # "YYYY-MM-DDTHH:MM..."
             if is_ibtracs and is_midnight:
-                mm = snapshot_time_utc[5:7]
-                dd = snapshot_time_utc[8:10]
+                mm = time_utc[5:7]
+                dd = time_utc[8:10]
                 label = f"{mm}/{dd} 00Z"
             else:
                 label = ""

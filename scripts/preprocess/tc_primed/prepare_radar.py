@@ -5,12 +5,11 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import hydra
 import numpy as np
 import pandas as pd
-import torch
 from netCDF4 import Dataset
 from omegaconf import DictConfig
 
@@ -89,7 +88,7 @@ def process_radar_file(
             )
             return False
 
-        overpass_time = pd.Timestamp(time_unix_s, unit="s")
+        overpass_time = cast(pd.Timestamp, pd.Timestamp(time_unix_s, unit="s"))
         overpass_time_utc = to_compact_time(time_unix_s, unit="s")
         dest_path = Source.path(sources_root, source_name, sid, overpass_time_utc)
         # Skip snapshots already on disk when skip_existing is enabled.
@@ -121,21 +120,21 @@ def process_radar_file(
         lats = out_lats.astype(np.float32)
         lons = out_lons.astype(np.float32)
 
-    src_h, src_w = lats.shape
-    time_broadcast = np.full((src_h, src_w), time_unix_s, dtype=np.float32)
-    coords_np = np.stack([time_broadcast, lats, lons], axis=-1)
+    # Spatial coords only: [lat, lon] per pixel — time goes to Source.time_utc.
+    coords_np = np.stack([lats, lons], axis=-1)
     mask_np = np.isfinite(values_np)
 
     source = Source(
         kind=SourceKind.FIELD,
-        values=torch.from_numpy(values_np),
-        coords=torch.from_numpy(coords_np),
+        values=values_np,
+        coords=coords_np,
         source_name=source_name,
         channels=channels,
-        mask=torch.from_numpy(mask_np),
+        mask=mask_np,
+        time_utc=overpass_time,
         meta={
             "storm_id": sid,
-            "snapshot_time_utc": overpass_time.isoformat(),
+            "time_utc": overpass_time.isoformat(),
         },
     )
     source.write(dest_path)

@@ -1,8 +1,10 @@
 """Unit tests for radar preprocessing (prepare_radar.py)."""
 
+from typing import cast
+
 import numpy as np
+import pandas as pd
 import pytest
-import torch
 from scripts.preprocess.tc_primed.prepare_radar import _read_radar_swath
 from scripts.preprocess.tc_primed.utils import (
     get_regridding_resolution,
@@ -175,24 +177,23 @@ class TestRadarSwathReader:
         assert np.all(lon >= -180) and np.all(lon <= 180)
 
 
+_TIME_UTC = cast(pd.Timestamp, pd.Timestamp("2016-09-12T01:09:42"))
+
+
 class TestRadarSourceConstruction:
     """Test construction of radar Source objects."""
 
     def test_create_radar_source_field(self):
         """Test creating a FIELD source from synthetic radar data."""
         H, W, C = 10, 15, 3
-        values = torch.randn(H, W, C, dtype=torch.float32)
+        values = np.random.randn(H, W, C).astype(np.float32)
 
-        # Time broadcast, lat, lon
-        time_unix_s = 1000.0
-        times = torch.full((H, W), time_unix_s, dtype=torch.float32)
-        lats = torch.linspace(-30, 30, H).unsqueeze(1).expand(H, W).float()
-        lons = torch.linspace(-60, 60, W).unsqueeze(0).expand(H, W).float()
-        coords = torch.stack([times, lats, lons], dim=-1)  # (H, W, 3)
+        # Spatial coords: [lat, lon] per pixel (no time channel).
+        lats = np.linspace(-30, 30, H)[:, np.newaxis] * np.ones((H, W), dtype=np.float32)
+        lons = np.linspace(-60, 60, W)[np.newaxis, :] * np.ones((H, W), dtype=np.float32)
+        coords = np.stack([lats, lons], axis=-1)  # (H, W, 2)
 
-        # Create per-value availability mask: all valid.
-        mask = torch.ones(H, W, C, dtype=torch.bool)
-
+        mask = np.ones((H, W, C), dtype=bool)
         channels = ["precip_rate", "precip_sigma", "precip_type"]
 
         source = Source(
@@ -202,11 +203,12 @@ class TestRadarSourceConstruction:
             source_name="radar_gmi",
             channels=channels,
             mask=mask,
+            time_utc=_TIME_UTC,
         )
 
         assert source.kind == SourceKind.FIELD
         assert source.values.shape == (H, W, C)
-        assert source.coords.shape == (H, W, 3)
+        assert source.coords.shape == (H, W, 2)
         assert source.mask.shape == (H, W, C)
         assert source.n_tokens == H * W
         assert source.channels == channels
@@ -214,18 +216,16 @@ class TestRadarSourceConstruction:
     def test_radar_source_mask_with_nans(self):
         """Test mask computation when some pixels have NaN."""
         H, W, C = 5, 5, 3
-        values = torch.ones(H, W, C, dtype=torch.float32)
-        # Set some pixels to NaN
+        values = np.ones((H, W, C), dtype=np.float32)
         values[0, 0, 0] = float("nan")  # First channel of (0,0) is NaN
         values[2, 3, 1] = float("nan")  # Second channel of (2,3) is NaN
 
-        times = torch.full((H, W), 1000.0, dtype=torch.float32)
-        lats = torch.arange(H, dtype=torch.float32).unsqueeze(1).expand(H, W)
-        lons = torch.arange(W, dtype=torch.float32).unsqueeze(0).expand(H, W)
-        coords = torch.stack([times, lats, lons], dim=-1)
+        lats = np.arange(H, dtype=np.float32)[:, np.newaxis] * np.ones((H, W), dtype=np.float32)
+        lons = np.arange(W, dtype=np.float32)[np.newaxis, :] * np.ones((H, W), dtype=np.float32)
+        coords = np.stack([lats, lons], axis=-1)
 
         # Per-value availability mask: each channel is masked independently.
-        mask = torch.isfinite(values)
+        mask = np.isfinite(values)
 
         source = Source(
             kind=SourceKind.FIELD,
@@ -234,6 +234,7 @@ class TestRadarSourceConstruction:
             source_name="radar_test",
             channels=["a", "b", "c"],
             mask=mask,
+            time_utc=_TIME_UTC,
         )
 
         # Check only the NaN channels are marked invalid.
@@ -248,11 +249,10 @@ class TestRadarSourceConstruction:
     def test_radar_source_n_tokens(self):
         """Test token count for FIELD source."""
         H, W, C = 8, 12, 3
-        values = torch.randn(H, W, C)
-        times = torch.full((H, W), 1000.0, dtype=torch.float32)
-        lats = torch.arange(H, dtype=torch.float32).unsqueeze(1).expand(H, W)
-        lons = torch.arange(W, dtype=torch.float32).unsqueeze(0).expand(H, W)
-        coords = torch.stack([times, lats, lons], dim=-1)
+        values = np.random.randn(H, W, C).astype(np.float32)
+        lats = np.arange(H, dtype=np.float32)[:, np.newaxis] * np.ones((H, W), dtype=np.float32)
+        lons = np.arange(W, dtype=np.float32)[np.newaxis, :] * np.ones((H, W), dtype=np.float32)
+        coords = np.stack([lats, lons], axis=-1)
 
         source = Source(
             kind=SourceKind.FIELD,
@@ -260,7 +260,8 @@ class TestRadarSourceConstruction:
             coords=coords,
             source_name="radar_test",
             channels=["a", "b", "c"],
-            mask=torch.isfinite(values),
+            mask=np.isfinite(values),
+            time_utc=_TIME_UTC,
         )
 
         assert source.n_tokens == H * W
