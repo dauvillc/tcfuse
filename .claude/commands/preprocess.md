@@ -28,6 +28,7 @@ Forecast output storage (predictions, not preprocessing) lives in [`/predictions
 
 | Need | Start here (in SKILL.md) |
 |---|---|
+| Run via Pixi (`pixi run preprocess`, stage composites) | "Running the preprocessor" → "Pixi tasks" |
 | Pipeline overview | "Pipeline at a glance" |
 | Dataset inventory + status | "Dataset inventory" |
 | Stage 0 IBTrACS prep + ATCF→SID translation | "Stage 0 — IBTrACS preprocessing" |

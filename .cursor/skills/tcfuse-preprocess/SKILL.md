@@ -296,6 +296,41 @@ NaN; IBTrACS rows carry their full Stage 0 schema with `source_name =
 
 ## Running the preprocessor
 
+### Pixi tasks
+
+Preprocessing steps are exposed as local-only Pixi tasks in `pixi.toml` (Jean-Zay
+uses direct `python` invocations with `paths=jz`; see [tcfuse-jz](../tcfuse-jz/SKILL.md)).
+All tasks pass `paths=local setup=local submitit=false`. Extra Hydra overrides append
+to any task, e.g. `pixi run preprocess-pmw include_seasons=[2020]`.
+
+Local paths resolve via `paths.scratch` in [`conf/paths/local.yaml`](../../conf/paths/local.yaml)
+(default `${paths.scratch}/data/...` under `/home/cdauvill/scratch/tcfuse`); ensure raw
+data exists there or override `paths.scratch` on the command line.
+
+| Task | Stage / script |
+|---|---|
+| `preprocess-ibtracs` | 0 — `prepare_ibtracs.py` |
+| `preprocess-pmw` | 1 — `tc_primed/prepare_pmw.py` (depends on ibtracs) |
+| `preprocess-infrared` | 1 — `tc_primed/prepare_infrared.py` |
+| `preprocess-radar` | 1 — `tc_primed/prepare_radar.py` |
+| `preprocess-sar` | 1 — `sar/prepare_sar.py` |
+| `preprocess-assemble` | 2 — `assemble.py` (`num_workers=4`) |
+| `preprocess-splits` | 3 — `build_splits.py` |
+| `preprocess-normalization` | 3 — `compute_normalization.py` |
+| `preprocess-stage0` … `preprocess-stage3` | Composites for stages 0–3 |
+| `preprocess` | Full pipeline (stage0 → … → stage3) |
+
+Examples:
+
+```bash
+pixi run preprocess                    # full pipeline
+pixi run preprocess-stage1             # IBTrACS + all Stage 1 sources
+pixi run preprocess-pmw include_seasons=[2020]
+```
+
+Raw downloads (`download_tc_primed.py`, `download_sar_cyclobs.py`) are not wired
+as Pixi tasks; invoke them manually when needed.
+
 ### Step 0 — Verify paths
 
 ```bash
