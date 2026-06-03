@@ -333,13 +333,7 @@ as Pixi tasks; invoke them manually when needed.
 
 ### Step 0 — Verify paths
 
-```bash
-# Check that raw data is present
-ls $SCRATCH/tcfuse/data/raw/tc_primed/
-ls $SCRATCH/tcfuse/data/raw/ibtracs/    # raw CSV used by Stage 0
-```
-
-For local runs, `$SCRATCH` must be set; or override `paths.scratch` on the command line.
+Confirm raw data exists at `$SCRATCH/tcfuse/data/raw/{tc_primed,ibtracs}/`. For local runs, `$SCRATCH` must be set or override `paths.scratch` on the command line.
 
 ### Step 1 — Stage 0 IBTrACS preprocessing
 
@@ -374,23 +368,7 @@ See [tcfuse-jz](../tcfuse-jz/SKILL.md) for preflight checks (quota, env, W&B mod
 
 ### Step 4 — Validate Stage 1 output
 
-```python
-from pathlib import Path
-from tcfuse.data.sources import Source
-import pandas as pd
-
-sources_root = Path("$SCRATCH/tcfuse/data/preprocessed/sources")
-
-# Spot-check one per-source snapshot
-p = next((sources_root / "pmw_amsr2_gcomw1" / "snapshots").glob("*.h5"))
-src = Source.from_disk(p)
-print(src.kind, src.values.shape, src.channels)
-
-# Check per-source index
-df = pd.read_parquet(sources_root / "pmw_amsr2_gcomw1" / "index.parquet")
-print(df.head())  # sid, source_name, time_utc, season, basin, subbasin
-print(df["source_name"].value_counts())
-```
+Spot-check a snapshot with `Source.from_disk(p)` and the index with `pd.read_parquet(sources_root / "pmw_amsr2_gcomw1" / "index.parquet")` — see I/O API reference below.
 
 ### Step 5 — Stage 2 assembly
 
@@ -409,27 +387,7 @@ Key options:
 - `skip_existing=true` — resume a partial run without rewriting existing storm files
 - `chunk_size=200` — number of storms per SLURM job (SLURM mode only)
 
-Validate Stage 2 output:
-
-```python
-from pathlib import Path
-from tcfuse.data.sources import StormData
-import pandas as pd
-
-assembled_root = Path("$SCRATCH/tcfuse/data/preprocessed/assembled")
-
-# Spot-check one assembled storm
-sid = next((assembled_root / "storm_data").glob("*.h5")).stem
-sd = StormData.from_disk(assembled_root, sid)
-print(sd.storm_id, sd.basin, sd.subbasin, sd.season)
-print({k: v.values.shape for k, v in sd.sources.items()})
-
-# Check concatenated assembled index
-df = pd.read_parquet(assembled_root / "index.parquet")
-print(df["source_name"].value_counts())
-# IBTrACS-specific columns (usa_wind, …) are populated on best-track rows only.
-print(df.loc[df["source_name"] == "ibtracs_best_track", "usa_wind"].describe())
-```
+Spot-check with `StormData.from_disk(assembled_root, sid)` and the assembled index with `pd.read_parquet(assembled_root / "index.parquet")` — see I/O API reference below.
 
 ### Step 6 — Stage 3 train/val/test splits
 

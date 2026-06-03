@@ -32,28 +32,6 @@ Claude Code: invoke `/predictions` (reads this skill). Do **not** load all Pytho
 
 ## Architecture
 
-```mermaid
-flowchart TB
-  subgraph runLevel [PredictionRun at cfg.paths.predictions/run_id]
-    manifest[manifest.yaml]
-    index[index.parquet]
-    ibtracs[ibtracs.parquet tidy-long]
-    samplesDir[samples/]
-  end
-  subgraph sampleLevel [SamplePrediction per window]
-    h5["samples/sample_id.h5"]
-    predGroup["pred/source_name/compact_time"]
-    targetGroup["target/source_name/compact_time"]
-  end
-  writer[Inference or eval script] -->|add_sample + close| runLevel
-  runLevel --> samplesDir
-  samplesDir --> h5
-  h5 --> predGroup
-  h5 --> targetGroup
-  predGroup --> SourceIO[Source.to_hdf5_group / from_hdf5_group]
-  writer -->|build_long_rows| ibtracs
-```
-
 **Mental model:**
 
 - `SamplePrediction` is the per-window analogue of `StormData`: both index `Source` by `(source_name, time_utc)`. StormData = one HDF5 per **storm**; SamplePrediction = one HDF5 per **forecast window** with `pred/` and `target/` subtrees.

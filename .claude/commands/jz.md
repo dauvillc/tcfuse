@@ -2,22 +2,9 @@
 
 Source of truth: [`.cursor/skills/tcfuse-jz/SKILL.md`](../../.cursor/skills/tcfuse-jz/SKILL.md).
 
-This command activates the TC-Fuse Jean-Zay skill. **Before running, submitting,
-monitoring, or rsync'ing anything on Jean-Zay**, read the SKILL.md. The cluster
-quick reference (setup configs, partitions, walltimes) also lives in
-[`.cursor/rules/tcfuse-core.mdc`](../../.cursor/rules/tcfuse-core.mdc).
+This command activates the TC-Fuse Jean-Zay skill. **Before running, submitting, monitoring, or rsync'ing anything on Jean-Zay**, read the SKILL.md. All behavior rules, storage layout, rsync command, SLURM configs, and walltimes are defined there.
 
----
-
-## Agent behavior rules
-
-1. **Sync before every job.** Always rsync local → JZ before any SLURM submission (full command in SKILL.md).
-2. **Preflight before submission.** Run `bash scripts/slurm/preflight_check.sh` on the login node; abort on failure.
-3. **Verify the job launched.** After `submit`, confirm the job ID appears in `squeue` and report partition/state.
-4. **Format monitoring output.** Never dump raw `squeue`/`sacct`; render a readable table (see SKILL.md monitoring section).
-5. **Ask before cancelling.** Never call `scancel` without explicit user confirmation.
-6. **Never hardcode paths.** Use `$WORK/tcfuse`, `$SCRATCH/tcfuse`, `$STORE` — `$HOME` is a separate linkhome dir.
-7. **Keep docs in sync:** when SLURM conventions, storage layout, or rsync filters change, update `.cursor/skills/tcfuse-jz/SKILL.md` and this command file together.
+Keep docs in sync: when SLURM conventions, storage layout, or rsync filters change, update SKILL.md and this file together.
 
 ---
 

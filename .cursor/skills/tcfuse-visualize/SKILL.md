@@ -179,43 +179,15 @@ Key design decisions:
 - Gridlines: subtle (alpha=0.3, linewidth=0.4), labels on left and bottom only
 
 ```python
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
-from tcfuse.data.visualization.style import setup_style, COL1, AR_GOLDEN, INTENSITY_COLORS, save_fig
-
 setup_style()
 
 def plot_track(lats, lons, vmax_kt, ax=None, *, title="", save_path=None):
-    # Create figure and geo-axes if not provided
-    if ax is None:
-        fig, ax = plt.subplots(
-            figsize=(COL1, COL1),
-            subplot_kw={"projection": ccrs.PlateCarree()},
-        )
-    else:
-        fig = ax.get_figure()
-
-    # Add coastlines and land fill
-    ax.add_feature(cfeature.COASTLINE.with_scale("50m"), linewidth=0.5)
-    ax.add_feature(cfeature.LAND.with_scale("50m"), facecolor="#f0f0f0", zorder=0)
-
-    # Color-code each segment by intensity category
-    for i in range(len(lats) - 1):
-        cat = _vmax_to_category(vmax_kt[i])
-        ax.plot(
-            [lons[i], lons[i+1]], [lats[i], lats[i+1]],
-            color=INTENSITY_COLORS[cat], linewidth=1.2,
-            transform=ccrs.PlateCarree(),
-        )
-
-    # Set storm-relative domain
-    pad = 10.0
-    ax.set_extent([lons.min()-pad, lons.max()+pad, lats.min()-pad, lats.max()+pad])
-
-    if title:
-        ax.set_title(title)
-    if save_path:
-        save_fig(fig, save_path)
+    # Create GeoAxes(ccrs.PlateCarree(), figsize=(COL1, COL1)) if ax is None
+    ax.add_feature(cfeature.COASTLINE.with_scale("50m"), ...)  # + LAND fill (#f0f0f0)
+    for i in range(len(lats) - 1):  # color each segment by INTENSITY_COLORS[_vmax_to_category(vmax_kt[i])]
+        ax.plot([lons[i], lons[i+1]], [lats[i], lats[i+1]], color=..., transform=ccrs.PlateCarree())
+    ax.set_extent([lons.min()-10, lons.max()+10, lats.min()-10, lats.max()+10])
+    if save_path: save_fig(fig, save_path)
     return fig, ax
 ```
 
