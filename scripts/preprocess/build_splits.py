@@ -133,7 +133,7 @@ def build_window_index(
         return _empty_window_index(leads_hours, required_columns)
 
     # Parse timestamps once so sorting and lead matching use a consistent timezone.
-    best_track["_time"] = best_track["time_utc"].map(_parse_time)
+    best_track["_time"] = cast(pd.Series, best_track["time_utc"]).map(_parse_time)
     best_track = cast(Any, best_track).sort_values(["sid", "_time"]).reset_index(drop=True)
 
     sample_rows: list[dict[str, Any]] = []
