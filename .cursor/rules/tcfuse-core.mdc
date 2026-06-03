@@ -124,6 +124,16 @@ Human readability beats clever abstraction. A reader should understand any file 
 
 See also [`.cursor/rules/tcfuse-coding-style.mdc`](mdc:.cursor/rules/tcfuse-coding-style.mdc) for concrete do/don't examples.
 
+### Python typing discipline
+
+See [`.cursor/rules/python-pyright.mdc`](mdc:.cursor/rules/python-pyright.mdc) (Cursor auto-applies this for `**/*.py`; Claude should read it before editing any Python file). Key points:
+
+- Preserve basedpyright correctness for changed code; run `pixi run typecheck` after substantive edits.
+- Use Python 3.12 typing style; prefer precise types over `Any`.
+- No `# type: ignore` / `# pyright: ignore` without explicit user approval.
+- Warn the user before applying a cosmetic typing fix that might mask a real bug.
+- Isolate third-party unknown-type noise (pandas/numpy/torch) at boundaries with small annotations or local casts; don't weaken project code.
+
 ### Other coding rules
 
 - Type hints on all function signatures.
