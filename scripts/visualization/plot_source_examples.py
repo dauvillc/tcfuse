@@ -7,7 +7,7 @@ SVG figures under ``figures/source_examples/``.
 
 Run from the project root::
 
-    TCFUSE_NO_LATEX=1 python scripts/visualization/plot_source_examples.py paths=local
+    python scripts/visualization/plot_source_examples.py paths=local
 
 Optional overrides::
 

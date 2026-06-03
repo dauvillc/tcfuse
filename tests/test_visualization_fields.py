@@ -8,19 +8,11 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 from tcfuse.data.visualization.fields import ChannelPlotSpec, plot_field_source_channels
-from tcfuse.data.visualization.style import UNIT_MM_H, format_text_for_renderer
+from tcfuse.data.visualization.style import UNIT_MM_H
 from tests.test_sources import make_field_source
 
 
-def test_format_text_for_renderer_escapes_underscore_with_usetex() -> None:
-    """Underscores in channel names must be escaped when usetex is on."""
-    plt.rcParams["text.usetex"] = True
-    assert format_text_for_renderer("tb_36.5h") == r"tb\_36.5h"
-    plt.rcParams["text.usetex"] = False
-    assert format_text_for_renderer("tb_36.5h") == "tb_36.5h"
-
-
-def test_unit_constants_are_latex_safe() -> None:
+def test_unit_constants_use_mathtext_exponents() -> None:
     """Canonical units use mathtext exponents, not Unicode superscripts."""
     assert "$^{-1}$" in UNIT_MM_H
     assert "\u207b" not in UNIT_MM_H

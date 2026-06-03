@@ -4,7 +4,7 @@ Source of truth: [`.cursor/skills/tcfuse-visualize/SKILL.md`](../../.cursor/skil
 
 This command activates the TC-Fuse visualization skill. **Before writing or editing any plotting function, adding a new thematic module, or modifying `src/tcfuse/data/visualization/style.py`**, read the SKILL.md. All behavior rules, style API, and module conventions are defined there.
 
-Figures target LaTeX articles and preprints (AMS / AGU style), saved as SVG via `save_fig`.
+Figures target AMS / AGU journal layout, saved as SVG via `save_fig`. No external LaTeX required.
 
 Keep docs in sync: when `style.py` or a thematic module changes, update SKILL.md and this file together.
 

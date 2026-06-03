@@ -20,7 +20,6 @@ from tcfuse.data.visualization.style import (
     COL1,
     COL2,
     UNIT_M_S,
-    format_text_for_renderer,
     get_cmap,
     save_fig,
     setup_style,
@@ -137,8 +136,7 @@ def plot_field(
     ax.add_feature(cfeature.COASTLINE.with_scale("50m"), linewidth=0.5)
 
     # Colorbar below the axes with physical unit label
-    channel_label = format_text_for_renderer(channel)
-    label = f"{channel_label} ({unit})" if unit else channel_label
+    label = f"{channel} ({unit})" if unit else channel
     cbar = fig.colorbar(im, ax=ax, orientation="horizontal", pad=0.04, fraction=0.046)
     cbar.set_label(label)
 
@@ -158,7 +156,7 @@ def plot_field(
     ax.set_extent([lons.min(), lons.max(), lats.min(), lats.max()])
 
     if title:
-        ax.set_title(format_text_for_renderer(title))
+        ax.set_title(title)
     if save_path is not None:
         save_fig(fig, save_path)
     return fig, ax
@@ -196,7 +194,7 @@ def plot_field_from_source(
     values = _field_channel_values(source, channel_idx)
 
     channel_name = source.channels[channel_idx]
-    plot_title = title if title else format_text_for_renderer(channel_name)
+    plot_title = title if title else channel_name
 
     return plot_field(
         values,
@@ -260,8 +258,7 @@ def plot_field_source_channels(
 
     # Draw each channel into its subplot
     for idx, spec in enumerate(channel_specs):
-        raw_title = spec.title if spec.title is not None else source.channels[idx]
-        panel_title = format_text_for_renderer(raw_title)
+        panel_title = spec.title if spec.title is not None else source.channels[idx]
         plot_field_from_source(
             source,
             idx,
@@ -278,7 +275,7 @@ def plot_field_source_channels(
         ax.set_visible(False)
 
     if suptitle:
-        fig.suptitle(format_text_for_renderer(suptitle))
+        fig.suptitle(suptitle)
         fig.tight_layout(rect=(0, 0, 1, 0.96))
     else:
         fig.tight_layout()
@@ -314,7 +311,7 @@ def plot_sar_wind(
     Returns:
         (fig, ax) tuple.
     """
-    plot_title = title if title else format_text_for_renderer(source.source_name)
+    plot_title = title if title else source.source_name
     return plot_field_from_source(
         source,
         0,

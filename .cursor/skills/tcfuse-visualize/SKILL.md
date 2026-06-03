@@ -1,7 +1,7 @@
 ---
 name: tcfuse-visualize
 description: >-
-  Publication-quality TC-Fuse visualizations for LaTeX articles and preprints —
+  Publication-quality TC-Fuse visualizations for journal articles and preprints —
   matplotlib + cartopy + cmocean, SVG output via `save_fig`, shared style
   constants (`COL1`, `COL2`, `AR_GOLDEN`, `INTENSITY_COLORS`, `SOURCE_COLORS`),
   thematic modules under `src/tcfuse/data/visualization/` (fields, tracks,
@@ -14,7 +14,7 @@ description: >-
 
 Claude Code: invoke `/visualize` (reads this skill).
 
-Figures target LaTeX articles and preprints (AMS / AGU style) and are saved as SVG.
+Figures target AMS / AGU journal layout and are saved as SVG. No external LaTeX installation is required.
 
 **Coding style:** follow [`.cursor/rules/tcfuse-core.mdc`](../../rules/tcfuse-core.mdc) § Human-readable code (priority).
 
@@ -106,11 +106,10 @@ path = save_fig(fig, "figures/my_plot")  # saves to figures/my_plot.svg
 `plot_field()` rasterizes the `pcolormesh` layer on save so SVG/PDF files stay small while
 titles, ticks, and coastlines remain vector.
 
-Set `TCFUSE_NO_LATEX=1` to disable the LaTeX renderer (e.g. on nodes without a LaTeX install).
+`setup_style()` sets `text.usetex=False` and uses system serif fonts (DejaVu Serif, STIX, Times).
 
-Use `UNIT_K`, `UNIT_MM_H`, `UNIT_M_S` from `style.py` for colorbar units (LaTeX-safe math,
-not Unicode superscripts). Channel names and titles are escaped via
-`format_text_for_renderer()` when usetex is on.
+Use `UNIT_K`, `UNIT_MM_H`, `UNIT_M_S` from `style.py` for colorbar units (matplotlib mathtext
+exponents, e.g. `$^{-1}$`; not Unicode superscripts). Pass channel names and titles as plain strings.
 
 ## Visualization module conventions
 

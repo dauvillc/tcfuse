@@ -2,10 +2,9 @@
 
 Every visualization module should call setup_style() at import time and use the
 width constants (COL1, COL2) and colormaps defined here to keep figures consistent
-across the project.
+across the project. No external LaTeX installation is required.
 """
 
-import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -15,36 +14,10 @@ COL1 = 3.5  # single-column width
 COL2 = 7.0  # double-column (full-width) figure
 AR_GOLDEN = 0.618  # golden-ratio height/width — good default for single-panel figures
 
-# Physical units for colorbar labels (valid with usetex and mathtext).
+# Physical units for colorbar labels (matplotlib mathtext, no system LaTeX).
 UNIT_K = "K"
 UNIT_MM_H = r"mm h$^{-1}$"
 UNIT_M_S = r"m s$^{-1}$"
-
-
-def format_text_for_renderer(text: str) -> str:
-    """Escape plain-text labels when ``text.usetex`` is enabled.
-
-    Unit strings that already contain math (e.g. :data:`UNIT_MM_H`) should be passed
-    through unchanged. Apply this helper to channel names, titles, and suptitles.
-
-    Args:
-        text: Raw label text, possibly with ``_`` or ``%``.
-
-    Returns:
-        Text safe for the active matplotlib text backend.
-    """
-    if not plt.rcParams.get("text.usetex", False):
-        return text
-    escaped = text
-    for char, replacement in (
-        ("\\", r"\textbackslash{}"),
-        ("_", r"\_"),
-        ("%", r"\%"),
-        ("&", r"\&"),
-        ("#", r"\#"),
-    ):
-        escaped = escaped.replace(char, replacement)
-    return escaped
 
 
 # --- Colormap catalogue ---
@@ -121,22 +94,17 @@ SOURCE_COLORS: dict[str, str] = {
 
 
 def setup_style() -> None:
-    """Apply publication-quality rcParams for LaTeX journal figures.
+    """Apply publication-quality rcParams for AMS/AGU-style journal figures.
 
     Call once per module (at import time) or at the top of a notebook cell.
-    Requires a working LaTeX installation for full rendering.  Set the
-    environment variable TCFUSE_NO_LATEX=1 to fall back to matplotlib's
-    mathtext renderer (no LaTeX required).
+    Uses matplotlib's built-in mathtext for unit exponents; no LaTeX install needed.
     """
-    # Check whether the user has opted out of the LaTeX renderer
-    use_latex = os.environ.get("TCFUSE_NO_LATEX", "0") != "1"
-
     plt.rcParams.update(
         {
             # --- Typography ---
-            "text.usetex": use_latex,
+            "text.usetex": False,
             "font.family": "serif",
-            "font.serif": ["Computer Modern Roman"],
+            "font.serif": ["DejaVu Serif", "STIXGeneral", "Times New Roman", "serif"],
             "font.size": 8,
             "axes.labelsize": 8,
             "xtick.labelsize": 7,
