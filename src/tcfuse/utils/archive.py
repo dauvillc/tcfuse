@@ -1,4 +1,4 @@
-"""Archive utilities for submitting tarball-creation jobs to the default SLURM CPU partition.
+"""Archive utilities for submitting tarball-creation jobs to the prepost SLURM partition.
 
 After a preprocessing or training script successfully writes its outputs to SCRATCH,
 call :func:`submit_archive_job` to asynchronously copy the data to STORE as a .tar.gz.
@@ -17,8 +17,10 @@ import submitit
 from tcfuse.utils.submitit_utils import make_executor
 
 # Jean-Zay archive job constants.
-# No slurm_partition is set — omitting it lets SLURM schedule on the default CPU partition,
-# which is much easier to obtain than the archive/prepost nodes.
+# $STORE (/lustre/fsstor) is only mounted on prepost nodes, so we must use prepost.
+# --cpu-bind=none prevents the srun step from inheriting module-set CPU affinity
+# that conflicts with single-CPU allocations on some nodes.
+_ARCHIVE_PARTITION = "prepost"
 _ARCHIVE_ACCOUNT = "xyw@cpu"
 _ARCHIVE_SETUP_COMMANDS = ["module load pytorch-gpu/py3/2.8.0"]
 _ARCHIVE_TIMEOUT_MIN = 240
@@ -75,13 +77,13 @@ def submit_archive_job(
         return None
 
     # Build a minimal archive-specific executor config.
-    # No slurm_partition — omitting it lets SLURM use the default CPU partition,
-    # which is far easier to schedule than archive/prepost nodes.
+    # prepost is required: $STORE is only mounted on prepost nodes.
     # --cpu-bind=none prevents the srun step from inheriting module-set CPU affinity
     # that conflicts with a single-CPU allocation.
     archive_cfg: dict[str, Any] = {
         **cfg,
         "setup": {
+            "slurm_partition": _ARCHIVE_PARTITION,
             "slurm_account": _ARCHIVE_ACCOUNT,
             "timeout_min": _ARCHIVE_TIMEOUT_MIN,
             "cpus_per_task": 1,

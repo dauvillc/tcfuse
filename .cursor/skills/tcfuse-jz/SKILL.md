@@ -78,7 +78,7 @@ These commands are available in the local shell (defined in `~/.bash_aliases` an
 3. **Verify the job launched.** After submission, immediately run `squeue -u $USER` on the login node and confirm the job ID appears. Report the job ID and its partition/state to the user.
 4. **Use local tools for monitoring and debugging.** For job status use `jzstatus`; for diagnosing a failure use `jzdebug <jobid>`; for post-run analysis use `jzreport <jobid>`. Only fall back to raw SSH + `squeue`/`sacct` when these tools are unavailable.
 5. **Ask before cancelling.** Never call `scancel` without explicit user confirmation.
-6. **Pick the right CPU partition.** Downloads that need internet → `setup=jz_prepost` (`prepost`). Preprocessing / eval without internet → `setup=jz_cpu` (default cpu, no `slurm_partition`). Archiving to `$STORE` is handled automatically on the `archive` partition by `submit_archive_job()` — never reuse `jz_prepost` for those jobs.
+6. **Pick the right partition.** Downloads that need internet → `setup=jz_prepost` (`prepost`). Preprocessing / eval without internet → `setup=jz_cpu` (default cpu, no `slurm_partition`). Archiving to `$STORE` is handled automatically on `prepost` by `submit_archive_job()` — `$STORE` is only mounted on prepost nodes.
 7. **Never hardcode paths.** Reference cluster paths as `$WORK/tcfuse` or `$SCRATCH/tcfuse`, not as absolute paths. Note: `$HOME` is a separate linkhome symlink — code lives under `$WORK`, not `$HOME`.
 8. **Report errors clearly.** If an SSH command fails or a preflight check fails, show the exact error and suggest a fix before proceeding.
 
@@ -243,7 +243,7 @@ ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && bash scripts/sl
 
 **Dev QoS** (`qos_*-dev`) gets shorter queues and is the right choice for smoke tests, environment checks, or quick debugging runs. Override on the CLI: `setup.slurm_qos=qos_gpu-dev setup.timeout_min=60`.
 
-**Do not** point preprocessing or eval jobs at `prepost` unless they need internet. `jz_cpu` intentionally omits `slurm_partition` so SLURM uses the default cpu partition. Archive jobs (SCRATCH→STORE tarballs submitted by `submit_archive_job()`) also use the default CPU partition — the `archive` partition shares the same problematic nodes as `prepost` and is avoided.
+**Do not** point preprocessing or eval jobs at `prepost` unless they need internet. `jz_cpu` intentionally omits `slurm_partition` so SLURM uses the default cpu partition. Archive jobs (SCRATCH→STORE tarballs submitted by `submit_archive_job()`) use `prepost` — `$STORE` is only mounted on prepost nodes. `--cpu-bind=none` is passed to `srun` inside those jobs to avoid a CPU affinity conflict on single-CPU allocations.
 
 Override individual SLURM params on the CLI:
 ```bash
