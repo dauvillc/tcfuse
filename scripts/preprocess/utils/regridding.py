@@ -101,6 +101,30 @@ def create_storm_centered_equiangular_area(
     return area
 
 
+def _shift_area_by_180(area: AreaDefinition) -> AreaDefinition:
+    """Return a copy of area with its centre longitude shifted by 180° (antimeridian fix)."""
+    # For longlat projection, area_extent is in degrees: (lon_min, lat_min, lon_max, lat_max).
+    lon_min, lat_min, lon_max, lat_max = area.area_extent
+    centre_lon = (lon_min + lon_max) / 2
+    centre_lat = (lat_min + lat_max) / 2
+    # Same 180° shift as applied to the swath: maps ±180° region to near 0°.
+    shifted_lon = (centre_lon + 360 if centre_lon < 0 else centre_lon) - 180
+    with DisableLogger():
+        shifted = create_area_def(
+            area_id=area.area_id,
+            projection={"proj": "longlat", "a": EARTH_RADIUS},
+            center=(shifted_lon, centre_lat),
+            shape=area.shape,
+            resolution=area.pixel_size_x,
+            units="degrees",
+        )
+    if not isinstance(shifted, AreaDefinition):
+        raise TypeError(
+            f"Expected AreaDefinition from create_area_def, got {type(shifted).__name__}"
+        )
+    return shifted
+
+
 def regrid(
     lat: np.ndarray,
     lon: np.ndarray,
@@ -137,6 +161,7 @@ def regrid(
         if lon_span > 180:
             lon = np.where(lon < 0, lon + 360, lon) - 180
             lons_were_shifted = True
+            target_area = _shift_area_by_180(target_area)
 
     swath = SwathDefinition(lons=lon, lats=lat)
 
