@@ -1,13 +1,14 @@
-"""Tests for best-track window sample generation in build_splits.py."""
+"""Tests for season splits and legacy forecast-window sample construction."""
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 import pytest
-from scripts.preprocess.build_splits import build_window_index, split_by_season
+from scripts.preprocess.build_splits import split_by_season
+from tcfuse.utils.time import to_compact_time
 
 SOURCE_NAME = "ibtracs_best_track"
 LEADS_HOURS = [-6, 0, 6, 12, 18, 24]
@@ -51,9 +52,155 @@ def _make_index(
     return pd.DataFrame(rows)
 
 
+def _parse_time(value: Any) -> pd.Timestamp:
+    """Parse a timestamp value as UTC for exact lead-time matching."""
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        return cast(pd.Timestamp, timestamp.tz_localize("UTC"))
+    return cast(pd.Timestamp, timestamp.tz_convert("UTC"))
+
+
+def _isoformat_naive_utc(value: Any) -> str:
+    """Return the repository's naive-UTC ISO timestamp representation."""
+    timestamp = _parse_time(value)
+    return timestamp.tz_convert("UTC").tz_localize(None).isoformat()
+
+
+def _lead_prefix(lead_hour: int) -> str:
+    """Return the fixed column prefix for a lead relative to init time."""
+    return f"lead_{lead_hour:+04d}h"
+
+
+def _float_or_nan(value: Any) -> float:
+    """Convert a scalar value to float while preserving missing values as NaN."""
+    return np.nan if pd.isna(value) else float(value)
+
+
+def _empty_forecast_sample_index(
+    leads_hours: list[int], required_columns: list[str]
+) -> pd.DataFrame:
+    """Return an empty sample-index DataFrame with the expected schema."""
+    columns = [
+        "sample_id",
+        "sid",
+        "basin",
+        "subbasin",
+        "season",
+        "usa_atcf_id",
+        "init_time_utc",
+        "window_start_time_utc",
+        "window_end_time_utc",
+    ]
+    for lead_hour in leads_hours:
+        prefix = _lead_prefix(lead_hour)
+        columns.extend([f"{prefix}_time_utc", f"{prefix}_available"])
+        columns.extend(f"{prefix}_{column}" for column in required_columns)
+    return pd.DataFrame(columns=columns)
+
+
+def _is_finite(row: pd.Series | None, columns: list[str]) -> bool:
+    """Return True when all requested columns are present and finite in a row."""
+    if row is None:
+        return False
+    for column in columns:
+        value = row.at[column] if column in row.index else np.nan
+        if bool(pd.isna(value)):
+            return False
+        if not np.isfinite(float(cast(float | int, value))):
+            return False
+    return True
+
+
+def _first_rows_by_time(rows: pd.DataFrame) -> dict[pd.Timestamp, pd.Series]:
+    """Index a storm's best-track rows by timestamp, keeping the first duplicate."""
+    indexed: dict[pd.Timestamp, pd.Series] = {}
+    sort_column = "_time" if "_time" in rows.columns else "time_utc"
+    for _, row in rows.sort_values(sort_column).iterrows():
+        timestamp = _parse_time(row["time_utc"])
+        indexed.setdefault(timestamp, row)
+    return indexed
+
+
+def build_forecast_sample_index(
+    assembled_index: pd.DataFrame,
+    source_name: str,
+    leads_hours: list[int],
+    required_leads_hours: list[int],
+    required_columns: list[str],
+) -> pd.DataFrame:
+    """Build one wide-format sample row per valid best-track forecast window."""
+    if not set(required_leads_hours).issubset(set(leads_hours)):
+        raise ValueError("required_leads_hours must be a subset of leads_hours.")
+
+    best_track = assembled_index[assembled_index["source_name"] == source_name].copy()
+    if best_track.empty:
+        return _empty_forecast_sample_index(leads_hours, required_columns)
+
+    # Parse timestamps once so sorting and lead matching use a consistent timezone.
+    best_track["_time"] = cast(pd.Series, best_track["time_utc"]).map(_parse_time)
+    best_track = cast(Any, best_track).sort_values(["sid", "_time"]).reset_index(drop=True)
+
+    sample_rows: list[dict[str, Any]] = []
+    for sid_value, storm_rows in best_track.groupby("sid", sort=True):
+        sid = str(sid_value)
+        rows_by_time = _first_rows_by_time(storm_rows)
+        # Every distinct best-track time is a candidate assimilation anchor t₀.
+        for init_time in sorted(rows_by_time):
+            lead_rows: dict[int, pd.Series | None] = {}
+            for lead_hour in leads_hours:
+                lead_time = cast(pd.Timestamp, init_time + pd.Timedelta(hours=lead_hour))
+                lead_rows[lead_hour] = rows_by_time.get(lead_time)
+
+            # Required leads must be finite; optional leads may be absent (see _available).
+            if not all(
+                _is_finite(lead_rows[lead_hour], required_columns)
+                for lead_hour in required_leads_hours
+            ):
+                continue
+
+            init_row = rows_by_time[init_time]
+            sample_id = f"{sid}_{to_compact_time(init_time)}"
+            sample: dict[str, Any] = {
+                "sample_id": sample_id,
+                "sid": sid,
+                "basin": init_row.get("basin"),
+                "subbasin": init_row.get("subbasin"),
+                "season": int(init_row.at["season"]),
+                "usa_atcf_id": init_row.get("usa_atcf_id"),
+                "init_time_utc": _isoformat_naive_utc(init_time),
+                "window_start_time_utc": _isoformat_naive_utc(
+                    init_time + pd.Timedelta(hours=min(leads_hours))
+                ),
+                "window_end_time_utc": _isoformat_naive_utc(
+                    init_time + pd.Timedelta(hours=max(leads_hours))
+                ),
+            }
+
+            # Fixed lead columns are easy to consume from Parquet in PyTorch datasets.
+            for lead_hour in leads_hours:
+                prefix = _lead_prefix(lead_hour)
+                lead_time = init_time + pd.Timedelta(hours=lead_hour)
+                row = lead_rows[lead_hour]
+                sample[f"{prefix}_time_utc"] = _isoformat_naive_utc(lead_time)
+                # _available distinguishes missing optional leads from NaN channel values.
+                sample[f"{prefix}_available"] = row is not None
+                for column in required_columns:
+                    sample[f"{prefix}_{column}"] = (
+                        _float_or_nan(row[column])
+                        if row is not None and column in row.index
+                        else np.nan
+                    )
+
+            sample_rows.append(sample)
+
+    if not sample_rows:
+        return _empty_forecast_sample_index(leads_hours, required_columns)
+    return pd.DataFrame(sample_rows).sort_values(["sid", "init_time_utc"]).reset_index(drop=True)
+
+
 def _build_samples(index: pd.DataFrame) -> pd.DataFrame:
     """Build window samples with the project default test configuration."""
-    return build_window_index(
+    return build_forecast_sample_index(
         index,
         source_name=SOURCE_NAME,
         leads_hours=LEADS_HOURS,

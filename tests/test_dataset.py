@@ -8,7 +8,6 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from scripts.preprocess.build_splits import build_window_index
 from tcfuse.data.dataset import TCWindowDataset, WindowSample
 from tcfuse.data.sources import StormData
 from tcfuse.data.sources.metadata import MultisourceMetadata, SourceMetadata
@@ -20,6 +19,7 @@ from tests.test_build_splits import (
     REQUIRED_LEADS_HOURS,
     SOURCE_NAME,
     _make_index,
+    build_forecast_sample_index,
 )
 from tests.test_sources import make_field_source, make_scalar_source
 
@@ -34,9 +34,9 @@ _TIME_OUTSIDE = (INIT_TIME + pd.Timedelta(hours=30)).isoformat()
 
 
 def _build_window_index_row() -> pd.DataFrame:
-    """Build one valid window-index row using the same logic as build_splits."""
+    """Build one valid wide-format forecast sample row for dataset tests."""
     assembled_index = _make_index(LEADS_HOURS)
-    samples = build_window_index(
+    samples = build_forecast_sample_index(
         assembled_index,
         source_name=SOURCE_NAME,
         leads_hours=LEADS_HOURS,

@@ -327,7 +327,9 @@ class TestAssembleStorm:
 class TestBuildAssembledIndex:
     _SID = "2016292N14270"
 
-    def _setup(self, tmp_path: Path) -> tuple[pd.DataFrame, dict[str, dict[str, Any]], Path]:
+    def _setup(
+        self, tmp_path: Path
+    ) -> tuple[pd.DataFrame, dict[str, dict[str, Any]], Path, dict[str, str]]:
         sources_root = tmp_path / "sources"
         assembled_root = tmp_path / "assembled"
 
@@ -362,39 +364,61 @@ class TestBuildAssembledIndex:
             atcf_for_sid=atcf_for_sid,
         )
 
-        return df, sid_attrs, assembled_root
+        return df, sid_attrs, assembled_root, atcf_for_sid
 
     def test_ibtracs_rows_present(self, tmp_path: Path) -> None:
-        ibtracs_snapshots, sid_attrs, assembled_root = self._setup(tmp_path)
-        result = build_assembled_index(ibtracs_snapshots, assembled_root, [self._SID], sid_attrs)
+        ibtracs_snapshots, sid_attrs, assembled_root, atcf_for_sid = self._setup(tmp_path)
+        result = build_assembled_index(
+            ibtracs_snapshots, assembled_root, [self._SID], sid_attrs, atcf_for_sid
+        )
         assert IBTRACS_SOURCE_NAME in result["source_name"].values
 
     def test_satellite_rows_present(self, tmp_path: Path) -> None:
-        ibtracs_snapshots, sid_attrs, assembled_root = self._setup(tmp_path)
-        result = build_assembled_index(ibtracs_snapshots, assembled_root, [self._SID], sid_attrs)
+        ibtracs_snapshots, sid_attrs, assembled_root, atcf_for_sid = self._setup(tmp_path)
+        result = build_assembled_index(
+            ibtracs_snapshots, assembled_root, [self._SID], sid_attrs, atcf_for_sid
+        )
         assert "pmw_ssmi" in result["source_name"].values
 
-    def test_ibtracs_rows_have_usa_wind(self, tmp_path: Path) -> None:
-        ibtracs_snapshots, sid_attrs, assembled_root = self._setup(tmp_path)
-        result = build_assembled_index(ibtracs_snapshots, assembled_root, [self._SID], sid_attrs)
-        assert "usa_wind" in result.columns
-        ibt_wind = pd.Series(result.loc[result["source_name"] == IBTRACS_SOURCE_NAME, "usa_wind"])
-        assert bool(ibt_wind.notna().all())
+    def test_ibtracs_numeric_channels_excluded_from_index(self, tmp_path: Path) -> None:
+        ibtracs_snapshots, sid_attrs, assembled_root, atcf_for_sid = self._setup(tmp_path)
+        result = build_assembled_index(
+            ibtracs_snapshots, assembled_root, [self._SID], sid_attrs, atcf_for_sid
+        )
+        assert "usa_wind" not in result.columns
+        ibt_atcf = pd.Series(
+            result.loc[result["source_name"] == IBTRACS_SOURCE_NAME, "usa_atcf_id"]
+        )
+        assert bool(ibt_atcf.notna().all())
 
-    def test_satellite_rows_have_null_usa_wind(self, tmp_path: Path) -> None:
-        ibtracs_snapshots, sid_attrs, assembled_root = self._setup(tmp_path)
-        result = build_assembled_index(ibtracs_snapshots, assembled_root, [self._SID], sid_attrs)
-        sat_wind = pd.Series(result.loc[result["source_name"] == "pmw_ssmi", "usa_wind"])
-        assert bool(sat_wind.isna().all())
+    def test_satellite_rows_get_usa_atcf_id_from_translation(self, tmp_path: Path) -> None:
+        ibtracs_snapshots, sid_attrs, assembled_root, atcf_for_sid = self._setup(tmp_path)
+        result = build_assembled_index(
+            ibtracs_snapshots, assembled_root, [self._SID], sid_attrs, atcf_for_sid
+        )
+        sat_atcf = pd.Series(result.loc[result["source_name"] == "pmw_ssmi", "usa_atcf_id"])
+        assert sat_atcf.iloc[0] == atcf_for_sid[self._SID]
 
     def test_snapshot_time_renamed_from_iso_time(self, tmp_path: Path) -> None:
-        ibtracs_snapshots, sid_attrs, assembled_root = self._setup(tmp_path)
-        result = build_assembled_index(ibtracs_snapshots, assembled_root, [self._SID], sid_attrs)
+        ibtracs_snapshots, sid_attrs, assembled_root, atcf_for_sid = self._setup(tmp_path)
+        result = build_assembled_index(
+            ibtracs_snapshots, assembled_root, [self._SID], sid_attrs, atcf_for_sid
+        )
         assert "time_utc" in result.columns
         assert "iso_time" not in result.columns
 
     def test_columns_include_trimmed_schema(self, tmp_path: Path) -> None:
-        ibtracs_snapshots, sid_attrs, assembled_root = self._setup(tmp_path)
-        result = build_assembled_index(ibtracs_snapshots, assembled_root, [self._SID], sid_attrs)
-        expected_first = ["sid", "source_name", "time_utc", "season", "basin", "subbasin"]
-        assert list(result.columns)[: len(expected_first)] == expected_first
+        ibtracs_snapshots, sid_attrs, assembled_root, atcf_for_sid = self._setup(tmp_path)
+        result = build_assembled_index(
+            ibtracs_snapshots, assembled_root, [self._SID], sid_attrs, atcf_for_sid
+        )
+        expected = [
+            "sid",
+            "source_name",
+            "time_utc",
+            "season",
+            "basin",
+            "subbasin",
+            "usa_atcf_id",
+        ]
+        assert list(result.columns) == expected
