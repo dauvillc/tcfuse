@@ -87,7 +87,8 @@ These commands are available in the local shell (defined in `~/.bash_aliases` an
 | Variable | Use | Notes |
 |---|---|---|
 | `$WORK` | Code, checkpoints, virtual env | Persistent, backed up, slower I/O. **`$HOME` is a separate linkhome dir — do not use it for project files.** |
-| `$SCRATCH` | Raw data, preprocessed tensors, DataLoader cache | Fast NVMe — **purged after 30 days** |
+| `$SCRATCH` | Raw data, preprocessed tensors, DataLoader cache | Fast NVMe — purged regularly (no fixed 30-day guarantee) |
+| `$JOBSCRATCH` | Intra-job temp files, fast DataLoader cache during a run | Fastest NVMe — **deleted when the job ends**, not backed up |
 | `$STORE` | Long-term archival of final weights, processed datasets | Cold storage, not for training I/O |
 
 **Rule:** DataLoaders always read from `$SCRATCH`. After preprocessing, always copy a backup to `$STORE`.
@@ -150,7 +151,8 @@ Format as a table — states to highlight: `RUNNING` (good), `PENDING` (show the
 
 ### Recently completed jobs
 ```bash
-ssh jz "sacct -u \$USER --format=JobID,JobName,State,Start,End,Elapsed,ExitCode \
+ssh jz "sacct -u \$USER \
+  --format=JobID,JobName,State,Start,End,Elapsed,AllocGRES,ExitCode \
   --starttime=\$(date -d '3 days ago' +%Y-%m-%d) -n"
 ```
 
@@ -160,11 +162,28 @@ ssh jz "tail -f \$WORK/tcfuse/submitit/<jobid>_0_log.out"
 ```
 Log files: `$WORK/tcfuse/submitit/<jobid>_<task>_log.out` / `…_log.err`.
 
+### Interactive session on a compute node
+```bash
+# GPU node (replace <acct> with e.g. ute68qj@v100 or ute68qj@a100)
+ssh jz "srun --pty -n1 --gres=gpu:1 --time=00:30:00 --account=<acct> bash"
+# CPU node
+ssh jz "srun --pty -n1 --time=00:30:00 --account=<acct>@cpu bash"
+```
+Requires the correct `--account` and a matching QoS with available quota.
+
 ### Quota check
 ```bash
-ssh jz "idrquota -m"        # $WORK and $SCRATCH
-ssh jz "idrquota -s -m"     # $STORE
+ssh jz "idr_quota_user -m"          # personal $WORK and $SCRATCH usage
+ssh jz "idr_quota_user -s"          # personal $STORE usage
+ssh jz "idr_quota_project -w"       # project-level $WORK quota
 ```
+
+### Hour consumption
+```bash
+ssh jz "idracct"        # CPU and GPU hour consumption for the current project
+ssh jz "idr_compuse"    # project consumption state (% of allocation used)
+```
+Check these when jobs are slow to schedule or allocation warnings appear.
 
 ## Environment setup (login node only)
 
@@ -214,13 +233,15 @@ ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && bash scripts/sl
 
 ## SLURM hardware configs
 
-| Config | Partition | Hardware | CPUs | Max walltime |
-|---|---|---|---|---|
-| `jz_gpu_v100` | `gpu_p13` | 4× V100 32 GB | 40 (Intel) | 100 h (qos_gpu-t4) |
-| `jz_gpu_a100` | `gpu_p5` | 8× A100 80 GB | 64 (AMD Milan) | **20 h** (no t4 QoS) |
-| `jz_gpu_h100` | `gpu_p6` | 4× H100 80 GB | 96 (Intel) | 100 h (qos_gpu_h100-t4) |
-| `jz_cpu` | *(default cpu)* | Regular CPU nodes — preprocessing, eval (no internet) | 40 (Intel) | per SLURM default |
-| `jz_prepost` | `prepost` | Pre/post CPU nodes — data downloads (**internet access**) | 4 (Intel) | 20 h |
+| Config | Partition | Hardware | CPUs | Max walltime | Dev QoS (smoke test) |
+|---|---|---|---|---|---|
+| `jz_gpu_v100` | `gpu_p13` | 4× V100 32 GB | 40 (Intel) | 100 h (`qos_gpu-t4`) | `qos_gpu-dev` — 2 h, 32 GPU/user |
+| `jz_gpu_a100` | `gpu_p5` | 8× A100 80 GB | 64 (AMD Milan) | **20 h** (no t4 QoS) | `qos_gpu_a100-dev` — 2 h, 32 GPU/user |
+| `jz_gpu_h100` | `gpu_p6` | 4× H100 80 GB | 96 (Intel) | 100 h (`qos_gpu_h100-t4`) | `qos_gpu_h100-dev` — 2 h, 32 GPU/user |
+| `jz_cpu` | *(default cpu)* | Regular CPU nodes — preprocessing, eval (no internet) | 40 (Intel) | 20 h (`qos_cpu-t3`) | `qos_cpu-dev` — 2 h, 128 nodes/user |
+| `jz_prepost` | `prepost` | Pre/post CPU nodes — data downloads (**internet access**) | 4 (Intel) | 20 h | — |
+
+**Dev QoS** (`qos_*-dev`) gets shorter queues and is the right choice for smoke tests, environment checks, or quick debugging runs. Override on the CLI: `setup.slurm_qos=qos_gpu-dev setup.timeout_min=60`.
 
 **Do not** point preprocessing or eval jobs at `prepost` unless they need internet. `jz_cpu` intentionally omits `slurm_partition` so SLURM uses the default cpu partition. Archive jobs (SCRATCH→STORE tarballs submitted by `submit_archive_job()`) also use the default CPU partition — the `archive` partition shares the same problematic nodes as `prepost` and is avoided.
 

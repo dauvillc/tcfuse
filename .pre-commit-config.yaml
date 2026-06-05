@@ -2,8 +2,8 @@ repos:
   - repo: local
     hooks:
       - id: basedpyright
-        name: typecheck (basedpyright)
-        entry: basedpyright
+        name: typecheck (pixi run typecheck)
+        entry: pixi run typecheck
         language: system
         pass_filenames: false
         types: [python]
