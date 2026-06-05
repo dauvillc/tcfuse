@@ -1,4 +1,9 @@
 # @package _global_
+# Jean-Zay default CPU partition — preprocessing and eval jobs that do NOT
+# need internet access.  Do not set slurm_partition here: omitting it lets SLURM
+# schedule on the default cpu partition, which is easier to obtain than prepost.
+# For outbound downloads (S3, HTTP), use setup=jz_prepost instead.
+
 defaults:
   - override /paths: jz
 
@@ -7,7 +12,6 @@ setup:
   cpus_per_task: 40
   slurm_ntasks_per_node: 1
   name: preproc_jz
-  slurm_partition: prepost
   slurm_account: "xyw@cpu"
   slurm_signal_delay_s: 120
   slurm_additional_parameters:

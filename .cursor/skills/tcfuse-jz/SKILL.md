@@ -4,7 +4,8 @@ description: >-
   Drive the Jean-Zay cluster from the local machine — rsync sync, preflight,
   SLURM submission via submitit, job monitoring, W&B offline sync, checkpoint
   resume, and storage quota. Use whenever a task involves `ssh jz`, $WORK,
-  $SCRATCH, $STORE, SLURM partitions (gpu_p13 / gpu_p5 / gpu_p6 / prepost),
+  $SCRATCH, $STORE, SLURM partitions (gpu_p13 / gpu_p5 / gpu_p6 / cpu /
+  prepost / archive),
   module loads, `submitit`, `setup=jz_*`, `paths=jz`, `requirements-jz.txt`,
   or running jobs on Jean-Zay.
 ---
@@ -31,8 +32,9 @@ Claude Code: invoke `/jz` (reads this skill).
 3. **Verify the job launched.** After submission, immediately run `squeue -u $USER` on the login node and confirm the job ID appears. Report the job ID and its partition/state to the user.
 4. **Format monitoring output.** Never dump raw `squeue`/`sacct` output. Parse and format it into a readable table before presenting it to the user (see Monitoring section).
 5. **Ask before cancelling.** Never call `scancel` without explicit user confirmation.
-6. **Never hardcode paths.** Reference cluster paths as `$WORK/tcfuse` or `$SCRATCH/tcfuse`, not as absolute paths. Note: `$HOME` is a separate linkhome symlink — code lives under `$WORK`, not `$HOME`.
-7. **Report errors clearly.** If an SSH command fails or a preflight check fails, show the exact error and suggest a fix before proceeding.
+6. **Pick the right CPU partition.** Downloads that need internet → `setup=jz_prepost` (`prepost`). Preprocessing / eval without internet → `setup=jz_cpu` (default cpu, no `slurm_partition`). Archiving to `$STORE` is handled automatically on the `archive` partition by `submit_archive_job()` — never reuse `jz_prepost` for those jobs.
+7. **Never hardcode paths.** Reference cluster paths as `$WORK/tcfuse` or `$SCRATCH/tcfuse`, not as absolute paths. Note: `$HOME` is a separate linkhome symlink — code lives under `$WORK`, not `$HOME`.
+8. **Report errors clearly.** If an SSH command fails or a preflight check fails, show the exact error and suggest a fix before proceeding.
 
 ## Storage layout
 
@@ -96,9 +98,13 @@ ssh jz "cd \$WORK/tcfuse && module load arch/a100 && module load pytorch-gpu/py3
 ssh jz "cd \$WORK/tcfuse && module load arch/h100 && module load pytorch-gpu/py3/2.8.0 && \
   python scripts/train.py paths=jz setup=jz_gpu_h100 experiment=<name>"
 
-# Preprocessing (CPU node)
+# Preprocessing / eval (default CPU partition — no internet)
 ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
   python scripts/preprocess/<source>.py paths=jz setup=jz_cpu"
+
+# Data download (prepost partition — internet access)
+ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
+  python scripts/preprocess/<source>/download_<source>.py paths=jz setup=jz_prepost"
 ```
 
 ### Step 4 — Verify launch
@@ -171,7 +177,17 @@ module load arch/a100 && module load pytorch-gpu/py3/2.8.0   # A100
 module load arch/h100 && module load pytorch-gpu/py3/2.8.0   # H100
 ```
 
-Compute nodes have **no internet access**. All pip installs, W&B auth, and data downloads must happen on the login node. Use the generated `requirements-jz.txt` overlay for pip installs on Jean-Zay, and regenerate it locally with `pixi run export-jz-requirements` after changing `pixi.toml`.
+**Internet access on compute nodes:** only the **`prepost`** partition has outbound internet. Regular CPU and GPU compute nodes have none. The login node has internet for pip installs, W&B auth, and ad-hoc transfers.
+
+**Partition routing (CPU jobs):**
+
+| Job type | Setup config | Partition | Notes |
+|---|---|---|---|
+| Data downloads (S3, HTTP, …) | `jz_prepost` | `prepost` | Only partition with internet on compute nodes; queues are tighter — reserve it for jobs that truly need network I/O |
+| Preprocessing, eval, other CPU work (no internet) | `jz_cpu` | *(default cpu — do not set `slurm_partition`)* | Preferred for heavy CPU work; easier to schedule than `prepost` |
+| Archiving SCRATCH → STORE tarballs | *(automatic)* | `archive` | Submitted by `submit_archive_job()` in `src/tcfuse/utils/archive.py`; not a `setup=` override |
+
+Use the generated `requirements-jz.txt` overlay for pip installs on the login node, and regenerate it locally with `pixi run export-jz-requirements` after changing `pixi.toml`.
 
 ## W&B offline mode
 
@@ -201,8 +217,11 @@ ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && bash scripts/sl
 | `jz_gpu_v100` | `gpu_p13` | 4× V100 32 GB | 40 (Intel) | 100 h (qos_gpu-t4) |
 | `jz_gpu_a100` | `gpu_p5` | 8× A100 80 GB | 64 (AMD Milan) | **20 h** (no t4 QoS) |
 | `jz_gpu_h100` | `gpu_p6` | 4× H100 80 GB | 96 (Intel) | 100 h (qos_gpu_h100-t4) |
-| `jz_cpu` | `prepost` | Pre/post CPU nodes — heavy preprocessing | 40 (Intel) | 20 h |
-| `jz_prepost` | `prepost` | Pre/post CPU nodes — data downloads (internet access) | 4 (Intel) | 20 h |
+| `jz_cpu` | *(default cpu)* | Regular CPU nodes — preprocessing, eval (no internet) | 40 (Intel) | per SLURM default |
+| `jz_prepost` | `prepost` | Pre/post CPU nodes — data downloads (**internet access**) | 4 (Intel) | 20 h |
+| `jz_archive` | `archive` | Archive nodes — SCRATCH→STORE tarballs (reference only; applied by `submit_archive_job()`) | 1 | 4 h |
+
+**Do not** point preprocessing or eval jobs at `prepost` unless they need internet. `jz_cpu` intentionally omits `slurm_partition` so SLURM uses the default cpu partition.
 
 Override individual SLURM params on the CLI:
 ```bash

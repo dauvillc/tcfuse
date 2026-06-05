@@ -20,5 +20,6 @@ Keep docs in sync: when SLURM conventions, storage layout, or rsync filters chan
 | W&B offline mode + sync | "W&B offline mode" |
 | One-time JZ setup | "One-time setup" |
 | Setup configs and walltimes | "SLURM hardware configs" |
+| CPU partition routing (downloads / preprocessing / archive) | "Partition routing (CPU jobs)" |
 | Resume from checkpoint | "Checkpoint and resume" |
 | Storage layout ($WORK, $SCRATCH, $STORE) | "Storage layout" |
