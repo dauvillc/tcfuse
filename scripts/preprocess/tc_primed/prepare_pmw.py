@@ -22,6 +22,7 @@ from scripts.preprocess.tc_primed.utils import (
     storm_grid_extent_half_km_from_cfg,
 )
 from scripts.preprocess.utils.regridding import (
+    ResamplingError,
     create_storm_centered_equiangular_area,
     regrid,
 )
@@ -114,13 +115,19 @@ def process_pmw_file(
             regridding_res,
             extent_half_km=extent_half_km,
         )
-        (resampled89, out_lats, out_lons), _ = regrid(lat89, lon89, data89, target_area)
+        try:
+            (resampled89, out_lats, out_lons), _ = regrid(lat89, lon89, data89, target_area)
+        except ResamplingError:
+            return False
 
         # Regrid 37 GHz onto the same target grid as 89 GHz.
         lat37, lon37, data37 = _read_pmw_swath(raw["passive_microwave"][swath_37], vars_37)
         if any(np.all(np.isnan(arr)) for arr in data37.values()):
             return False
-        (resampled37, _, _), _ = regrid(lat37, lon37, data37, target_area)
+        try:
+            (resampled37, _, _), _ = regrid(lat37, lon37, data37, target_area)
+        except ResamplingError:
+            return False
 
         # Channel stack order must match vars_37 + vars_89 in metadata.
         all_vars = vars_37 + vars_89

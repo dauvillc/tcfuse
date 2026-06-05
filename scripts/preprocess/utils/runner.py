@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ProcessPoolExecutor
-from itertools import repeat
 from pathlib import Path
 from typing import Any, cast
 
@@ -127,6 +126,20 @@ def scan_source_snapshots(
     return pd.DataFrame(rows, columns=list(INDEX_COLUMNS))
 
 
+def _call_cloudpickled_worker(args: tuple) -> Any:
+    """Unpack a cloudpickled callable and call it with the remaining args.
+
+    Defined at module level so ProcessPoolExecutor can pickle *this* wrapper
+    function normally. The actual worker is carried as cloudpickle bytes,
+    bypassing the __main__ pickling limitation for functions defined in scripts.
+    """
+    import cloudpickle
+
+    pickled_fn, file, static_args = args
+    fn = cloudpickle.loads(pickled_fn)
+    return fn(file, *static_args)
+
+
 def map_files[R, F](
     worker: Callable[..., R | None],
     files: Sequence[F],
@@ -143,14 +156,18 @@ def map_files[R, F](
     if num_workers <= 1:
         return [worker(file, *static_args) for file in tqdm(files, desc=desc)]
 
-    # Parallel path: broadcast static_args to every worker invocation.
+    # Parallel path: cloudpickle the worker so ProcessPoolExecutor can handle
+    # functions defined in __main__ (e.g. SLURM scripts run via submitit).
+    import cloudpickle
+
+    pickled_worker = cloudpickle.dumps(worker)
+    work_items = [(pickled_worker, file, static_args) for file in files]
     with ProcessPoolExecutor(max_workers=num_workers) as pool:
         return list(
             tqdm(
                 pool.map(
-                    worker,
-                    files,
-                    *[repeat(arg) for arg in static_args],
+                    _call_cloudpickled_worker,
+                    work_items,
                     # Larger chunks amortize process-pool scheduling overhead.
                     chunksize=max(1, len(files) // (num_workers * 4)),
                 ),

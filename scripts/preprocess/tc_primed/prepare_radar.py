@@ -22,6 +22,7 @@ from scripts.preprocess.tc_primed.utils import (
     storm_grid_extent_half_km_from_cfg,
 )
 from scripts.preprocess.utils.regridding import (
+    ResamplingError,
     create_storm_centered_equiangular_area,
     regrid,
 )
@@ -114,7 +115,10 @@ def process_radar_file(
             regridding_res,
             extent_half_km=extent_half_km,
         )
-        (resampled, out_lats, out_lons), _ = regrid(lat, lon, data, target_area)
+        try:
+            (resampled, out_lats, out_lons), _ = regrid(lat, lon, data, target_area)
+        except ResamplingError:
+            return False
 
         values_np = np.stack([resampled[v] for v in variables], axis=-1).astype(np.float32)
         lats = out_lats.astype(np.float32)
