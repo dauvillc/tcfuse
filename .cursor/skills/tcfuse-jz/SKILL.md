@@ -25,12 +25,58 @@ Claude Code: invoke `/jz` (reads this skill).
 - Resuming a training run from a submitit checkpoint.
 - Checking quotas, environment, or doing one-time setup on JZ.
 
+## Local CLI tools
+
+These commands are available in the local shell (defined in `~/.bash_aliases` and `~/.local/bin`). They SSH into Jean-Zay and, where noted, pipe results through Claude. Prefer them over raw SSH for the matching tasks.
+
+**JZ username:** `ute68qj` (stored as `_JZ_USER` in the shell environment).
+
+### Rsync
+
+| Alias | What it does |
+|---|---|
+| `rsynctf` | `rsync -avzP --exclude-from='.rsyncignore' ~/inria/tcfuse jz:work` — syncs the local project to `$WORK/tcfuse/` on JZ |
+
+### Queue and monitoring (shell functions, `~/.bash_aliases`)
+
+| Command | Usage | What it does |
+|---|---|---|
+| `jzq` | `jzq` | One-shot `squeue` for `ute68qj` with a standard format. |
+| `jzwatch` | `jzwatch` | Live-refresh the queue every 30 s (Ctrl-C to exit). |
+| `jzpipe <id> …` | `jzpipe 111 222 333` | Live-refresh only the listed job IDs every 30 s — useful for watching a multi-step pipeline. |
+| `jzlog <jobid>` | `jzlog 12345678` | Finds the stdout log (same search order as below) and `tail -f`s it live. |
+| `jzinfo <jobid>` | `jzinfo 12345678` | Runs `scontrol show job` — full SLURM metadata (partition, timelimit, nodes, gres, …). |
+| `jzeff <jobid>` | `jzeff 12345678` | Runs `seff` — CPU/GPU efficiency report (completed jobs only). |
+| `jzcancel <jobid>` | `jzcancel 12345678` | Runs `scancel`. **Always ask the user for confirmation before calling this.** |
+
+### AI-assisted analysis (shell functions, `~/.bash_aliases`)
+
+| Command | Usage | What it does |
+|---|---|---|
+| `jzask <jobid> "<q>"` | `jzask 111 "why is val_loss plateauing?"` | Fetches the last 150 log lines and asks Claude a one-shot free-form question about the job. |
+| `jzchat <jobid>` | `jzchat 12345678` | Fetches the last 300 stdout + 50 stderr lines and opens an **interactive** Claude session pre-loaded with the log — for open-ended investigation. |
+
+### AI-assisted analysis (standalone scripts, `~/.local/bin`)
+
+| Command | Usage | What it does |
+|---|---|---|
+| `jzstatus [-n N]` | `jzstatus` or `jzstatus --lines 120` | Fetches SLURM queue + last N log lines for every active job; Claude summarises progress, metrics, health. |
+| `jzdebug <jobid>` | `jzdebug 12345678` | Pulls stdout, stderr, and `sacct` for a failed job; Claude gives root cause + fix. |
+| `jzreport <jobid> [--save]` | `jzreport 12345678 --save` | Generates a structured markdown report (summary, config, results, efficiency, issues). `--save` writes to `~/.jz_reports/<jobid>.md`. |
+| `jzcompare <id1> <id2> …` | `jzcompare 111 222 333` | Compares 2–5 runs side-by-side: config diffs, metrics table, best-run verdict, what to try next. |
+
+**Log search order** (used by `jzlog`, `jzask`, `jzchat`, `jzdebug`, `jzreport`, `jzstatus`):
+1. `scontrol StdOut` field
+2. `$WORK/tcfuse/submitit/<jobid>_*_log.out`
+3. `$WORK/motif/submitit/<jobid>_*_log.out`
+4. `$WORK/motif/slurm/jz/logs/slurm-<jobid>.out`
+
 ## Agent behavior rules
 
-1. **Sync before every job.** Run the rsync step (see below) before submitting any SLURM job, no exceptions.
+1. **Sync before every job.** Run `rsynctf` from the local project root before submitting any SLURM job, no exceptions.
 2. **Preflight before submission.** After syncing and before submitting, run `bash scripts/slurm/preflight_check.sh` on the login node. Abort if any check fails.
 3. **Verify the job launched.** After submission, immediately run `squeue -u $USER` on the login node and confirm the job ID appears. Report the job ID and its partition/state to the user.
-4. **Format monitoring output.** Never dump raw `squeue`/`sacct` output. Parse and format it into a readable table before presenting it to the user (see Monitoring section).
+4. **Use local tools for monitoring and debugging.** For job status use `jzstatus`; for diagnosing a failure use `jzdebug <jobid>`; for post-run analysis use `jzreport <jobid>`. Only fall back to raw SSH + `squeue`/`sacct` when these tools are unavailable.
 5. **Ask before cancelling.** Never call `scancel` without explicit user confirmation.
 6. **Pick the right CPU partition.** Downloads that need internet → `setup=jz_prepost` (`prepost`). Preprocessing / eval without internet → `setup=jz_cpu` (default cpu, no `slurm_partition`). Archiving to `$STORE` is handled automatically on the `archive` partition by `submit_archive_job()` — never reuse `jz_prepost` for those jobs.
 7. **Never hardcode paths.** Reference cluster paths as `$WORK/tcfuse` or `$SCRATCH/tcfuse`, not as absolute paths. Note: `$HOME` is a separate linkhome symlink — code lives under `$WORK`, not `$HOME`.
@@ -46,37 +92,12 @@ Claude Code: invoke `/jz` (reads this skill).
 
 **Rule:** DataLoaders always read from `$SCRATCH`. After preprocessing, always copy a backup to `$STORE`.
 
-## Rsync — sync local → JZ
-
-Run this before every job submission. Execute it from the local project root `/home/cdauvill/inria/tcfuse/`:
-
-```bash
-# $WORK on JZ differs from $HOME — expand it first
-JZ_WORK=$(ssh jz 'bash -l -c "echo \$WORK"')
-rsync -avz --filter=':- .gitignore' \
-  --exclude='.git/' \
-  --exclude='.pixi/' \
-  --exclude='outputs/' \
-  --exclude='wandb/' \
-  --exclude='lightning_logs/' \
-  --exclude='*.ckpt' \
-  /home/cdauvill/inria/tcfuse/ "jz:${JZ_WORK}/tcfuse/"
-```
-
-**What this does:**
-- Respects `.gitignore` (skips `__pycache__/`, `*.pyc`, `*.egg-info`, etc.)
-- Explicitly excludes `.git/` and `.pixi/` (JZ uses a different environment)
-- Excludes training outputs (`outputs/`, `wandb/`, `*.ckpt`) so they don't overwrite JZ-side results
-- Syncs everything else: `src/`, `conf/`, `scripts/`, `notebooks/`, `pixi.toml`, `requirements-jz.txt`, etc.
-
-After rsync, confirm the transfer completed without errors before proceeding.
-
 ## Job submission workflow
 
 Follow these steps in order every time a job is submitted:
 
 ### Step 1 — Rsync
-Run the rsync command above from the local machine.
+Run `rsynctf` from the local project root.
 
 ### Step 2 — Preflight check
 ```bash
@@ -116,20 +137,16 @@ Confirm the new job ID appears and report it to the user. If it does not appear 
 ssh jz "ls -lt \$WORK/tcfuse/submitit/ | head -5"
 ```
 
-## Job monitoring
+## Job monitoring — raw SSH fallbacks
 
-### Queue status (running / pending jobs)
+Use the local CLI tools (see above) for day-to-day monitoring. These raw commands are fallbacks or when a specific format is needed.
+
+### Queue snapshot
 ```bash
 ssh jz "squeue -u \$USER --format='%.10i %.20j %.10T %.12M %.12l %.6D %R' --sort=-T"
 ```
 
-Format the output as a table with headers:
-
-| JOBID | NAME | STATE | ELAPSED | TIMELIMIT | NODES | REASON/NODELIST |
-|---|---|---|---|---|---|---|
-| 12345678 | tc_fusion | RUNNING | 1:23:45 | 100:00:00 | 1 | gpu123 |
-
-States to highlight: `RUNNING` (good), `PENDING` (waiting — show the reason), `FAILED`/`CANCELLED` (alert the user).
+Format as a table — states to highlight: `RUNNING` (good), `PENDING` (show the reason), `FAILED`/`CANCELLED` (alert the user).
 
 ### Recently completed jobs
 ```bash
@@ -137,31 +154,16 @@ ssh jz "sacct -u \$USER --format=JobID,JobName,State,Start,End,Elapsed,ExitCode 
   --starttime=\$(date -d '3 days ago' +%Y-%m-%d) -n"
 ```
 
-Format as:
-
-| JOBID | NAME | STATE | START | END | ELAPSED | EXIT |
-|---|---|---|---|---|---|---|
-| 12345678 | tc_fusion | COMPLETED | 2025-09-01T08:00 | 2025-09-01T10:30 | 02:30:00 | 0:0 |
-
-### Live job output
+### Live log tail (when `jzlog` is unavailable)
 ```bash
-ssh jz "tail -n 50 \$WORK/tcfuse/submitit/<jobid>_0_log.out"
-# or follow live:
 ssh jz "tail -f \$WORK/tcfuse/submitit/<jobid>_0_log.out"
 ```
-
-submitit log files are at `$WORK/tcfuse/submitit/<jobid>_<task>_log.out` and `…_log.err`.
+Log files: `$WORK/tcfuse/submitit/<jobid>_<task>_log.out` / `…_log.err`.
 
 ### Quota check
 ```bash
 ssh jz "idrquota -m"        # $WORK and $SCRATCH
 ssh jz "idrquota -s -m"     # $STORE
-```
-
-## Cancel a job
-Always ask the user for confirmation first, then:
-```bash
-ssh jz "scancel <jobid>"
 ```
 
 ## Environment setup (login node only)
