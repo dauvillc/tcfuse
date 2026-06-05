@@ -221,9 +221,8 @@ ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && bash scripts/sl
 | `jz_gpu_h100` | `gpu_p6` | 4× H100 80 GB | 96 (Intel) | 100 h (qos_gpu_h100-t4) |
 | `jz_cpu` | *(default cpu)* | Regular CPU nodes — preprocessing, eval (no internet) | 40 (Intel) | per SLURM default |
 | `jz_prepost` | `prepost` | Pre/post CPU nodes — data downloads (**internet access**) | 4 (Intel) | 20 h |
-| `jz_archive` | `archive` | Archive nodes — SCRATCH→STORE tarballs (reference only; applied by `submit_archive_job()`) | 1 | 4 h |
 
-**Do not** point preprocessing or eval jobs at `prepost` unless they need internet. `jz_cpu` intentionally omits `slurm_partition` so SLURM uses the default cpu partition.
+**Do not** point preprocessing or eval jobs at `prepost` unless they need internet. `jz_cpu` intentionally omits `slurm_partition` so SLURM uses the default cpu partition. Archive jobs (SCRATCH→STORE tarballs submitted by `submit_archive_job()`) also use the default CPU partition — the `archive` partition shares the same problematic nodes as `prepost` and is avoided.
 
 Override individual SLURM params on the CLI:
 ```bash
