@@ -134,7 +134,7 @@ visualization/
 | Script | Output |
 |---|---|
 | `source_timeline.py` | `figures/source_timeline.svg` — assembled-index source availability |
-| `plot_source_examples.py` | `figures/source_examples/{source_name}.svg` — one multi-panel example per Stage 1 source (all PMW sensors, IR, radar, SAR) |
+| `plot_source_examples.py` | `figures/source_examples/{source_name}.svg` — one multi-panel example per Stage 1 source (all PMW sensors, IR, radar, ERA5 surface, SAR) |
 
 ### Function signature pattern
 

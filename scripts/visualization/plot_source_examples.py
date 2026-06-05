@@ -34,12 +34,26 @@ PMW_PREFIX = "pmw_"
 IR_NAMES = ("ir_tcirar", "ir_hursat")
 RADAR_NAMES = ("radar_gmi", "radar_tmi")
 SAR_NAME = "sar_cband"
+ERA5_NAME = "era5_surface"
 
 # Radar channel name fragments (lowercase, as stored in metadata) → plot spec
 _RADAR_CHANNEL_SPECS: dict[str, ChannelPlotSpec] = {
     "nearsurfpreciptotrate": ChannelPlotSpec("precip", UNIT_MM_H),
     "nearsurfpreciptotratesigma": ChannelPlotSpec("anomaly", UNIT_MM_H),
     "mainprecipitationtype": ChannelPlotSpec("anomaly", ""),
+}
+
+# ERA5 surface channels → plot spec (fixed channel list from prepare_era5.py)
+_ERA5_CHANNEL_SPECS: dict[str, ChannelPlotSpec] = {
+    "precipitable_water": ChannelPlotSpec("precip", "mm"),
+    "rain_large_scale": ChannelPlotSpec("precip", UNIT_MM_H),
+    "rain_convective": ChannelPlotSpec("precip", UNIT_MM_H),
+    "sst": ChannelPlotSpec("tb", UNIT_K),
+    "pressure_msl": ChannelPlotSpec("wind", "hPa"),
+    "temperature_2m": ChannelPlotSpec("tb", UNIT_K),
+    "dewpoint_2m": ChannelPlotSpec("tb", UNIT_K),
+    "u_wind_10m": ChannelPlotSpec("anomaly", UNIT_M_S),
+    "v_wind_10m": ChannelPlotSpec("anomaly", UNIT_M_S),
 }
 
 
@@ -61,8 +75,8 @@ def discover_source_names(sources_root: Path) -> list[str]:
         if child.name.startswith(PMW_PREFIX) and _is_ready_source_dir(child):
             names.append(child.name)
 
-    # Fixed IR / radar / SAR source names
-    for name in (*IR_NAMES, *RADAR_NAMES, SAR_NAME):
+    # Fixed IR / radar / ERA5 / SAR source names
+    for name in (*IR_NAMES, *RADAR_NAMES, ERA5_NAME, SAR_NAME):
         if _is_ready_source_dir(sources_root / name):
             names.append(name)
         else:
@@ -91,6 +105,12 @@ def channel_specs_for_source(meta: SourceMetadata) -> list[ChannelPlotSpec]:
 
     if name == SAR_NAME:
         return [ChannelPlotSpec("sar_wind", UNIT_M_S)]
+
+    if name == ERA5_NAME:
+        return [
+            _ERA5_CHANNEL_SPECS.get(ch, ChannelPlotSpec("wind", ""))
+            for ch in meta.channels
+        ]
 
     raise ValueError(f"Unsupported source for gallery plotting: {name}")
 

@@ -24,7 +24,7 @@ of previous stages — never raw inputs from earlier ones.
 | Stage | Script | Inputs | Outputs |
 |---|---|---|---|
 | 0 | `prepare_ibtracs.py` | raw IBTrACS CSV | `ibtracs/ibtracs.parquet`, `ibtracs/atcf_to_sid.csv` |
-| 1 | `prepare_pmw.py`, `prepare_infrared.py`, `prepare_radar.py`, `sar/prepare_sar.py` | raw TC-PRIMED / CyclObs files, Stage 0 `atcf_to_sid.csv` | per-source HDF5 snapshots + `index.parquet` |
+| 1 | `prepare_pmw.py`, `prepare_infrared.py`, `prepare_radar.py`, `prepare_era5.py`, `sar/prepare_sar.py` | raw TC-PRIMED / CyclObs files, Stage 0 `atcf_to_sid.csv` | per-source HDF5 snapshots + `index.parquet` |
 | 2 | `assemble.py` | Stage 0 `ibtracs.parquet`, Stage 1 indices + snapshots | `storm_data/{sid}.h5`, `index.parquet` (uniform schema, all sources) |
 | 3A | `build_splits.py` | Stage 2 `index.parquet` | `train.parquet`, `val.parquet`, `test.parquet` (source-snapshot rows, split by season) |
 | 3B | `build_windows.py` | Stage 3A split parquets | `{windows_name}/train_windows.parquet` etc. (long-format window index) |
@@ -132,6 +132,13 @@ ${paths.preprocessed_sources}/
 
 Each per-source HDF5 file holds **exactly one source**, written by `Source.write(path)`.
 Use `Source.path(sources_root, source_name, sid, time_utc)` to compute canonical paths.
+
+**TC-PRIMED ERA5 surface (native rectilinear grid):** `prepare_era5.py` outputs
+`era5_surface` snapshots at 121×121 (30° patch, ±15°, 0.25°/px). One file per storm
+covers ~70 synoptic times; each time step becomes its own HDF5 snapshot. Channels:
+`precipitable_water, rain_large_scale, rain_convective, sst, pressure_msl,
+temperature_2m, dewpoint_2m, u_wind_10m, v_wind_10m` (all 2D surface fields from the
+`rectilinear` group; 3D pressure-level fields are not extracted).
 
 **TC-PRIMED infrared (native grid fixed size):** `prepare_infrared.py` outputs a
 storm-centered square on each source's regular lat/lon grid (no regridding):
@@ -316,6 +323,7 @@ data exists there or override `paths.scratch` on the command line.
 | `preprocess-pmw` | 1 — `tc_primed/prepare_pmw.py` (depends on ibtracs) |
 | `preprocess-infrared` | 1 — `tc_primed/prepare_infrared.py` |
 | `preprocess-radar` | 1 — `tc_primed/prepare_radar.py` |
+| `preprocess-era5` | 1 — `tc_primed/prepare_era5.py` |
 | `preprocess-sar` | 1 — `sar/prepare_sar.py` |
 | `preprocess-assemble` | 2 — `assemble.py` (`num_workers=4`) |
 | `preprocess-splits` | 3A — `build_splits.py` (season split) |
@@ -356,6 +364,7 @@ loads `atcf_to_sid.csv` from disk to discard files with unknown ATCF IDs.
 python scripts/preprocess/tc_primed/prepare_pmw.py submitit=false
 python scripts/preprocess/tc_primed/prepare_infrared.py submitit=false
 python scripts/preprocess/tc_primed/prepare_radar.py submitit=false
+python scripts/preprocess/tc_primed/prepare_era5.py submitit=false
 python scripts/preprocess/sar/prepare_sar.py submitit=false
 ```
 
