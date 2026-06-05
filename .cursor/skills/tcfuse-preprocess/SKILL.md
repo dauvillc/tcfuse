@@ -60,7 +60,7 @@ For forecast output storage (predictions, not preprocessing), see [tcfuse-predic
 | Dataset | Kind | Sources extracted | Status | Raw path config key |
 |---|---|---|---|---|
 | **TC-PRIMED v01r01** | PMW (11 sensors), IR geostationary, ERA5 surface, best-track | `best_track` (0D), `pmw_*` (2D), `ir_goes` (2D), `era5_surface` (2D) | Preprocessor implemented | `paths.raw_datasets.tc_primed` |
-| **CyclObs** | L-band (SMOS, SMAP) + C-band SAR (Sentinel-1) surface winds | `cyclobs_*` (2D) | Preprocessor not yet written | `paths.raw_datasets.cyclobs` |
+| **CyclObs** | C-band SAR (Sentinel-1) surface winds | `sar_cband` (2D FIELD) | `scripts/preprocess/sar/prepare_sar.py` | `paths.raw_datasets.cyclobs` |
 | **NOAA AOML Dropsondes** | Vertical profiles P/T/RH/u/v from hurricane recon | `dropsonde` (1D) | Preprocessor not yet written | `paths.raw_datasets.dropsondes` |
 | **Argo floats** | T/S profiles 0–2000 m depth | `argo` (1D) | Preprocessor not yet written | `paths.raw_datasets.argo` |
 
