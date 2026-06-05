@@ -1,0 +1,13 @@
+# Window configuration: 24-hour IBTrACS best-track forecasting.
+# Each IBTrACS snapshot defines a window; all sources from the preceding 24h
+# are used as inputs to predict the best-track state at the reference time.
+name: ibtracs_forecast_24h
+
+target_sources:
+  - ibtracs_best_track
+
+# Time offsets relative to the target snapshot's time_utc (pd.Timedelta strings).
+# start_time_offset is negative: inputs start 24 h before the target.
+# end_time_offset = 0H: inputs extend up to (and including) the reference time.
+start_time_offset: "-24H"
+end_time_offset: "0H"

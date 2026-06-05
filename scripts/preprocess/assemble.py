@@ -325,13 +325,15 @@ def build_assembled_index(
     assembled_root: Path,
     assembled_sids: list[str],
     sid_attrs: dict[str, dict[str, Any]],
+    atcf_for_sid: dict[str, str],
 ) -> pd.DataFrame:
     """Build the concatenated index of satellite rows + IBTrACS rows.
 
-    Satellite rows carry the trimmed schema in :data:`INDEX_COLUMNS`
-    (IBTrACS-specific columns are NaN). IBTrACS rows carry the full Stage 0
-    schema with ``source_name = "ibtracs_best_track"`` and the IBTrACS
-    ``iso_time`` column renamed to ``time_utc`` for the union schema.
+    Every row — satellite or IBTrACS — carries the same uniform schema:
+    ``INDEX_COLUMNS`` plus ``usa_atcf_id``.  IBTrACS numeric channel data
+    (wind, pressure, radii, …) is stored in the assembled HDF5 files and is
+    deliberately excluded from the index so that IBTrACS is treated like any
+    other source.
     """
     sat_index = _scan_storm_satellite_index(assembled_root, assembled_sids, sid_attrs)
 
@@ -342,23 +344,27 @@ def build_assembled_index(
     ibt_rows = cast(pd.DataFrame, ibt_rows.rename(columns={"iso_time": "time_utc"}))
     ibt_rows["source_name"] = IBTRACS_SOURCE_NAME
 
+    # Retain only the uniform schema columns from both sets of rows.
+    output_columns = [*INDEX_COLUMNS, "usa_atcf_id"]
+    for df in (sat_index, ibt_rows):
+        for col in output_columns:
+            if col not in df.columns:
+                df[col] = None
+
     combined = cast(
         pd.DataFrame,
-        pd.concat([sat_index, ibt_rows], ignore_index=True),
+        pd.concat(
+            [sat_index[output_columns], ibt_rows[output_columns]],
+            ignore_index=True,
+        ),
     )
 
-    # Establish a stable column order: trimmed schema first, then the IBTrACS-
-    # specific columns that only exist on best-track rows.
-    extra_columns = [c for c in combined.columns if c not in INDEX_COLUMNS]
-    final_columns = [*INDEX_COLUMNS, *extra_columns]
-    combined = cast(pd.DataFrame, combined.reindex(columns=final_columns))
-
-    # Fill IBTrACS-specific columns with NaN on satellite rows (already implicit
-    # via concat, but make it explicit for downstream consumers reading dtypes).
-    for col in extra_columns:
-        if combined[col].dtype == object:
-            continue
-        combined[col] = pd.to_numeric(combined[col], errors="coerce")
+    # Populate usa_atcf_id for satellite rows from the ATCF translation table;
+    # IBTrACS rows already carry it from the parquet.
+    missing_atcf = combined["usa_atcf_id"].isna()
+    combined.loc[missing_atcf, "usa_atcf_id"] = (
+        combined.loc[missing_atcf, "sid"].map(atcf_for_sid)
+    )
 
     return cast(
         pd.DataFrame,
@@ -466,7 +472,9 @@ def main(raw_cfg: DictConfig) -> None:
         print(f"Skipped / empty: {skipped}")
 
     print("Building assembled index …")
-    index_df = build_assembled_index(ibtracs_snapshots, assembled_root, written, sid_attrs)
+    index_df = build_assembled_index(
+        ibtracs_snapshots, assembled_root, written, sid_attrs, atcf_for_sid
+    )
     index_path = assembled_root / "index.parquet"
     index_df.to_parquet(index_path, index=False)
     print(f"Wrote assembled index: {len(index_df)} rows → {index_path}")

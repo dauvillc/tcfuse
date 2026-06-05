@@ -3,12 +3,13 @@ name: tcfuse-preprocess
 description: >-
   TC-Fuse dataset preprocessing pipeline — Stage 0 IBTrACS prep + ATCF→SID
   translation table, Stage 1 per-source HDF5 snapshots, Stage 2 assembled
-  per-storm HDF5 + concatenated index, Stage 3 best-track window splits,
-  normalization statistics, the I/O API in `src/tcfuse/data/sources/`. Use
-  when preparing any dataset (TC-PRIMED, CyclObs, dropsondes, Argo), running
-  `prepare_ibtracs.py` / `assemble.py` / `build_splits.py` /
-  `compute_normalization.py`, working with `Source` or `StormData`, or
-  extending the per-source HDF5 / assembled formats.
+  per-storm HDF5 + concatenated index, Stage 3A season splits,
+  Stage 3B window index building, normalization statistics, the I/O API in
+  `src/tcfuse/data/sources/`. Use when preparing any dataset (TC-PRIMED,
+  CyclObs, dropsondes, Argo), running `prepare_ibtracs.py` / `assemble.py` /
+  `build_splits.py` / `build_windows.py` / `compute_normalization.py`,
+  working with `Source` or `StormData`, or extending the per-source HDF5 /
+  assembled formats.
 ---
 
 # TC-Fuse preprocessing pipeline
@@ -24,13 +25,15 @@ of previous stages — never raw inputs from earlier ones.
 |---|---|---|---|
 | 0 | `prepare_ibtracs.py` | raw IBTrACS CSV | `ibtracs/ibtracs.parquet`, `ibtracs/atcf_to_sid.csv` |
 | 1 | `prepare_pmw.py`, `prepare_infrared.py`, `prepare_radar.py`, `sar/prepare_sar.py` | raw TC-PRIMED / CyclObs files, Stage 0 `atcf_to_sid.csv` | per-source HDF5 snapshots + `index.parquet` |
-| 2 | `assemble.py` | Stage 0 `ibtracs.parquet`, Stage 1 indices + snapshots | `storm_data/{sid}.h5`, `index.parquet` (concatenated) |
-| 3 | `build_splits.py`, `compute_normalization.py` | Stage 2 `index.parquet` | `train.parquet`, `val.parquet`, `test.parquet`, normalization stats |
+| 2 | `assemble.py` | Stage 0 `ibtracs.parquet`, Stage 1 indices + snapshots | `storm_data/{sid}.h5`, `index.parquet` (uniform schema, all sources) |
+| 3A | `build_splits.py` | Stage 2 `index.parquet` | `train.parquet`, `val.parquet`, `test.parquet` (source-snapshot rows, split by season) |
+| 3B | `build_windows.py` | Stage 3A split parquets | `{windows_name}/train_windows.parquet` etc. (long-format window index) |
+| 4 | `compute_normalization.py` | Stage 3A `train.parquet` + Stage 2 `index.parquet` | normalization stats |
 
 ## When to use
 
 - Writing or modifying a per-source preprocessor under `scripts/preprocess/`.
-- Running `prepare_ibtracs.py`, `assemble.py`, `build_splits.py`, or `compute_normalization.py`.
+- Running `prepare_ibtracs.py`, `assemble.py`, `build_splits.py`, `build_windows.py`, or `compute_normalization.py`.
 - Reading or writing `Source` / `StormData` HDF5 files.
 - Understanding the on-disk Stage 0 / Stage 1 / Stage 2 layouts and the assembled `index.parquet`.
 - Adding a new dataset to the project.
@@ -315,8 +318,9 @@ data exists there or override `paths.scratch` on the command line.
 | `preprocess-radar` | 1 — `tc_primed/prepare_radar.py` |
 | `preprocess-sar` | 1 — `sar/prepare_sar.py` |
 | `preprocess-assemble` | 2 — `assemble.py` (`num_workers=4`) |
-| `preprocess-splits` | 3 — `build_splits.py` |
-| `preprocess-normalization` | 3 — `compute_normalization.py` |
+| `preprocess-splits` | 3A — `build_splits.py` (season split) |
+| `preprocess-windows` | 3B — `build_windows.py` (window index, configurable via `windows_setup=`) |
+| `preprocess-normalization` | 4 — `compute_normalization.py` |
 | `preprocess-stage0` … `preprocess-stage3` | Composites for stages 0–3 |
 | `preprocess` | Full pipeline (stage0 → … → stage3) |
 
@@ -389,7 +393,7 @@ Key options:
 
 Spot-check with `StormData.from_disk(assembled_root, sid)` and the assembled index with `pd.read_parquet(assembled_root / "index.parquet")` — see I/O API reference below.
 
-### Step 6 — Stage 3 train/val/test splits
+### Step 6 — Stage 3A train/val/test splits
 
 After all desired sources are preprocessed and assembled, run:
 
@@ -401,36 +405,62 @@ python scripts/preprocess/build_splits.py
 python scripts/preprocess/build_splits.py paths=jz
 ```
 
-This reads the assembled `index.parquet` and builds one model sample per valid
-`ibtracs_best_track` assimilation window. By default, each sample is centred on
-`init_time_utc` (t₀) with lead hours `[-6, 0, 6, 12, 18, 24]` relative to t₀;
-finite `usa_wind`, `usa_sshs`, `lat`, and `lon` are required at `-6h`, `0h`, and
-`+24h`, while intermediate leads may be missing or NaN. Per-lead columns use
-signed prefixes such as `lead_-006h_usa_wind` and `lead_+000h_lat`.
+This reads the assembled `index.parquet` and partitions rows by season.
+IBTrACS is treated identically to any other source — no windowing happens here.
 
-The resulting sample rows are assigned to splits based on the season lists in
-`conf/preproc.yaml`:
+Split assignment is controlled by `conf/preproc.yaml`:
 - **val**:   seasons in `cfg.splits.val`
 - **test**:  seasons in `cfg.splits.test`
 - **train**: all remaining seasons
 
-The `season` column holds a single value per storm lifetime (not per-snapshot), so a
-storm that crosses a calendar year boundary is always assigned to one split.
-
-Output files:
+Output files (same uniform schema as `index.parquet`):
 
 ```
 ${paths.preprocessed_data}/
-├── index.parquet       # canonical source-snapshot index
-├── train.parquet
+├── index.parquet       # canonical source-snapshot index (all seasons)
+├── train.parquet       # source-snapshot rows for training seasons
 ├── val.parquet
 └── test.parquet
 ```
 
-`train.parquet`, `val.parquet`, and `test.parquet` are model-sample window
-indices, not source-snapshot indices.
+### Step 7 — Stage 3B window indexes
 
-### Step 7 — Compute normalization statistics
+Build training samples (windows) from the split files using a named window
+configuration from `conf/windows_setup/`:
+
+```bash
+# Default config (ibtracs_forecast_24h)
+python scripts/preprocess/build_windows.py
+
+# Jean-Zay / custom config
+python scripts/preprocess/build_windows.py paths=jz windows_setup=ibtracs_forecast_24h
+```
+
+Each snapshot from one of the `target_sources` defines a window.  All source
+snapshots for the same storm within `[ref_time + start_time_offset,
+ref_time + end_time_offset]` are collected as inputs.  The target snapshot is
+always present as `is_target = True` even when it falls outside the input range.
+
+Window config keys (see `conf/windows_setup/*.yaml`):
+- `name` — subdirectory name for outputs
+- `target_sources` — list of source names whose snapshots anchor windows
+- `start_time_offset` — `pd.Timedelta`-parseable string, typically negative
+- `end_time_offset` — `pd.Timedelta`-parseable string
+
+Output (long-format, one row per window × source snapshot):
+
+```
+${paths.preprocessed_data}/{windows_name}/
+├── train_windows.parquet
+├── val_windows.parquet
+└── test_windows.parquet
+```
+
+Output schema: `window_id | sid | basin | subbasin | season | usa_atcf_id |
+window_start_time_utc | window_end_time_utc | window_ref_time_utc |
+source_name | time_utc | is_target`
+
+### Step 8 — Compute normalization statistics
 
 After splits are built, compute per-channel mean and std for every source using an online
 Welford algorithm.  `compute_normalization.py` reads the training window index,

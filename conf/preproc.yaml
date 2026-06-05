@@ -2,6 +2,7 @@
 defaults:
   - paths: jz    # override with paths=jz on Jean-Zay
   - setup: jz_cpu    # override with setup=jz_<hw> on Jean-Zay
+  - windows_setup: ibtracs_forecast_24h    # override with windows_setup=<name>
   - _self_
 
 # If true, launches the jobs as a SLURM job using submitit
@@ -21,11 +22,3 @@ splits:
 # TC-PRIMED PMW/radar storm-centered equiangular grids (±extent_half_km per axis).
 tc_primed:
   storm_grid_extent_half_km: 750.0
-
-# Best-track window samples built by scripts/preprocess/build_splits.py.
-window_index:
-  source_name: ibtracs_best_track
-  leads_hours: [-6, 0, 6, 12, 18, 24]
-  required_leads_hours: [-6, 0, 24]
-  required_channels: [usa_wind, usa_sshs]
-  required_meta: [lat, lon]
