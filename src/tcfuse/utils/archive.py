@@ -77,6 +77,8 @@ def submit_archive_job(
     # Build a minimal archive-specific executor config.
     # No slurm_partition — omitting it lets SLURM use the default CPU partition,
     # which is far easier to schedule than archive/prepost nodes.
+    # --cpu-bind=none prevents the srun step from inheriting module-set CPU affinity
+    # that conflicts with a single-CPU allocation.
     archive_cfg: dict[str, Any] = {
         **cfg,
         "setup": {
@@ -86,6 +88,7 @@ def submit_archive_job(
             "slurm_ntasks_per_node": 1,
             "name": job_name,
             "slurm_setup": _ARCHIVE_SETUP_COMMANDS,
+            "slurm_srun_args": ["--cpu-bind=none"],
         },
     }
 
