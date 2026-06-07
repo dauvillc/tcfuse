@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from scripts.preprocess.utils.regridding import grid_shape_for_extent
+from scripts.preprocess.utils.regridding import grid_shape_for_extent, normalize_longitude_deg
 
 # Hand-maintained IFOV table shipped with the repo (SENSAT → SWATH → VAR → [4 floats]).
 TC_PRIMED_IFOVS_YAML = Path(__file__).resolve().parent / "tc_primed_ifovs.yaml"
@@ -33,7 +33,7 @@ def read_tc_primed_overpass_meta(raw: Any) -> dict[str, Any]:
     # Storm center position at overpass time (used for storm-centered regridding).
     storm_grp = raw["overpass_storm_metadata"]
     storm_lat = float(storm_grp["storm_latitude"][0])
-    storm_lon = (float(storm_grp["storm_longitude"][0]) + 180) % 360 - 180
+    storm_lon = normalize_longitude_deg(float(storm_grp["storm_longitude"][0]))
 
     return {
         "storm_id": storm_id,

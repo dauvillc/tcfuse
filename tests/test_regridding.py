@@ -13,6 +13,8 @@ from scripts.preprocess.utils.regridding import (
     EARTH_RADIUS,
     create_storm_centered_equiangular_area,
     grid_shape_for_extent,
+    normalize_longitude_deg,
+    regrid,
 )
 
 
@@ -76,3 +78,37 @@ class TestCreateStormCenteredEquiangularArea:
         expected_span_deg = (2 * 750.0 * 1000.0) / meters_per_degree
         assert (lats.max() - lats.min()) == pytest.approx(expected_span_deg, rel=0.02)
         assert (lons.max() - lons.min()) == pytest.approx(expected_span_deg, rel=0.02)
+
+
+class TestNormalizeLongitudeDeg:
+    """Tests for antimeridian-safe longitude normalization."""
+
+    def test_wraps_positive_longitudes(self) -> None:
+        assert normalize_longitude_deg(190.0) == pytest.approx(-170.0)
+
+    def test_maps_minus_180_to_plus_180(self) -> None:
+        assert normalize_longitude_deg(-180.0) == 180.0
+
+
+class TestAntimeridianRegridding:
+    """Regression tests for pyresample failures near the antimeridian."""
+
+    def test_create_area_at_minus_180_meridian(self) -> None:
+        """Storm centre at -180° must not produce broken pyresample extents."""
+        area = create_storm_centered_equiangular_area(-180.0, 10.0, 5.0, extent_half_km=750.0)
+        lon_min, lat_min, lon_max, lat_max = area.area_extent
+        assert abs(lon_min) <= 360.0
+        assert abs(lon_max) <= 360.0
+        assert -90.0 <= lat_min <= 90.0
+        assert -90.0 <= lat_max <= 90.0
+
+    def test_regrid_swath_crossing_antimeridian(self) -> None:
+        """Swath longitudes spanning 180° should regrid without ProjError."""
+        storm_lon, storm_lat = 170.0, 20.0
+        area = create_storm_centered_equiangular_area(storm_lon, storm_lat, 5.0)
+        height, width = 40, 40
+        lats = np.linspace(15.0, 25.0, height)[:, None] * np.ones(width)
+        lons = np.linspace(160.0, 190.0, width)[None, :] * np.ones((height, 1))
+        data = {"tb": np.ones((height, width), dtype=np.float64)}
+        (resampled, out_lats, out_lons), _ = regrid(lats, lons, data, area)
+        assert resampled["tb"].shape == out_lats.shape == out_lons.shape

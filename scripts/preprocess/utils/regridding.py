@@ -6,6 +6,7 @@ import traceback
 import warnings
 
 import numpy as np
+from pyproj.exceptions import ProjError
 from pyresample.area_config import create_area_def
 from pyresample.bilinear._numpy_resampler import NumpyBilinearResampler
 from pyresample.geometry import AreaDefinition, SwathDefinition
@@ -42,6 +43,20 @@ def _resolution_km_to_degrees(target_resolution_km: float) -> float:
     circumference = 2 * math.pi * EARTH_RADIUS
     meters_per_degree = circumference / 360.0
     return (target_resolution_km * 1000.0) / meters_per_degree
+
+
+def normalize_longitude_deg(lon: float) -> float:
+    """Map longitude to ``[-180, 180]``, using ``180`` instead of ``-180``.
+
+    Pyresample's ``create_area_def`` with ``longlat`` projection produces invalid
+    extents when the centre longitude is exactly ``-180°``.
+    """
+    # Wrap to the standard half-open interval [-180, 180).
+    wrapped = (lon + 180.0) % 360.0 - 180.0
+    # Collapse the antimeridian duplicate meridian to +180 for pyresample.
+    if wrapped == -180.0:
+        return 180.0
+    return wrapped
 
 
 def grid_shape_for_extent(extent_half_km: float, resolution_km: float) -> tuple[int, int]:
@@ -86,12 +101,14 @@ def create_storm_centered_equiangular_area(
     }
     grid_shape = grid_shape_for_extent(extent_half_km, target_resolution_km)
     res_degrees = _resolution_km_to_degrees(target_resolution_km)
+    # Avoid pyresample failure at the antimeridian meridian (-180 vs +180).
+    center_lon = normalize_longitude_deg(storm_lon)
 
     with DisableLogger():
         area = create_area_def(
             area_id="storm_centered_equiangular",
             projection=proj_dict,
-            center=(storm_lon, storm_lat),
+            center=(center_lon, storm_lat),
             shape=grid_shape,
             resolution=res_degrees,
             units="degrees",
@@ -106,23 +123,21 @@ def _shift_area_by_180(area: AreaDefinition) -> AreaDefinition:
     # For longlat projection, area_extent is in degrees: (lon_min, lat_min, lon_max, lat_max).
     lon_min, lat_min, lon_max, lat_max = area.area_extent
     centre_lon = (lon_min + lon_max) / 2
-    centre_lat = (lat_min + lat_max) / 2
     # Same 180° shift as applied to the swath: maps ±180° region to near 0°.
     shifted_lon = (centre_lon + 360 if centre_lon < 0 else centre_lon) - 180
-    with DisableLogger():
-        shifted = create_area_def(
-            area_id=area.area_id,
-            projection={"proj": "longlat", "a": EARTH_RADIUS},
-            center=(shifted_lon, centre_lat),
-            shape=area.shape,
-            resolution=area.pixel_size_x,
-            units="degrees",
-        )
-    if not isinstance(shifted, AreaDefinition):
-        raise TypeError(
-            f"Expected AreaDefinition from create_area_def, got {type(shifted).__name__}"
-        )
-    return shifted
+    delta = shifted_lon - centre_lon
+    # Shift the extent directly instead of going through create_area_def, which involves a
+    # resolution unit-conversion path (pixel_size_x → degrees) that can fail on some
+    # pyresample versions or with unusual area geometries.
+    return AreaDefinition(
+        area.area_id,
+        area.description,
+        area.proj_id,
+        {"proj": "longlat", "a": EARTH_RADIUS},
+        area.x_size,
+        area.y_size,
+        (lon_min + delta, lat_min, lon_max + delta, lat_max),
+    )
 
 
 def regrid(
@@ -161,7 +176,10 @@ def regrid(
         if lon_span > 180:
             lon = np.where(lon < 0, lon + 360, lon) - 180
             lons_were_shifted = True
-            target_area = _shift_area_by_180(target_area)
+            try:
+                target_area = _shift_area_by_180(target_area)
+            except ProjError as e:
+                raise ResamplingError("Failed to shift target area for antimeridian crossing") from e
 
     swath = SwathDefinition(lons=lon, lats=lat)
 
