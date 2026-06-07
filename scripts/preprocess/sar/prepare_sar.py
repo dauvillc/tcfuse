@@ -59,9 +59,13 @@ def process_sar_file(
         wind_speed = np.ma.filled(raw["wind_speed"][:].astype(float), np.nan)
         if wind_speed.ndim == 3:
             wind_speed = wind_speed[0]
-        mask_flag = np.array(raw["mask_flag"][:])
-        if mask_flag.ndim == 3:
-            mask_flag = mask_flag[0]
+        if "mask_flag" in raw.variables:
+            mask_flag = np.array(raw["mask_flag"][:])
+            if mask_flag.ndim == 3:
+                mask_flag = mask_flag[0]
+        else:
+            # Some files omit mask_flag entirely; treat all pixels as valid.
+            mask_flag = np.zeros(wind_speed.shape, dtype=np.int8)
         lat_1d = np.array(raw["lat"][:], dtype=np.float32)
         lon_1d = np.array(raw["lon"][:], dtype=np.float32)
 
