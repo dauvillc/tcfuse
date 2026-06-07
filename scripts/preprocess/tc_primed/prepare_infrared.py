@@ -140,7 +140,7 @@ def main(raw_cfg: DictConfig) -> None:
 
     launch_local_or_slurm(
         cfg,
-        "prepare_infrared",
+        "prep_ir",
         lambda: map_files(
             process_ir_file,
             all_files,

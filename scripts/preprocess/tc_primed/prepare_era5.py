@@ -135,7 +135,7 @@ def main(raw_cfg: DictConfig) -> None:
 
     launch_local_or_slurm(
         cfg,
-        "prepare_era5",
+        "prep_era5",
         lambda: map_files(
             process_env_file,
             all_files,

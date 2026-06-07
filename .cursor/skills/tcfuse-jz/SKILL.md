@@ -257,7 +257,32 @@ python scripts/train.py experiment=<name> submitit=false
 
 ## `conf/setup/` convention
 
-Keys are passed verbatim to `submitit.AutoExecutor.update_parameters()`.
+Keys are passed verbatim to `submitit.AutoExecutor.update_parameters()`, except **`name`**: `make_executor(cfg, job_name)` always overrides `setup.name` with the script-supplied `job_name`, so `squeue` shows a task-specific label rather than the generic `preproc_jz` / `download_jz` defaults in the yaml.
+
+### Preprocessing SLURM job names
+
+| Script | SLURM name(s) |
+|---|---|
+| `prepare_infrared.py` | `prep_ir` |
+| `prepare_era5.py` | `prep_era5` |
+| `prepare_sar.py` | `prep_sar` |
+| `prepare_pmw.py` | `prep_pmw_<sensat>` (e.g. `prep_pmw_amsr2_gcomw1`) — one job per sensor |
+| `prepare_radar.py` | `prep_radar_<sensat>` (e.g. `prep_radar_gmi_gpm`) — one job per sensor |
+| `assemble.py` | `assemble` |
+| `compute_normalization.py` | `norm_<source_name>` — one job per source |
+| `download_tc_primed.py` | `download_tc_primed` |
+| `download_sar_cyclobs.py` | `download_sar` |
+| Archive (via `submit_archive_job`) | `archive_<source_name>` |
+
+Submitit log folders mirror the SLURM name: `$WORK/tcfuse/submitit/{job_name}_{timestamp}/`.
+
+Example queue snapshot:
+```bash
+squeue -u $USER --format='%.10i %.25j %.8T %.10M %R'
+#   12345678          prep_pmw_amsr2_gcomw1  RUNNING       1:23:00 ...
+#   12345679                    prep_era5  RUNNING         45:00 ...
+#   12345680     archive_pmw_amsr2_gcomw1  PENDING         0:00  ...
+```
 
 Template for a new hardware config:
 ```yaml

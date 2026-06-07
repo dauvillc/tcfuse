@@ -207,7 +207,7 @@ def main(raw_cfg: DictConfig) -> None:
     def run_all_slurm() -> None:
         submit_slurm_jobs(
             cfg,
-            "prepare_radar",
+            "prep_radar",
             [
                 (
                     sensat,

@@ -226,7 +226,7 @@ def main(raw_cfg: DictConfig) -> None:
     def run_all_slurm() -> None:
         submit_slurm_jobs(
             cfg,
-            "prepare_pmw",
+            "prep_pmw",
             [
                 (
                     sensat,

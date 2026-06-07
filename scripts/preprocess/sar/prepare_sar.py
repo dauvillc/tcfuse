@@ -166,7 +166,7 @@ def main(raw_cfg: DictConfig) -> None:
 
     launch_local_or_slurm(
         cfg,
-        "prepare_sar",
+        "prep_sar",
         lambda: _process_all_files(
             files, file_infos, sources_root, atcf_to_sid, num_workers, skip_existing
         ),

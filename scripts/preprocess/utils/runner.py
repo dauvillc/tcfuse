@@ -248,19 +248,32 @@ def finalize_source(
     print(f"Wrote index ({source_name}): {len(index_df)} rows → {source_dir / 'index.parquet'}")
 
     # Optional archival to $STORE when enabled in jz_* setup configs.
+    # Non-fatal: a transient SLURM scheduling error must not abort finalization.
     tar_path = Path(cfg["paths"]["archives"]["preprocessed_sources"]) / f"{source_name}.tar.gz"
-    submit_archive_job(source_dir, tar_path, cfg, job_name=f"archive_{source_name}")
+    try:
+        submit_archive_job(source_dir, tar_path, cfg, job_name=f"archive_{source_name}")
+    except Exception as exc:
+        print(f"[WARN] archive submission failed for {source_name}: {exc}")
     return len(index_df)
 
 
 def submit_slurm_jobs(
     cfg: dict[str, Any],
-    job_name: str,
+    job_name_prefix: str,
     tasks: Iterable[tuple[str, Callable[..., Any], tuple[Any, ...]]],
 ) -> dict[str, Any]:
-    """Submit multiple submitit jobs and return results keyed by task label."""
+    """Submit one SLURM job per task and return results keyed by task label.
+
+    Each task gets its own executor so SLURM names are ``{job_name_prefix}_{label}``
+    (label lowercased), e.g. ``prep_pmw_amsr2_gcomw1``.
+    """
     from tcfuse.utils.submitit_utils import make_executor
 
-    executor = make_executor(cfg, job_name)
-    jobs = {label: executor.submit(fn, *args) for label, fn, args in tasks}
-    return {label: job.result() for label, job in tqdm(jobs.items(), desc="collecting results")}
+    jobs: dict[str, Any] = {}
+    for label, fn, args in tasks:
+        slurm_name = f"{job_name_prefix}_{label.lower()}"
+        executor = make_executor(cfg, slurm_name)
+        jobs[label] = executor.submit(fn, *args)
+    return {
+        label: job.result() for label, job in tqdm(jobs.items(), desc="collecting results")
+    }

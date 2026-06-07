@@ -308,7 +308,7 @@ def main(raw_cfg: DictConfig) -> None:
     if launch_local:
         job()
     else:
-        executor = make_executor(cfg, "download_sar_cyclobs")
+        executor = make_executor(cfg, "download_sar")
         submitted = executor.submit(job)
         print(f"Submitted job {submitted.job_id}")
 

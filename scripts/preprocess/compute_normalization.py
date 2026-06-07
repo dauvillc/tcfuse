@@ -231,17 +231,17 @@ def main(raw_cfg: DictConfig) -> None:
     if cfg.get("submitit", False):
         from tcfuse.utils.submitit_utils import make_executor
 
-        executor = make_executor(cfg, "compute_normalization")
-        jobs = {
-            source_name: executor.submit(
+        jobs = {}
+        for source_name, rows in groups.items():
+            slurm_name = f"norm_{source_name}"
+            executor = make_executor(cfg, slurm_name)
+            jobs[source_name] = executor.submit(
                 process_source,
                 source_name,
                 rows,
                 assembled_root,
                 channels_hints[source_name],
             )
-            for source_name, rows in groups.items()
-        }
         results = {}
         for source_name, job in tqdm(jobs.items(), desc="collecting results"):
             try:
