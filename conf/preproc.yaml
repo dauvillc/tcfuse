@@ -17,7 +17,7 @@ chunk_size: 200
 # Which seasons to use for val/test splits. All other seasons are used for training.
 splits:
   val: [2019, 2021]
-  test: [2020, 2022, 2023]
+  test: [2020, 2022, 2023, 2024, 2025]
 
 # TC-PRIMED PMW/radar storm-centered equiangular grids (±extent_half_km per axis).
 tc_primed:
