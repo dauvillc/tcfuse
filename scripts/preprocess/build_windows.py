@@ -8,11 +8,19 @@ Reads ``train.parquet``, ``val.parquet``, ``test.parquet`` produced by
 Each row in a window index corresponds to one source snapshot that participates
 in a window.  A window is anchored on a snapshot from one of the configured
 ``target_sources``; the window's reference time is that snapshot's ``time_utc``.
-Input sources are all snapshots from the same storm whose ``time_utc`` falls
-within ``[ref_time + start_time_offset, ref_time + end_time_offset]``.  The
+
+Input sources are governed by the ``input_sources`` specification: a mapping
+from source *type* to a list of ``(start_offset, end_offset, min_required)``
+periods (``pd.Timedelta`` strings).  A snapshot from the same storm is emitted
+into a window only when its source type is listed AND its ``time_utc`` falls
+within one of that type's periods.  A window is discarded entirely if any listed
+period contains fewer than ``min_required`` matching snapshots (use ``0`` to
+include a source without requiring it).  Type keys match ``source_name`` by
+prefix: ``"era5"`` matches ``era5_surface`` and ``"pmw"`` matches ``pmw_gmi`` /
+``pmw_tmi`` (counts are summed across matching sources).  The window's overall
+span is the union of all periods: ``[ref + min(start), ref + max(end)]``.  The
 target snapshot itself is always included with ``is_target = True``, even when
-it falls outside the input time range (e.g. when ``end_time_offset`` is
-negative).
+it falls outside that span.
 
 Window configuration lives under ``conf/windows_setup/`` and is selected via
 the ``windows_setup`` Hydra config group (default: ``ibtracs_forecast_24h``):
@@ -61,11 +69,37 @@ def _isoformat(ts: pd.Timestamp) -> str:
     return ts.tz_localize(None).isoformat() if ts.tzinfo is not None else ts.isoformat()
 
 
+# One input period: snapshots of a source type in [ref + start, ref + end],
+# with at least ``min_required`` of them needed for the window to survive.
+InputPeriod = tuple[pd.Timedelta, pd.Timedelta, int]
+
+
+def _parse_input_sources(
+    input_sources: dict[str, list[tuple[str, str, int]]],
+) -> dict[str, list[InputPeriod]]:
+    """Parse the raw ``input_sources`` config into typed timedelta periods."""
+    parsed: dict[str, list[InputPeriod]] = {}
+    for source_type, periods in input_sources.items():
+        parsed[str(source_type)] = [
+            (
+                cast(pd.Timedelta, pd.Timedelta(str(start))),
+                cast(pd.Timedelta, pd.Timedelta(str(end))),
+                int(min_required),
+            )
+            for start, end, min_required in periods
+        ]
+    return parsed
+
+
+def _matches_source_type(source_names: pd.Series, source_type: str) -> pd.Series:
+    """Prefix match: ``"era5"`` matches ``era5_surface``; ``"pmw"`` matches ``pmw_gmi``."""
+    return (source_names == source_type) | source_names.str.startswith(f"{source_type}_")
+
+
 def build_window_index(
     split_df: pd.DataFrame,
     target_sources: set[str],
-    start_time_offset: pd.Timedelta,
-    end_time_offset: pd.Timedelta,
+    input_sources: dict[str, list[tuple[str, str, int]]],
     desc: str = "windows",
 ) -> pd.DataFrame:
     """Build a long-format window index from a season-split source index.
@@ -73,16 +107,24 @@ def build_window_index(
     Args:
         split_df: One of train/val/test.parquet — one row per source snapshot.
         target_sources: Source names whose snapshots anchor windows.
-        start_time_offset: Window start relative to reference time (typically
-            negative, e.g. ``pd.Timedelta('-24H')``).
-        end_time_offset: Window end relative to reference time (may be negative
-            for pure forecasting or positive for assimilation).
+        input_sources: Mapping from source type to a list of
+            ``(start_offset, end_offset, min_required)`` periods. A snapshot is
+            emitted only when its source type is listed and it falls within one
+            of that type's periods; a window is discarded when any period has
+            fewer than ``min_required`` matching snapshots. Keys match
+            ``source_name`` by prefix.
         desc: Label for the per-storm tqdm progress bar.
 
     Returns:
         Long-format DataFrame with one row per (window, source snapshot).
     """
     output_rows: list[dict[str, Any]] = []
+
+    # Parse periods once and derive the union span used for window metadata.
+    parsed_sources = _parse_input_sources(input_sources)
+    all_periods = [period for periods in parsed_sources.values() for period in periods]
+    span_start = min(start for start, _, _ in all_periods)
+    span_end = max(end for _, end, _ in all_periods)
 
     # One progress step per storm (SID).
     n_storms = cast(int, split_df["sid"].nunique())
@@ -93,16 +135,43 @@ def build_window_index(
         # Parse timestamps once per storm for fast vectorised comparison.
         storm_times = pd.to_datetime(storm_rows["time_utc"], utc=False)
 
+        # Precompute the type mask for each source type once per storm.
+        storm_source_names = cast(pd.Series, storm_rows["source_name"].astype(str))
+        type_masks = {
+            source_type: _matches_source_type(storm_source_names, source_type)
+            for source_type in parsed_sources
+        }
+
         target_mask = storm_rows["source_name"].isin(list(target_sources))
         target_rows = storm_rows[target_mask]
 
         for target_idx, target_row in target_rows.iterrows():
             ref_time = cast(pd.Timestamp, storm_times.at[target_idx])
-            window_start = ref_time + start_time_offset
-            window_end = ref_time + end_time_offset
+            window_start = ref_time + span_start
+            window_end = ref_time + span_end
 
-            in_window = (storm_times >= window_start) & (storm_times <= window_end)
-            window_rows = storm_rows[in_window]
+            # Select which snapshots to emit, validating availability per period.
+            emit_mask = pd.Series(False, index=storm_rows.index)
+            window_ok = True
+            for source_type, periods in parsed_sources.items():
+                for start_off, end_off, min_required in periods:
+                    in_period = (storm_times >= ref_time + start_off) & (
+                        storm_times <= ref_time + end_off
+                    )
+                    period_mask = type_masks[source_type] & in_period
+                    # Discard the whole window if this period is under-populated.
+                    if int(period_mask.sum()) < min_required:
+                        window_ok = False
+                        break
+                    emit_mask |= period_mask
+                if not window_ok:
+                    break
+
+            # Skip windows that fail any availability constraint entirely.
+            if not window_ok:
+                continue
+
+            window_rows = storm_rows[emit_mask]
 
             target_time_utc = str(target_row["time_utc"])
             target_source_name = str(target_row["source_name"])
@@ -176,20 +245,25 @@ def main(raw_cfg: DictConfig) -> None:
 
     windows_name = str(windows_cfg["name"])
     target_sources: set[str] = set(str(s) for s in windows_cfg["target_sources"])
-    start_time_offset = cast(
-        pd.Timedelta, pd.Timedelta(str(windows_cfg["start_time_offset"]))
+
+    # input_sources is the canonical input specification (no top-level offsets).
+    input_sources = cast(
+        dict[str, list[tuple[str, str, int]]], windows_cfg.get("input_sources") or {}
     )
-    end_time_offset = cast(
-        pd.Timedelta, pd.Timedelta(str(windows_cfg["end_time_offset"]))
-    )
+    if not input_sources:
+        raise ValueError(
+            f"windows_setup '{windows_name}' has no 'input_sources'. Declare at least one "
+            "source type with (start_offset, end_offset, min_required) periods."
+        )
 
     windows_root = assembled_root / windows_name
     windows_root.mkdir(parents=True, exist_ok=True)
 
     print(f"Windows config: {windows_name}")
     print(f"  target_sources : {sorted(target_sources)}")
-    print(f"  start_time_offset: {start_time_offset}")
-    print(f"  end_time_offset  : {end_time_offset}")
+    print("  input_sources  :")
+    for source_type, periods in input_sources.items():
+        print(f"    {source_type}: {[tuple(p) for p in periods]}")
     print(f"  output dir       : {windows_root}\n")
 
     print(f"{'Split':<8}  {'Windows':>9}  {'Rows':>9}")
@@ -204,8 +278,7 @@ def main(raw_cfg: DictConfig) -> None:
         windows_df = build_window_index(
             split_df,
             target_sources,
-            start_time_offset,
-            end_time_offset,
+            input_sources,
             desc=f"{split_name} windows",
         )
 

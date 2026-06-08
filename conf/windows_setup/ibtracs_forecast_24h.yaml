@@ -1,13 +1,20 @@
-# Window configuration: 24-hour IBTrACS best-track forecasting.
-# Each IBTrACS snapshot defines a window; all sources from the preceding 24h
-# are used as inputs to predict the best-track state at the reference time.
+# Window configuration: IBTrACS best-track forecasting from ERA5 inputs.
+# Each IBTrACS snapshot defines a window; ERA5 surface states from the
+# preceding hours are used as inputs to predict the best-track state at the
+# reference time.
 name: ibtracs_forecast_24h
 
 target_sources:
   - ibtracs_best_track
 
-# Time offsets relative to the target snapshot's time_utc (pd.Timedelta strings).
-# start_time_offset is negative: inputs start 24 h before the target.
-# end_time_offset = 0H: inputs extend up to (and including) the reference time.
-start_time_offset: "-24H"
-end_time_offset: "0H"
+# Input source specification. For each source type, a list of
+# (start_offset, end_offset, min_required) periods (pd.Timedelta strings).
+# A snapshot is emitted only if its type is listed here and falls within one of
+# its periods. A window is discarded if any period has fewer than min_required
+# matching snapshots; use 0 to include a source without requiring it. Keys match
+# source_name by prefix ("era5" -> era5_surface, "pmw" -> pmw_gmi/pmw_tmi).
+# The overall window span is the union of all periods.
+input_sources:
+  era5:
+    - ["-13h", "-11h", 1]   # one ERA5 state ~12 h before target
+    - ["-7h", "-5h", 1]     # one ERA5 state ~6 h before target

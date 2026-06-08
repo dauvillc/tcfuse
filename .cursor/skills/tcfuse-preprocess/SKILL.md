@@ -445,16 +445,22 @@ python scripts/preprocess/build_windows.py
 python scripts/preprocess/build_windows.py paths=jz windows_setup=ibtracs_forecast_24h
 ```
 
-Each snapshot from one of the `target_sources` defines a window.  All source
-snapshots for the same storm within `[ref_time + start_time_offset,
-ref_time + end_time_offset]` are collected as inputs.  The target snapshot is
-always present as `is_target = True` even when it falls outside the input range.
+Each snapshot from one of the `target_sources` defines a window.  Input
+snapshots are governed by the `input_sources` specification: a snapshot from the
+same storm is collected only when its source *type* is listed AND its `time_utc`
+falls within one of that type's periods.  A window is discarded entirely when any
+listed period contains fewer than its `min_required` snapshots (use `0` to
+include a source without requiring it).  The window's overall span is the union
+of all periods.  The target snapshot is always present as `is_target = True`
+even when it falls outside that span.
 
 Window config keys (see `conf/windows_setup/*.yaml`):
 - `name` — subdirectory name for outputs
 - `target_sources` — list of source names whose snapshots anchor windows
-- `start_time_offset` — `pd.Timedelta`-parseable string, typically negative
-- `end_time_offset` — `pd.Timedelta`-parseable string
+- `input_sources` — mapping `{source_type: [[start_offset, end_offset, min_required], ...]}`.
+  Offsets are `pd.Timedelta`-parseable strings (typically negative). Type keys
+  match `source_name` by prefix (`"era5"` → `era5_surface`; `"pmw"` → `pmw_gmi`
+  / `pmw_tmi`, with `min_required` counted across all matching sources).
 
 Output (long-format, one row per window × source snapshot):
 
