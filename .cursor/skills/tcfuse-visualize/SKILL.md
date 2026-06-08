@@ -106,6 +106,10 @@ path = save_fig(fig, "figures/my_plot")  # saves to figures/my_plot.svg
 `plot_field()` rasterizes the `pcolormesh` layer on save so SVG/PDF files stay small while
 titles, ticks, and coastlines remain vector.
 
+`plot_source_timeline()` histograms snapshot times into UTC bins and rasterizes the
+availability strip so large assembled indexes do not emit one SVG path per snapshot;
+titles and axis labels remain vector.
+
 `setup_style()` sets `text.usetex=False` and uses system serif fonts (DejaVu Serif, STIX, Times).
 
 Use `UNIT_K`, `UNIT_MM_H`, `UNIT_M_S` from `style.py` for colorbar units (matplotlib mathtext
