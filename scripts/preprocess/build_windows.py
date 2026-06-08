@@ -133,7 +133,7 @@ def build_window_index(
         sid = str(sid_value)
 
         # Parse timestamps once per storm for fast vectorised comparison.
-        storm_times = pd.to_datetime(storm_rows["time_utc"], utc=False)
+        storm_times = pd.to_datetime(storm_rows["time_utc"], utc=False).dt.round("min")
 
         # Precompute the type mask for each source type once per storm.
         storm_source_names = cast(pd.Series, storm_rows["source_name"].astype(str))
