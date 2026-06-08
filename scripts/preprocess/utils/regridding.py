@@ -59,6 +59,12 @@ def normalize_longitude_deg(lon: float) -> float:
     return wrapped
 
 
+def near_antimeridian(lon: np.ndarray, threshold_deg: float = 1.0) -> bool:
+    """Return True if any finite longitude is within threshold_deg of ±180°."""
+    finite = lon[np.isfinite(lon)]
+    return bool(np.any(finite > 180 - threshold_deg) or np.any(finite < -180 + threshold_deg))
+
+
 def grid_shape_for_extent(extent_half_km: float, resolution_km: float) -> tuple[int, int]:
     """Return (height, width) for a storm-centered grid spanning ±extent_half_km.
 

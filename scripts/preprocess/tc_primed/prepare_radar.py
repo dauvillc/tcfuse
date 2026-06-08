@@ -24,6 +24,7 @@ from scripts.preprocess.tc_primed.utils import (
 from scripts.preprocess.utils.regridding import (
     ResamplingError,
     create_storm_centered_equiangular_area,
+    near_antimeridian,
     regrid,
 )
 from scripts.preprocess.utils.runner import (
@@ -105,6 +106,9 @@ def process_radar_file(
 
         lat, lon, data = _read_radar_swath(radar_grp[swath], variables)
         if any(np.all(np.isnan(arr)) for arr in data.values()):
+            return False
+        # Discard swaths that touch or cross the antimeridian — regridding breaks there.
+        if near_antimeridian(lon):
             return False
 
         # Storm-centered regrid at finest IFOV for this sensor/swath.
