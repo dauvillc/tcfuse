@@ -42,9 +42,7 @@ def test_plot_source_timeline_respects_explicit_bin_count() -> None:
 
     fig, ax = plot_source_timeline(index_df, n_time_bins=120)
 
-    image = next(
-        artist for artist in ax.get_children() if isinstance(artist, AxesImage)
-    )
+    image = next(artist for artist in ax.get_children() if isinstance(artist, AxesImage))
     rgba = np.asarray(image.get_array())
     assert rgba.shape == (2, 120, 4)
     plt.close(fig)

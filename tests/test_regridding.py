@@ -4,7 +4,6 @@ import math
 
 import numpy as np
 import pytest
-
 from scripts.preprocess.tc_primed.utils import (
     get_storm_centered_grid_shape,
     storm_grid_extent_half_km_from_cfg,
@@ -22,7 +21,7 @@ class TestGridShapeForExtent:
     """Tests for fixed storm-centered grid dimensions."""
 
     def test_shape_at_five_km_resolution(self) -> None:
-        """750 km half-extent at 5 km/pixel yields 300×300 grid."""
+        """750 km half-extent at 5 km/pixel yields 300x300 grid."""
         assert grid_shape_for_extent(750.0, 5.0) == (300, 300)
 
     def test_get_storm_centered_grid_shape_from_ifovs(self) -> None:

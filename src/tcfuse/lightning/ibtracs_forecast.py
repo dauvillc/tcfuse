@@ -97,10 +97,7 @@ class IBTrACSForecastLightningModule(lightning.LightningModule):
         params = dict(self.named_parameters())
         # Decay 2D+ tensors only (weight matrices, conv kernels).
         # Skip 1D tensors (norms, biases, embeddings if 1D).
-        decay_params = {
-            k for k, v in params.items()
-            if v.ndim >= 2 and "norm" not in k
-        }
+        decay_params = {k for k, v in params.items() if v.ndim >= 2 and "norm" not in k}
         # Weight decay applies only to the decay group; other kwargs go to AdamW.
         adamw_kwargs = dict(self._adamw_kwargs)
         weight_decay = adamw_kwargs.pop("weight_decay", 0.0)

@@ -13,7 +13,8 @@ Examples
 python scripts/preprocess/sar/download_sar_cyclobs.py submitit=false paths=local
 
 # 2)  Override the instrument filter
-python scripts/preprocess/sar/download_sar_cyclobs.py submitit=false paths=local +instrument=C-Band_SAR
+python scripts/preprocess/sar/download_sar_cyclobs.py submitit=false paths=local \
+# +instrument=C-Band_SAR
 
 # 3)  Download only selected seasons and basins
 python scripts/preprocess/sar/download_sar_cyclobs.py \

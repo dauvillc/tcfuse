@@ -67,9 +67,7 @@ class TorchSource:
                 raise ValueError(f"SCALAR values must be 2-D (B, C), got {v.shape}")
             expected_coords = (B, 2)
             if c.shape != expected_coords:
-                raise ValueError(
-                    f"SCALAR coords must be {expected_coords}, got {c.shape}"
-                )
+                raise ValueError(f"SCALAR coords must be {expected_coords}, got {c.shape}")
 
         elif self.kind is SourceKind.PROFILE:
             # PROFILE values: (B, L, C); coords: (B, L, 3)
@@ -77,9 +75,7 @@ class TorchSource:
                 raise ValueError(f"PROFILE values must be 3-D (B, L, C), got {v.shape}")
             expected_coords = (B, v.shape[1], 3)
             if c.shape != expected_coords:
-                raise ValueError(
-                    f"PROFILE coords must be {expected_coords}, got {c.shape}"
-                )
+                raise ValueError(f"PROFILE coords must be {expected_coords}, got {c.shape}")
 
         elif self.kind is SourceKind.FIELD:
             # FIELD values: (B, H, W, C); coords: (B, H, W, 2)
@@ -87,21 +83,15 @@ class TorchSource:
                 raise ValueError(f"FIELD values must be 4-D (B, H, W, C), got {v.shape}")
             expected_coords = (B, v.shape[1], v.shape[2], 2)
             if c.shape != expected_coords:
-                raise ValueError(
-                    f"FIELD coords must be {expected_coords}, got {c.shape}"
-                )
+                raise ValueError(f"FIELD coords must be {expected_coords}, got {c.shape}")
 
         if self.mask.shape != v.shape:
-            raise ValueError(
-                f"mask shape {self.mask.shape} must match values shape {v.shape}"
-            )
+            raise ValueError(f"mask shape {self.mask.shape} must match values shape {v.shape}")
 
         # time must be (B, 2) — one normalised [day/366, minute/1440] per sample.
         expected_time = (B, 2)
         if self.time.shape != expected_time:
-            raise ValueError(
-                f"time must be {expected_time}, got {self.time.shape}"
-            )
+            raise ValueError(f"time must be {expected_time}, got {self.time.shape}")
 
     @property
     def batch_size(self) -> int:

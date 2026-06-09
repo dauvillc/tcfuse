@@ -212,9 +212,7 @@ def build_assembled_index(
     # Populate usa_atcf_id for satellite rows from the ATCF translation table;
     # IBTrACS rows already carry it from the parquet.
     missing_atcf = combined["usa_atcf_id"].isna()
-    combined.loc[missing_atcf, "usa_atcf_id"] = (
-        combined.loc[missing_atcf, "sid"].map(atcf_for_sid)
-    )
+    combined.loc[missing_atcf, "usa_atcf_id"] = combined.loc[missing_atcf, "sid"].map(atcf_for_sid)
 
     return cast(
         pd.DataFrame,

@@ -96,12 +96,10 @@ def process_ir_file(
     side = 2 * half_width_px + 1
     irwin, lat2d, lon2d = center_crop_or_pad_2d(side, side, irwin, lat2d, lon2d)
 
-    h, w = irwin.shape
+    _h, _w = irwin.shape
     values_np = irwin[..., np.newaxis].astype(np.float32)
     # Spatial coords only: [lat, lon] per pixel — time goes to Source.time_utc.
-    coords_np = np.stack(
-        [lat2d.astype(np.float32), lon2d.astype(np.float32)], axis=-1
-    )
+    coords_np = np.stack([lat2d.astype(np.float32), lon2d.astype(np.float32)], axis=-1)
     mask_np = np.isfinite(values_np)
 
     source = Source(

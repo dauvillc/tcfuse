@@ -185,7 +185,9 @@ def regrid(
             try:
                 target_area = _shift_area_by_180(target_area)
             except ProjError as e:
-                raise ResamplingError("Failed to shift target area for antimeridian crossing") from e
+                raise ResamplingError(
+                    "Failed to shift target area for antimeridian crossing"
+                ) from e
 
     swath = SwathDefinition(lons=lon, lats=lat)
 

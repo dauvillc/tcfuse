@@ -61,9 +61,7 @@ class TCWindowDataModule(lightning.LightningDataModule):
             RuntimeError: If :meth:`setup` has not been called yet.
         """
         if self._sources_metadata is None:
-            raise RuntimeError(
-                "sources_metadata is not available before setup() is called."
-            )
+            raise RuntimeError("sources_metadata is not available before setup() is called.")
         return MultisourceMetadata.from_dict(self._sources_metadata.to_dict())
 
     def setup(self, stage: str | None = None) -> None:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-
 from scripts.preprocess.sar.download_sar_cyclobs import filter_sar_acquisitions_metadata
 
 

@@ -27,7 +27,7 @@ the ``windows_setup`` Hydra config group (default: ``ibtracs_forecast_24h``):
 
     python scripts/preprocess/build_windows.py [paths=jz] [windows_setup=<name>]
 
-Output schema (one row per window × source snapshot):
+Output schema (one row per window x source snapshot):
 
     window_id | sid | basin | subbasin | season | usa_atcf_id |
     window_start_time_utc | window_end_time_utc | window_ref_time_utc |
@@ -229,9 +229,9 @@ def build_window_index(
         return pd.DataFrame(columns=_WINDOW_COLS)
     return cast(
         pd.DataFrame,
-        pd.DataFrame(output_rows, columns=_WINDOW_COLS).sort_values(
-            ["sid", "window_ref_time_utc", "time_utc"]
-        ).reset_index(drop=True),
+        pd.DataFrame(output_rows, columns=_WINDOW_COLS)
+        .sort_values(["sid", "window_ref_time_utc", "time_utc"])
+        .reset_index(drop=True),
     )
 
 

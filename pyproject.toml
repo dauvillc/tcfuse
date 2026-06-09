@@ -31,10 +31,11 @@ ignore = [
     "D100", # missing docstring in public module
     "D104", # missing docstring in public package
     "D107", # missing docstring in __init__
+    "N806", # uppercase dimension variables (B, H, W, C, L) are conventional in ML code
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["ANN", "D"]
+"tests/**" = ["ANN", "D", "N803"]  # N803: uppercase dimension args (B, H, W, C, L) in test helpers
 "scripts/**" = ["ANN", "D"]
 "notebooks/**" = ["ANN", "D", "E", "F"]
 

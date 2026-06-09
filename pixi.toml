@@ -49,6 +49,7 @@ lightning = "==2.5.6"
 notebook = "jupyter lab --no-browser"
 test = "pytest tests/"
 lint = "ruff check src/ tests/ scripts/"
+lint-fix = "ruff check src/ tests/ scripts/ --fix"
 format = "ruff format src/ tests/ scripts/"
 format-check = "ruff format --check src/ tests/ scripts/"
 typecheck = { cmd = "basedpyright", env = { LANG = "C", LC_ALL = "C" } }

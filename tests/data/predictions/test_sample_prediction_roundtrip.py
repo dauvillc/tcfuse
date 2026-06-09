@@ -9,7 +9,6 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import torch
 
 from tcfuse.data.predictions import SamplePrediction
 from tcfuse.data.sources import Source, SourceKind

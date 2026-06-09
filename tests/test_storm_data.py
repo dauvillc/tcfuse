@@ -210,7 +210,7 @@ class TestStormDataRoundTrip:
         assert ("pmw_ssmi", _TIME_0) in result.sources
 
     def test_multi_source_multi_snapshot_round_trip(self) -> None:
-        # 2 sources × 2 snapshots = 4 entries; all must survive.
+        # 2 sources x 2 snapshots = 4 entries; all must survive.
         sources = {
             ("pmw_ssmi", _TIME_0): make_field_source(),
             ("pmw_ssmi", _TIME_1): make_field_source(),

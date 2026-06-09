@@ -67,8 +67,7 @@ def main(raw_cfg: DictConfig) -> None:
 
     if not index_path.exists():
         raise FileNotFoundError(
-            f"Assembled index not found at {index_path}. "
-            "Run scripts/preprocess/assemble.py first."
+            f"Assembled index not found at {index_path}. Run scripts/preprocess/assemble.py first."
         )
 
     val_seasons: set[int] = set(cfg["splits"]["val"])

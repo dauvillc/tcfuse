@@ -274,6 +274,4 @@ def submit_slurm_jobs(
         slurm_name = f"{job_name_prefix}_{label.lower()}"
         executor = make_executor(cfg, slurm_name)
         jobs[label] = executor.submit(fn, *args)
-    return {
-        label: job.result() for label, job in tqdm(jobs.items(), desc="collecting results")
-    }
+    return {label: job.result() for label, job in tqdm(jobs.items(), desc="collecting results")}

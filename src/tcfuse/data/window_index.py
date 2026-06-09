@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 import pandas as pd
+
+# Timestamp types accepted by pandas.Timestamp() constructor.
+TimestampLike = str | datetime | pd.Timestamp | float | int
 
 SplitName = Literal["train", "val", "test"]
 
@@ -27,7 +31,7 @@ _REQUIRED_INDEX_COLUMNS = (
 )
 
 
-def parse_utc_timestamp(value: Any) -> pd.Timestamp:
+def parse_utc_timestamp(value: TimestampLike) -> pd.Timestamp:
     """Parse a timestamp value as UTC for exact window matching.
 
     Args:
@@ -45,9 +49,9 @@ def parse_utc_timestamp(value: Any) -> pd.Timestamp:
 
 
 def snapshot_in_window(
-    time_utc: Any,
-    window_start_utc: Any,
-    window_end_utc: Any,
+    time_utc: TimestampLike,
+    window_start_utc: TimestampLike,
+    window_end_utc: TimestampLike,
 ) -> bool:
     """Return True when a snapshot falls inside a closed assimilation window."""
     snapshot_ts = parse_utc_timestamp(time_utc)

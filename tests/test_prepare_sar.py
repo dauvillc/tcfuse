@@ -1,16 +1,15 @@
 """Unit tests for SAR preprocessing grid sizing."""
 
 import numpy as np
-
 from scripts.preprocess.sar.prepare_sar import SAR_CENTER_CROP_HALF_WIDTH_PX
 from scripts.preprocess.utils.field_grid import center_crop_or_pad_2d
 
 
 class TestSarFixedGridSize:
-    """SAR snapshots are always 401×401 after meshgrid + center crop/pad."""
+    """SAR snapshots are always 401x401 after meshgrid + center crop/pad."""
 
     def test_undersized_wind_field_pads_to_401(self) -> None:
-        """Undersized native grids become 401×401 with NaN borders."""
+        """Undersized native grids become 401x401 with NaN borders."""
         side = 2 * SAR_CENTER_CROP_HALF_WIDTH_PX + 1
         h, w = 300, 350
         wind = np.ones((h, w))

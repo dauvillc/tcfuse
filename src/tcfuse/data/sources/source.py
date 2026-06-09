@@ -97,9 +97,7 @@ class Source:
             if v.ndim != 1:
                 raise ValueError(f"SCALAR values must be 1-D (C,), got shape {v.shape}")
             if c.shape != (2,):
-                raise ValueError(
-                    f"SCALAR coords must be (2,) for [lat, lon], got {c.shape}"
-                )
+                raise ValueError(f"SCALAR coords must be (2,) for [lat, lon], got {c.shape}")
 
         elif self.kind is SourceKind.PROFILE:
             # PROFILE values: (L, C); coords: (L, 3) = [lat, lon, alt] per level
@@ -119,8 +117,7 @@ class Source:
             expected_coords_shape = (*v.shape[:2], 2)
             if c.shape != expected_coords_shape:
                 raise ValueError(
-                    f"FIELD coords must be {expected_coords_shape} for [lat, lon], "
-                    f"got {c.shape}"
+                    f"FIELD coords must be {expected_coords_shape} for [lat, lon], got {c.shape}"
                 )
 
         if self.mask.shape != v.shape:

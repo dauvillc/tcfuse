@@ -87,7 +87,6 @@ def _flatten_values_and_mask(
     return flat, flat_mask & np.isfinite(flat)
 
 
-
 def _welford_update(
     count: float,
     mean: float,

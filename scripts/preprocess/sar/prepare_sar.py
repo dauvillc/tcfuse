@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 from netCDF4 import Dataset
 from omegaconf import DictConfig
-
 from scripts.preprocess.utils.field_grid import center_crop_or_pad_2d
 from scripts.preprocess.utils.runner import (
     finalize_source,
@@ -21,6 +20,7 @@ from scripts.preprocess.utils.runner import (
     map_files,
     resolve_preproc_cfg,
 )
+
 from tcfuse.data.sources import Source, SourceKind
 from tcfuse.utils.time import to_compact_time
 
@@ -79,7 +79,7 @@ def process_sar_file(
     lon_2d, lat_2d = np.meshgrid(lon_1d, lat_1d)
     side = 2 * SAR_CENTER_CROP_HALF_WIDTH_PX + 1
     wind_speed, lat_2d, lon_2d = center_crop_or_pad_2d(side, side, wind_speed, lat_2d, lon_2d)
-    h, w = lat_2d.shape
+    _h, _w = lat_2d.shape
     values_np = wind_speed[:, :, np.newaxis].astype(np.float32)
     mask_np = np.isfinite(values_np)
     # Spatial coords only: [lat, lon] per pixel — time goes to Source.time_utc.

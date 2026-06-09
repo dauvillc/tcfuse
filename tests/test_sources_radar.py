@@ -171,7 +171,7 @@ class TestRadarSwathReader:
                 raise KeyError(f"Unknown key: {key}")
 
         grp = MockGroup()
-        lat, lon, data = _read_radar_swath(grp, ["var"])
+        _lat, lon, _data = _read_radar_swath(grp, ["var"])
 
         # Check that all longitudes are in [-180, 180]
         assert np.all(lon >= -180) and np.all(lon <= 180)
@@ -238,13 +238,13 @@ class TestRadarSourceConstruction:
         )
 
         # Check only the NaN channels are marked invalid.
-        assert source.mask[0, 0, 0] == False
-        assert source.mask[0, 0, 1] == True
-        assert source.mask[2, 3, 1] == False
-        assert source.mask[2, 3, 2] == True
+        assert not source.mask[0, 0, 0]
+        assert source.mask[0, 0, 1]
+        assert not source.mask[2, 3, 1]
+        assert source.mask[2, 3, 2]
         # Check that other pixels are valid.
-        assert source.mask[0, 1, 0] == True
-        assert source.mask[4, 4, 2] == True
+        assert source.mask[0, 1, 0]
+        assert source.mask[4, 4, 2]
 
     def test_radar_source_n_tokens(self):
         """Test token count for FIELD source."""

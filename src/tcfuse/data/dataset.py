@@ -80,9 +80,7 @@ class TCWindowDataset(Dataset[WindowSample]):
         self._windows_index = pd.read_parquet(index_path)
 
         # Pre-group for O(1) per-item lookup; preserve parquet row order.
-        self._window_ids: list[str] = (
-            self._windows_index["window_id"].drop_duplicates().tolist()
-        )
+        self._window_ids: list[str] = self._windows_index["window_id"].drop_duplicates().tolist()
         self._window_groups: dict[str, pd.DataFrame] = cast(
             dict[str, pd.DataFrame],
             {wid: grp for wid, grp in self._windows_index.groupby("window_id", sort=False)},
@@ -91,9 +89,7 @@ class TCWindowDataset(Dataset[WindowSample]):
         # Always load sources_metadata from disk.
         metadata_path = assembled_root / _SOURCES_METADATA_FILENAME
         if not metadata_path.exists():
-            raise FileNotFoundError(
-                f"sources_metadata.yaml not found at {metadata_path}"
-            )
+            raise FileNotFoundError(f"sources_metadata.yaml not found at {metadata_path}")
         loaded = MultisourceMetadata.from_yaml(metadata_path)
         # Snapshot so later external mutations cannot leak in.
         self._sources_metadata = MultisourceMetadata.from_dict(loaded.to_dict())

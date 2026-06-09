@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import cast
 
 import pandas as pd
-
 from scripts.preprocess.build_windows import build_window_index
 
 _SID = "2016292N14270"

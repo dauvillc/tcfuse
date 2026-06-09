@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-
 from scripts.preprocess.compute_normalization import _flatten_values_and_mask
+
 from tcfuse.data.sources import SourceKind
 
 

@@ -162,8 +162,12 @@ class SamplePrediction:
 
             # Forward Source.meta (lat, lon, vmax_kt, ...) as snapshot-level attrs.
             skip_keys = {
-                "source_name", "channels", "kind", "time_utc",
-                "lead_hour", "char_vars",
+                "source_name",
+                "channels",
+                "kind",
+                "time_utc",
+                "lead_hour",
+                "char_vars",
             }
             for key, value in source.meta.items():
                 if key in skip_keys:
@@ -245,9 +249,7 @@ class SamplePrediction:
                 meta: dict[str, Any] = {
                     "time_utc": time_utc,
                 }
-                skip_keys = {
-                    "source_name", "channels", "kind", "time_utc", "char_vars"
-                }
+                skip_keys = {"source_name", "channels", "kind", "time_utc", "char_vars"}
                 for key in snap_group.attrs:
                     if key not in skip_keys:
                         meta[key] = snap_group.attrs[key]

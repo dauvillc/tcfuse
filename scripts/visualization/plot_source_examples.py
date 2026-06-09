@@ -107,10 +107,7 @@ def channel_specs_for_source(meta: SourceMetadata) -> list[ChannelPlotSpec]:
         return [ChannelPlotSpec("sar_wind", UNIT_M_S)]
 
     if name == ERA5_NAME:
-        return [
-            _ERA5_CHANNEL_SPECS.get(ch, ChannelPlotSpec("wind", ""))
-            for ch in meta.channels
-        ]
+        return [_ERA5_CHANNEL_SPECS.get(ch, ChannelPlotSpec("wind", "")) for ch in meta.channels]
 
     raise ValueError(f"Unsupported source for gallery plotting: {name}")
 

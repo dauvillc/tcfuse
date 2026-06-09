@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+
 from tcfuse.data.visualization.fields import ChannelPlotSpec, plot_field_source_channels
 from tcfuse.data.visualization.style import UNIT_MM_H
 from tests.test_sources import make_field_source
@@ -27,5 +28,3 @@ def test_plot_field_source_channels_multi_panel() -> None:
 
     assert len(axes) == 4
     plt.close(fig)
-
-

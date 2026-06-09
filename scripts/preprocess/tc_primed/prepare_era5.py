@@ -80,21 +80,14 @@ def process_env_file(
 
             # lat/lon are 1D per time step on this rectilinear storm-centered grid.
             lat_1d = np.ma.filled(rect["latitude"][t].astype(float), np.nan)
-            lon_1d = (
-                np.ma.filled(rect["longitude"][t].astype(float), np.nan) + 180
-            ) % 360 - 180
+            lon_1d = (np.ma.filled(rect["longitude"][t].astype(float), np.nan) + 180) % 360 - 180
             lon2d, lat2d = np.meshgrid(lon_1d, lat_1d)
 
             values_np = np.stack(
-                [
-                    np.ma.filled(rect[ch][t].astype(float), np.nan)
-                    for ch in ERA5_2D_CHANNELS
-                ],
+                [np.ma.filled(rect[ch][t].astype(float), np.nan) for ch in ERA5_2D_CHANNELS],
                 axis=-1,
             ).astype(np.float32)
-            coords_np = np.stack(
-                [lat2d.astype(np.float32), lon2d.astype(np.float32)], axis=-1
-            )
+            coords_np = np.stack([lat2d.astype(np.float32), lon2d.astype(np.float32)], axis=-1)
             mask_np = np.isfinite(values_np)
 
             source = Source(

@@ -8,6 +8,7 @@ across the project. No external LaTeX installation is required.
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import Colormap
 
 # --- Figure width constants (inches, AMS / AGU two-column style) ---
 COL1 = 3.5  # single-column width
@@ -55,7 +56,7 @@ CMAPS_FALLBACK: dict[str, str] = {
 }
 
 
-def get_cmap(key: str):
+def get_cmap(key: str) -> Colormap | str:
     """Return the best available colormap for the given physical quantity.
 
     Prefers cmocean if installed; falls back to the matplotlib equivalent.

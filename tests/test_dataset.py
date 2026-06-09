@@ -41,11 +41,23 @@ def _make_windows_df() -> pd.DataFrame:
         "window_end_time_utc": _TIME_INSIDE_LATE,
         "window_ref_time_utc": init_time_str,
     }
-    return pd.DataFrame([
-        {**common, "source_name": SOURCE_NAME, "time_utc": init_time_str, "is_target": True},
-        {**common, "source_name": "pmw_ssmi", "time_utc": _TIME_INSIDE_EARLY, "is_target": False},
-        {**common, "source_name": "pmw_ssmi", "time_utc": _TIME_INSIDE_LATE, "is_target": False},
-    ])
+    return pd.DataFrame(
+        [
+            {**common, "source_name": SOURCE_NAME, "time_utc": init_time_str, "is_target": True},
+            {
+                **common,
+                "source_name": "pmw_ssmi",
+                "time_utc": _TIME_INSIDE_EARLY,
+                "is_target": False,
+            },
+            {
+                **common,
+                "source_name": "pmw_ssmi",
+                "time_utc": _TIME_INSIDE_LATE,
+                "is_target": False,
+            },
+        ]
+    )
 
 
 def _write_windows_parquet(assembled_root: Path) -> None:
@@ -192,7 +204,7 @@ class TestTCWindowDataset:
             _write_storm_with_mixed_snapshots(assembled_root)
             _write_windows_parquet(assembled_root)
             # Deliberately omit sources_metadata.yaml.
-            with pytest.raises(FileNotFoundError, match="sources_metadata.yaml"):
+            with pytest.raises(FileNotFoundError, match=r"sources_metadata.yaml"):
                 TCWindowDataset(assembled_root, _WINDOWS_SETUP, split="train")
 
     def test_raises_when_windows_parquet_is_missing(self) -> None:

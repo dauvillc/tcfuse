@@ -1,8 +1,6 @@
 """Unit tests for native-grid center crop / NaN padding (field_grid.py)."""
 
 import numpy as np
-import pytest
-
 from scripts.preprocess.utils.field_grid import center_crop_or_pad_2d, center_fixed_length_1d
 
 
@@ -59,7 +57,7 @@ class TestCenterCropOrPad2d:
         assert np.isnan(out[:, -2:]).all()
 
     def test_hursat_size(self) -> None:
-        """201×201 target from 401×401 native grid."""
+        """201x201 target from 401x401 native grid."""
         field = np.ones((401, 401))
         out = center_crop_or_pad_2d(201, 201, field)[0]
         assert out.shape == (201, 201)

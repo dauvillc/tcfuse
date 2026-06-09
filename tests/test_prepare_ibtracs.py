@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import pytest
 from scripts.preprocess.prepare_ibtracs import preprocess_ibtracs, write_outputs
 
 # ---------------------------------------------------------------------------
