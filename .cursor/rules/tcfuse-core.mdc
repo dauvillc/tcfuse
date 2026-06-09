@@ -80,6 +80,7 @@ project_root/
 │   ├── lightning/
 │   │   ├── datamodule.py      ← TCWindowDataModule (LightningDataModule)
 │   │   ├── ibtracs_forecast.py ← IBTrACSForecastLightningModule
+│   │   ├── source_transform.py ← WindowSourceTransformModule (general WindowBatch→WindowBatch)
 │   │   └── lr_scheduler.py    ← CosineAnnealingWarmupRestarts
 │   ├── model/
 │   │   ├── embeddings/        ← value embedders per source type (0D, 1D, 2D)
