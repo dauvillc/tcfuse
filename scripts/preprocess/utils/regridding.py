@@ -211,9 +211,10 @@ def regrid(
 
     out_lons, out_lats = target_area.get_lonlats()
     if lons_were_shifted:
-        # Restore [-180, 180] longitudes after resampling in shifted coordinates.
+        # Restore the longitudes, but now without a seam at the antimeridian.
+        # After that, longitudes can go slightly beyond 180° but will always be monotonic
+        # and contiguous.
         out_lons += 180.0
-        out_lons = np.where(out_lons > 180.0, out_lons - 360.0, out_lons)
 
     # Return shape: ((resampled_data, out_lats, out_lons), target_area).
     result = (resampled_vars, out_lats, out_lons)
