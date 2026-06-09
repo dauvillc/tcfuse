@@ -1,14 +1,6 @@
----
-description: Project-wide human-readable coding style — factorization, inline comments, validation policy
-globs: src/**/*.py, scripts/**/*.py, tests/**/*.py
-alwaysApply: false
----
-
-<!-- Source of truth: .agents/coding-style.md — this file is a Cursor mirror. Edit .agents/coding-style.md first, then apply the change here. -->
-
 # Human-readable coding style
 
-Full rules live in [`tcfuse-core.mdc`](mdc:.cursor/rules/tcfuse-core.mdc) § Human-readable code (priority). This file adds concrete examples.
+Full rules live in [`.agents/context.md`](context.md) § Human-readable code (priority). This file adds concrete examples.
 
 ## Factorization
 
@@ -66,4 +58,4 @@ if not isinstance(swath_entry, dict):
     raise TypeError(f"IFOV entry must be a dict, got {type(swath_entry).__name__}")
 ```
 
-**Do** — ask the user before adding new validation; rely on natural tracebacks for config/path mistakes. Only keep checks listed as documented invariants in `tcfuse-core.mdc` or domain skills.
+**Do** — ask the user before adding new validation; rely on natural tracebacks for config/path mistakes. Only keep checks listed as documented invariants in `context.md` or domain skills.

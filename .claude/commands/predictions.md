@@ -4,9 +4,9 @@ Canonical tests: `tests/data/predictions/`.
 
 This command activates the TC-Fuse prediction I/O skill. **Before reading or editing `src/tcfuse/data/predictions/` or writing inference/evaluation scripts**, read these files:
 
-1. `.cursor/skills/tcfuse-predictions/SKILL.md`
-2. `.cursor/skills/tcfuse-predictions/reference.md` — schemas, paths, HDF5 layout
-3. `.cursor/skills/tcfuse-predictions/adaptation.md` — API change proposals
+1. `.agents/predictions/skill.md`
+2. `.agents/predictions/reference.md` — schemas, paths, HDF5 layout
+3. `.agents/predictions/adaptation.md` — API change proposals
 
 Keep docs in sync: when changing `src/tcfuse/data/predictions/`, update the skill files in the same PR; update this file and `CLAUDE.md` if triggers or behavior rules change.
 

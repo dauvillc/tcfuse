@@ -1,10 +1,10 @@
 # /jz — Jean-Zay Cluster Operations Agent
 
-Source of truth: [`.cursor/skills/tcfuse-jz/SKILL.md`](../../.cursor/skills/tcfuse-jz/SKILL.md).
+Source of truth: [`.agents/jz.md`](../../.agents/jz.md).
 
-This command activates the TC-Fuse Jean-Zay skill. **Before running, submitting, monitoring, or rsync'ing anything on Jean-Zay**, read the SKILL.md. All behavior rules, storage layout, rsync command, SLURM configs, and walltimes are defined there.
+This command activates the TC-Fuse Jean-Zay skill. **Before running, submitting, monitoring, or rsync'ing anything on Jean-Zay**, read the skill file. All behavior rules, storage layout, rsync command, SLURM configs, and walltimes are defined there.
 
-Keep docs in sync: when SLURM conventions, storage layout, or rsync filters change, update SKILL.md and this file together.
+Keep docs in sync: when SLURM conventions, storage layout, or rsync filters change, update `.agents/jz.md` and this file together.
 
 ---
 

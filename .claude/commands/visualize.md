@@ -1,12 +1,12 @@
 # /visualize — Publication-Quality Visualization Agent
 
-Source of truth: [`.cursor/skills/tcfuse-visualize/SKILL.md`](../../.cursor/skills/tcfuse-visualize/SKILL.md).
+Source of truth: [`.agents/visualize.md`](../../.agents/visualize.md).
 
-This command activates the TC-Fuse visualization skill. **Before writing or editing any plotting function, adding a new thematic module, or modifying `src/tcfuse/data/visualization/style.py`**, read the SKILL.md. All behavior rules, style API, and module conventions are defined there.
+This command activates the TC-Fuse visualization skill. **Before writing or editing any plotting function, adding a new thematic module, or modifying `src/tcfuse/data/visualization/style.py`**, read the skill file. All behavior rules, style API, and module conventions are defined there.
 
 Figures target AMS / AGU journal layout, saved as SVG via `save_fig`. No external LaTeX required.
 
-Keep docs in sync: when `style.py` or a thematic module changes, update SKILL.md and this file together.
+Keep docs in sync: when `style.py` or a thematic module changes, update `.agents/visualize.md` and this file together.
 
 ---
 

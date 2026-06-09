@@ -1,0 +1,192 @@
+# TC-Fuse Core Context
+
+This project develops a machine learning framework for **tropical cyclone (TC) analysis and forecasting** by fusing heterogeneous observation sources. The central scientific idea is that each observation source — regardless of its physical nature — can be represented as a set of measurements associated with explicit spatio-temporal coordinates. This coordinate-aware multi-source representation is the backbone of the entire framework.
+
+This is a standalone research project. It is not a version or extension of any prior system — it is designed from first principles with efficiency, modularity, and multi-architecture support in mind.
+
+**Target tasks (in order of priority):**
+
+1. Rapid intensification (RI) forecasting at lead times of +6 h to +48 h.
+2. High-resolution inner-core wind field and pressure reconstruction.
+3. Microwave image interpolation from sparse multi-source satellite passes.
+4. Track forecasting (downstream, via fine-tuning).
+
+## On-demand skills (`.agents/`)
+
+Read the matching skill file before doing work in that area. The Claude slash commands in `.claude/commands/` are thin redirects to these skills.
+
+| Topic | Skill file | Claude slash command |
+|---|---|---|
+| Dataset preprocessing pipeline (per-source HDF5, assembled storms, splits, normalization) | [`.agents/preprocess.md`](preprocess.md) | `/preprocess` |
+| Jean-Zay cluster operations (rsync, SLURM, monitoring, W&B sync, checkpoints) | [`.agents/jz.md`](jz.md) | `/jz` |
+| Forecast output storage (`PredictionRun`, `SamplePrediction`, `ibtracs.parquet`) | [`.agents/predictions/skill.md`](predictions/skill.md) | `/predictions` |
+| Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`.agents/visualize.md`](visualize.md) | `/visualize` |
+| Basedpyright diagnostics workflow | [`.agents/pyright-fixer.md`](pyright-fixer.md) | (none) |
+
+## Core data abstraction
+
+The fundamental unit of this framework is a **source**: a collection of measurements of the same physical quantity, acquired by the same instrument or model, at the same nominal time, sharing a common coordinate system.
+
+Every source, regardless of its dimensionality, is represented as a set of **(value, coordinate)** pairs:
+
+| Source type | Example sources | Value shape | Coordinate channels |
+|---|---|---|---|
+| **0D** (scalar) | Best-track, buoy point obs | `(C,)` | time, lat, lon |
+| **1D** (vertical profile) | Dropsonde, Argo float | `(L, C)` — L levels, C channels | time, lat, lon, altitude/depth |
+| **2D** (image / field) | PMW satellite, IR geostationary, ERA5 field | `(H, W, C)` | time (scalar), lat grid `(H, W)`, lon grid `(H, W)` |
+
+**Hard constraints — never violate these:**
+
+- Coordinates are always **continuous and physical** (degrees, seconds since epoch, meters). No learned bin embeddings for coordinates.
+- Coordinates are stored **alongside** values, not inferred from array indices.
+- A source may have **missing values**; every `Source` carries a per-value availability mask with the same shape as `values`, where `True` means finite/available and `False` means NaN/missing.
+- `Source` may be **batched** (leading `B` axis) only inside ML pipeline internals (dataset/collate/model flow). Preprocessing, evaluation, and visualization code paths must use non-batched `Source` objects.
+- The number of sources per sample is **variable**. No fixed-size source list.
+- All snapshots within a given source share the same **spatial shape** `(H, W)` for FIELD sources (or `()` / `(L,)` for SCALAR / PROFILE). The shape is stored in `SourceMetadata.shape` and therefore knowable without loading any HDF5 file.
+- IBTrACS USA and WMO best-track quantities are **distinct definitions**; store them in separate channels/columns and preserve NaN rather than falling back or coalescing across providers.
+
+## Dataset stack
+
+| Dataset | Content | Location |
+|---|---|---|
+| **TC-PRIMED v01r01** | PMW (11 sensors), IR, ERA5, DPR, best-track. 1987–2024, 3,552 storms | `TODO: $SCRATCH/tc_primed/` |
+| **CyclObs** | L-band (SMOS, SMAP) + C-band SAR surface winds | `TODO: $SCRATCH/cyclobs/` |
+| **NOAA AOML Dropsondes** | Vertical profiles (P, T, RH, u, v), ~13k sondes | `TODO: $SCRATCH/dropsondes/` |
+| **Argo floats** | T/S profiles 0–2000 m, ~100k profiles/year | `TODO: $SCRATCH/argo/` |
+
+## On-disk preprocessed format
+
+On-disk layouts (Stage 0–3, HDF5 schemas, index.parquet columns, I/O API) → [`.agents/preprocess.md`](preprocess.md).
+
+## Repository structure
+
+```
+project_root/
+├── conf/                      ← Hydra config tree (dataloader/, datamodule/, model/, paths/, optimizer/, lr_scheduler/, experiment/)
+├── src/tcfuse/
+│   ├── data/
+│   │   ├── sources/           ← Source, SourceKind, SourceMetadata, MultisourceMetadata, StormData
+│   │   ├── collocation.py     ← spatiotemporal window queries
+│   │   ├── transforms.py      ← normalization, coordinate encoding
+│   │   ├── collate.py         ← collate_window_samples → WindowBatch
+│   │   └── dataset.py         ← TCWindowDataset (PyTorch map-style Dataset)
+│   ├── lightning/
+│   │   ├── datamodule.py      ← TCWindowDataModule (LightningDataModule)
+│   │   ├── ibtracs_forecast.py ← IBTrACSForecastLightningModule
+│   │   └── lr_scheduler.py    ← CosineAnnealingWarmupRestarts
+│   ├── model/
+│   │   ├── embeddings/        ← value embedders per source type (0D, 1D, 2D)
+│   │   ├── encoders/          ← interchangeable backbone architectures
+│   │   ├── decoders/          ← task heads (regression, generative, classification)
+│   │   └── model.py           ← top-level nn.Module backbone
+│   ├── training/              ← losses.py, callbacks.py
+│   └── utils/                 ← coords.py, archive.py
+├── scripts/preprocess/        ← prepare_*.py, assemble.py, build_splits.py, compute_normalization.py
+├── scripts/train/             ← profile_data.py and future training-adjacent scripts (hydra+submitit, no model)
+├── tests/
+└── notebooks/                 ← exploration only, never imported by src/
+```
+
+## Repository conventions
+
+- Use `conf/` for Hydra configuration and `cfg.paths.*` for all paths.
+- Assemble full run configs only in `conf/experiment/`.
+- Path resolution is handled by `conf/paths/`. Select the environment at launch: `paths=local` (default) for local debugging, `paths=jz` on Jean-Zay. All code must reference paths via `cfg.paths.*` — never hardcode filesystem paths.
+- Never import anything from `notebooks/` into `src/`.
+- Keep source embedders unit-testable with synthetic tensors only (no real data required for unit tests).
+- Preserve the preprocessing order: `assemble.py`, `build_splits.py`, then `compute_normalization.py`.
+- Pixi is the source of truth for local development and CI dependencies. Use `pixi add` or `pixi add --pypi` for dependency changes, and run checks through Pixi tasks (`pixi run typecheck`, `pixi run lint`, `pixi run test`, `pixi run format-check`).
+- `requirements-jz.txt` is generated from `pixi.toml` for Jean-Zay only (which uses site modules, not Pixi). Regenerate it with `pixi run export-jz-requirements`; do not edit it by hand.
+- Do not recreate `requirements.txt`, `requirements-ci.txt`, or `requirements-dev.txt`; CI uses Pixi directly.
+
+## Coding rules
+
+### Human-readable code (priority)
+
+Human readability beats clever abstraction. A reader should understand any file top-to-bottom without jumping across many modules. This applies to **all** project code: `src/tcfuse/`, `scripts/`, `tests/`, and config with logic.
+
+- **Factorization:** extract a function or module only if (a) reused in **2+ files**, or (b) the block is **~40+ lines** and naming it clarifies the main flow. Do **not** create one-liner helpers, docstring-heavy wrappers, or extra files used from a single call site.
+- **Inline comments:** put a `# comment` **before every logical step** — aim for roughly **one comment line per 1–2 code lines** at non-trivial sites (reads, transforms, tensor ops, writes, control flow). Docstrings stay one-line summaries (+ Args/Returns when needed); detailed narration lives in **inline comments**, not in docstrings.
+- **Validation policy:** this is a research codebase. Do **not** add `raise`/`assert`/defensive guards unless (i) the user asked, or (ii) it is a **documented invariant** below or in a skill. If unsure, **ask first**.
+
+**Documented invariants** (keep; not defensive fluff):
+
+- **Data abstraction:** `Source` tensor shape checks in `src/tcfuse/data/sources/source.py` — core API contract.
+- **Preprocessing pipeline** (details in [`.agents/preprocess.md`](preprocess.md)): IBTrACS ATCF→SID resolution, NaN lat/lon skip for SCALAR sources, train-only normalization (no split leakage).
+
+See also [`.agents/coding-style.md`](coding-style.md) for concrete do/don't examples.
+
+### Python typing discipline
+
+See [`.agents/python-typing.md`](python-typing.md) (read before editing any Python file). Key points:
+
+- Preserve basedpyright correctness for changed code; run `pixi run typecheck` after substantive edits.
+- Preserve linting correctness for changed code; run `pixi run lint` after any edit and fix all reported errors before finishing.
+- Use Python 3.12 typing style; prefer precise types over `Any`.
+- No `# type: ignore` / `# pyright: ignore` without explicit user approval.
+- Warn the user before applying a cosmetic typing fix that might mask a real bug.
+- Isolate third-party unknown-type noise (pandas/numpy/torch) at boundaries with small annotations or local casts; don't weaken project code.
+
+### Other coding rules
+
+- Type hints on all function signatures.
+- Docstrings on all public classes and functions (one-line summary + Args/Returns for non-trivial ones).
+- Put configurable hyperparameters in `conf/`, not in code.
+- No magic numbers anywhere in `src/`; use named constants or config values.
+- Document tensor shapes in docstrings or comments, for example `# (B, L, C)`.
+- Ask before guessing unresolved design choices such as tensor layout, coordinate normalization, masking, or task head interfaces.
+
+## Architecture philosophy
+
+The framework is **architecture-agnostic at the backbone level**. The embedding layer (value + coordinate → token) and the task heads (decoder) are fixed interfaces; the encoder between them is swappable. This makes it straightforward to benchmark multiple architectures without rewriting data loading or training logic.
+
+```
+[Source 1: values + coords] ──┐
+[Source 2: values + coords] ──┼──► [Source Embeddings] ──► [Encoder (swappable)] ──► [Task Head]
+[Source N: values + coords] ──┘
+```
+
+**The encoder interface:**
+
+- Input: a list of token sequences, one per source, each of shape `(B, N_i, D)` where `N_i` is the number of tokens for source `i` and `D` is the embedding dimension.
+- Output: a representation that the task head can query — exact form depends on architecture (latent array for Perceiver, CLS token for ViT-style, etc.).
+- The encoder must be instantiable from a Hydra config node.
+
+**Candidate architectures to benchmark** (extend as needed):
+
+- Perceiver / Perceiver IO.
+- Cross-attention Transformer (queries from anchor points or task positions).
+- Hierarchical windowed attention (Swin-style, per source + cross-source).
+
+**Self-supervised pre-training task:** randomly mask one source at training time; reconstruct its values from all remaining sources, using only its coordinates and instrument metadata as queries. This is the default pre-training objective. Supervised fine-tuning follows for specific tasks.
+
+## Tech stack
+
+Python 3.10+, PyTorch, PyTorch Lightning, Hydra (config), Weights & Biases (logging).
+
+## W&B conventions
+
+- Project name: `TODO`.
+- Entity: `TODO`.
+- Run naming: `{architecture}_{sources}_{task}_{date}` — e.g. `perceiver_pmw-era5-argo_ri_20250901`.
+- Always log: source types present, number of training samples, GPU memory peak, val metrics per task head.
+
+## Jean-Zay cluster quick reference
+
+Full workflow and hardware configs (rsync, preflight, submission, monitoring, W&B sync, checkpoints, `jz_gpu_v100` / `jz_gpu_a100` / `jz_gpu_h100` / `jz_cpu` / `jz_prepost`) → [`.agents/jz.md`](jz.md).
+
+## Workflow rules
+
+1. **Plan before implementing.** For any non-trivial task, propose a plan (module structure, interface, test strategy) and wait for approval before writing code.
+2. **One module at a time.** Implement and test one component fully before moving to the next.
+3. **Ask, don't guess** on design decisions not covered by the rules and skills. Especially: tensor layout, coordinate normalization strategy, masking implementation, task head interface.
+4. **Prefer explicit over implicit.** If a function's behavior depends on the presence or absence of a source, make that conditional explicit in the code and documented in the docstring.
+5. **Tests are not optional.** Every new embedding module ships with a unit test using a synthetic `(B, N, C)` tensor. Every data loader change ships with a test that runs on a 10-sample subset.
+6. **Update the rules and skills** whenever:
+   - A new source type or embedding convention is decided → update the data abstraction table.
+   - A new architecture is added → update the architecture section.
+   - A new SLURM script is written → update [`.agents/jz.md`](jz.md).
+   - A new dataset path is confirmed → update the dataset stack table and [`.agents/preprocess.md`](preprocess.md).
+   - A new W&B convention is established → update the W&B section.
+   - Prediction storage convention or on-disk layout changes → update [`.agents/predictions/skill.md`](predictions/skill.md) and `.claude/commands/predictions.md` if triggers or behavior rules change.
+   - A new skill area is added or an existing one is renamed/removed → update `.agents/<topic>.md`, then update **both** `.cursor/skills/<topic>/SKILL.md` (thin pointer) and `.claude/commands/<topic>.md` (slash-command redirect); update the skills table in `context.md`, `CLAUDE.md`, and `AGENTS.md`.

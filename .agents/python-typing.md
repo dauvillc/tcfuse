@@ -1,11 +1,3 @@
----
-description: Keep Python edits clean under basedpyright
-globs: **/*.py
-alwaysApply: false
----
-
-<!-- Source of truth: .agents/python-typing.md — this file is a Cursor mirror. Edit .agents/python-typing.md first, then apply the change here. -->
-
 # Python Typing Discipline
 
 When editing Python files:
