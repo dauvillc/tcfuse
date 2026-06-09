@@ -87,7 +87,7 @@ class IBTrACSForecastLightningModule(lightning.LightningModule):
         return {
             "sample_ids": batch.sample_ids,
             "sids": batch.sids,
-            "init_times_utc": batch.init_times_utc,
+            "init_times_utc": batch.window_ref_times_utc,
             "outputs": _outputs,
         }
 

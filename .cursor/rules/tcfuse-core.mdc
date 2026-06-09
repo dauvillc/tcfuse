@@ -87,6 +87,7 @@ project_root/
 │   ├── training/              ← losses.py, callbacks.py
 │   └── utils/                 ← coords.py, archive.py
 ├── scripts/preprocess/        ← prepare_*.py, assemble.py, build_splits.py, compute_normalization.py
+├── scripts/train/             ← profile_data.py and future training-adjacent scripts (hydra+submitit, no model)
 ├── tests/
 └── notebooks/                 ← exploration only, never imported by src/
 ```

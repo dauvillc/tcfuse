@@ -6,9 +6,10 @@ import dataclasses
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import h5py
+import pandas as pd
 
 from tcfuse.data.sources.source import Source, SourceKind
 from tcfuse.data.window_index import snapshot_in_window
@@ -203,6 +204,77 @@ class StormData:
                     skip_keys = {
                         "source_name", "channels", "kind", "time_utc", "char_vars"
                     }
+                    for key in snap_group.attrs:
+                        if key not in skip_keys:
+                            meta[key] = snap_group.attrs[key]
+                    source.meta = meta
+
+                    sources[(source_name, time_utc)] = source
+
+        return cls(
+            storm_id=loaded_storm_id,
+            basin=basin,
+            subbasin=subbasin,
+            season=season,
+            sources=sources,
+            atcf_id=atcf_id,
+        )
+
+    @classmethod
+    def from_disk_for_snapshots(
+        cls,
+        assembled_root: Path,
+        storm_id: str,
+        snapshots: set[tuple[str, str]],
+    ) -> "StormData":
+        """Load only the specified ``(source_name, time_utc)`` snapshots from HDF5.
+
+        Both sides of the match are normalised to :class:`pandas.Timestamp` so
+        minor string-format differences (e.g. missing microseconds) between the
+        window-index parquet and the HDF5 attribute do not cause missed hits.
+
+        Args:
+            assembled_root: Root directory for assembled storm files.
+            storm_id: IBTrACS SID, e.g. ``"2016292N14270"``.
+            snapshots: Set of ``(source_name, time_utc_isoformat)`` pairs to
+                load.  Snapshots not present in this set are skipped entirely.
+
+        Returns:
+            :class:`StormData` with only the requested sources loaded.
+        """
+        normalised: set[tuple[str, pd.Timestamp]] = {
+            (sname, cast(pd.Timestamp, pd.Timestamp(ts))) for sname, ts in snapshots
+        }
+        path = StormData.path(assembled_root, storm_id)
+        sources: dict[tuple[str, str], Source] = {}
+
+        with h5py.File(path, "r") as f:
+            loaded_storm_id = str(f.attrs["storm_id"])
+            basin = str(f.attrs["basin"])
+            subbasin = str(f.attrs["subbasin"])
+            season = int(str(f.attrs["season"]))
+            atcf_id: str | None = str(f.attrs["atcf_id"]) if "atcf_id" in f.attrs else None
+
+            for source_name, source_group in f.items():
+                if not isinstance(source_group, h5py.Group):
+                    continue
+                for _compact_time, snap_group in source_group.items():
+                    if not isinstance(snap_group, h5py.Group):
+                        continue
+
+                    time_utc = str(snap_group.attrs["time_utc"])
+                    if (source_name, cast(pd.Timestamp, pd.Timestamp(time_utc))) not in normalised:
+                        continue
+
+                    kind = SourceKind[str(snap_group.attrs["kind"])]
+                    source = Source.from_hdf5_group(snap_group, kind)
+
+                    meta: dict[str, Any] = {
+                        "storm_id": loaded_storm_id,
+                        "basin": basin,
+                        "time_utc": time_utc,
+                    }
+                    skip_keys = {"source_name", "channels", "kind", "time_utc", "char_vars"}
                     for key in snap_group.attrs:
                         if key not in skip_keys:
                             meta[key] = snap_group.attrs[key]

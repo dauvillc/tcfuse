@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -26,7 +26,7 @@ class WindowBatch:
     ``source_index`` is the chronological rank of a snapshot within a single
     sample: if every sample has at most one snapshot of source "S", only
     ``("S", 0)`` will ever appear.  When a source appears K times in some
-    sample, indices 0 … K-1 are all present.
+    sample, indices 0 ... K-1 are all present.
 
     Samples that are missing a given ``(source_name, source_index)`` slot are
     represented as NaN tensors (values, coords, and time all NaN, mask all False).
@@ -34,8 +34,11 @@ class WindowBatch:
     Args:
         sources: Dict from ``(source_name, source_index)`` to a TorchSource.
             Keys are sorted lexicographically for deterministic ordering.
+        is_target: Dict from ``(source_name, source_index)`` to a ``(B,)`` bool
+            tensor indicating which samples have that slot as a target snapshot.
+            Keys match those in ``sources``.
         sample_ids: Window identifier strings, one per sample.
-        init_times_utc: Assimilation anchor times ``t0``, one per sample.
+        window_ref_times_utc: Assimilation anchor times ``t0``, one per sample.
         window_start_times_utc: Inclusive window lower bounds, one per sample.
         window_end_times_utc: Inclusive window upper bounds, one per sample.
         sids: IBTrACS storm identifiers, one per sample.
@@ -43,12 +46,12 @@ class WindowBatch:
         basins: Ocean basin codes, one per sample.
         subbasins: IBTrACS sub-basin codes, one per sample.
         usa_atcf_ids: Optional USA ATCF identifiers, one per sample (None when absent).
-        labels: Lead-time target columns from the split index, one Series per sample.
     """
 
     sources: dict[tuple[str, int], TorchSource]
+    is_target: dict[tuple[str, int], torch.Tensor]
     sample_ids: list[str]
-    init_times_utc: list[str]
+    window_ref_times_utc: list[str]
     window_start_times_utc: list[str]
     window_end_times_utc: list[str]
     sids: list[str]
@@ -56,7 +59,6 @@ class WindowBatch:
     basins: list[str]
     subbasins: list[str]
     usa_atcf_ids: list[str | None]
-    labels: list[pd.Series] = field(default_factory=list)
 
     @property
     def batch_size(self) -> int:
@@ -75,7 +77,7 @@ def _time_encoding(time_utc: pd.Timestamp) -> torch.Tensor:
     Returns:
         Float32 tensor of shape (2,).
     """
-    # day_of_year is 1-indexed (1–366); normalise to [1/366, 1.0].
+    # day_of_year is 1-indexed (1-366); normalise to [1/366, 1.0].
     day_norm = time_utc.day_of_year / 366.0
     # minute_of_day spans [0, 1439]; normalise to [0, 1439/1440].
     minute_norm = (time_utc.hour * 60 + time_utc.minute) / 1440.0
@@ -140,7 +142,7 @@ def collate_window_samples(samples: list[WindowSample]) -> WindowBatch:
             if key not in ref_source:
                 ref_source[key] = source
 
-    # Step 4 — for each key, convert numpy→torch and stack B per-sample tensors.
+    # Step 4 — for each key, convert numpy->torch and stack B per-sample tensors.
     # Samples missing the key are NaN-filled (values/coords/time = NaN, mask = False).
     batched_sources: dict[tuple[str, int], TorchSource] = {}
     for key in sorted(all_keys):
@@ -171,7 +173,7 @@ def collate_window_samples(samples: list[WindowSample]) -> WindowBatch:
                 # time is NaN for missing slots so the model can detect absence.
                 time_list.append(torch.full((2,), float("nan"), dtype=torch.float32))
 
-        # Stack along new leading batch dim → (B, ...) tensors.
+        # Stack along new leading batch dim -> (B, ...) tensors.
         batched_sources[key] = TorchSource(
             kind=ref.kind,
             values=torch.stack(values_list, dim=0),
@@ -182,11 +184,21 @@ def collate_window_samples(samples: list[WindowSample]) -> WindowBatch:
             time=torch.stack(time_list, dim=0),
         )
 
-    # Step 5 — collect the scalar list attributes from each sample.
+    # Step 5 — stack is_target flags into (B,) bool tensors per key.
+    batched_is_target: dict[tuple[str, int], torch.Tensor] = {
+        key: torch.tensor(
+            [sample.is_target.get(key, False) for sample in samples],
+            dtype=torch.bool,
+        )
+        for key in sorted(all_keys)
+    }
+
+    # Step 6 — collect the scalar list attributes from each sample.
     return WindowBatch(
         sources=batched_sources,
+        is_target=batched_is_target,
         sample_ids=[s.sample_id for s in samples],
-        init_times_utc=[s.init_time_utc for s in samples],
+        window_ref_times_utc=[s.window_ref_time_utc for s in samples],
         window_start_times_utc=[s.window_start_time_utc for s in samples],
         window_end_times_utc=[s.window_end_time_utc for s in samples],
         sids=[s.sid for s in samples],
@@ -194,5 +206,4 @@ def collate_window_samples(samples: list[WindowSample]) -> WindowBatch:
         basins=[s.basin for s in samples],
         subbasins=[s.subbasin for s in samples],
         usa_atcf_ids=[s.usa_atcf_id for s in samples],
-        labels=[s.labels for s in samples],
     )

@@ -11,10 +11,12 @@ from tests.test_sources import make_batched_scalar_source
 def _make_window_batch() -> WindowBatch:
     """Minimal WindowBatch with one batched scalar source."""
     src = make_batched_scalar_source(B=2)
+    key = ("buoy", 0)
     return WindowBatch(
-        sources={("buoy", 0): src},
+        sources={key: src},
+        is_target={key: torch.tensor([False, False], dtype=torch.bool)},
         sample_ids=["sample_a", "sample_b"],
-        init_times_utc=["2020-08-01T12:00:00", "2020-08-01T18:00:00"],
+        window_ref_times_utc=["2020-08-01T12:00:00", "2020-08-01T18:00:00"],
         window_start_times_utc=["2020-08-01T06:00:00", "2020-08-01T12:00:00"],
         window_end_times_utc=["2020-08-01T18:00:00", "2020-08-02T00:00:00"],
         sids=["2020123N12345", "2020456N67890"],
@@ -27,7 +29,7 @@ def _make_window_batch() -> WindowBatch:
 
 class TestTransferBatchToDevice:
     def test_moves_sources_to_cpu(self) -> None:
-        dm = TCWindowDataModule("/tmp", dataloader_kwargs={"batch_size": 2})
+        dm = TCWindowDataModule("/tmp", "test_windows", dataloader_kwargs={"batch_size": 2})
         batch = _make_window_batch()
         moved = dm.transfer_batch_to_device(batch, torch.device("cpu"), 0)
         assert moved is batch
@@ -39,7 +41,7 @@ class TestTransferBatchToDevice:
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_moves_sources_to_cuda(self) -> None:
-        dm = TCWindowDataModule("/tmp", dataloader_kwargs={"batch_size": 2})
+        dm = TCWindowDataModule("/tmp", "test_windows", dataloader_kwargs={"batch_size": 2})
         batch = _make_window_batch()
         moved = dm.transfer_batch_to_device(batch, torch.device("cuda"), 0)
         assert moved is batch

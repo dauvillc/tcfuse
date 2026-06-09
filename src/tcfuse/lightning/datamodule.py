@@ -24,8 +24,12 @@ class TCWindowDataModule(lightning.LightningDataModule):
 
     Args:
         assembled_root: Root directory for assembled preprocessed data; must
-            contain ``train.parquet``, ``val.parquet``, ``test.parquet``, and
-            ``sources_metadata.yaml``.
+            contain ``sources_metadata.yaml`` and a
+            ``{windows_setup_name}/`` subdirectory with
+            ``train_windows.parquet``, ``val_windows.parquet``, and
+            ``test_windows.parquet``.
+        windows_setup_name: Name of the windows configuration (selects the
+            matching subdirectory under ``assembled_root``).
         dataloader_kwargs: Keyword arguments forwarded to every
             :class:`~torch.utils.data.DataLoader` (e.g. ``batch_size``,
             ``num_workers``, ``pin_memory``).  ``collate_fn`` and ``shuffle``
@@ -35,10 +39,12 @@ class TCWindowDataModule(lightning.LightningDataModule):
     def __init__(
         self,
         assembled_root: Path | str,
+        windows_setup_name: str,
         dataloader_kwargs: dict[str, Any],
     ) -> None:
         super().__init__()
         self._assembled_root = Path(assembled_root)
+        self._windows_setup_name = windows_setup_name
         # Snapshot so later mutations to the injected dict cannot leak in.
         self._dataloader_kwargs = dict(dataloader_kwargs)
 
@@ -87,11 +93,10 @@ class TCWindowDataModule(lightning.LightningDataModule):
             self._test_dataset = make("test")
 
     def _make_dataset(self, split: str) -> TCWindowDataset:
-        assert self._sources_metadata is not None
         return TCWindowDataset(
             self._assembled_root,
+            self._windows_setup_name,
             split,  # type: ignore[arg-type]
-            sources_metadata=self._sources_metadata,
         )
 
     def _make_dataloader(

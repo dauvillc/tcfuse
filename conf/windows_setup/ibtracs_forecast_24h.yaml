@@ -16,5 +16,5 @@ target_sources:
 # The overall window span is the union of all periods.
 input_sources:
   era5:
-    - ["-13h", "-11h", 1]   # one ERA5 state ~12 h before target
-    - ["-7h", "-5h", 1]     # one ERA5 state ~6 h before target
+    - ["-12h01m", "-11h59m", 1]   # one ERA5 state ~12 h before target
+    - ["-6h01m", "-5h59m", 1]     # one ERA5 state ~6 h before target

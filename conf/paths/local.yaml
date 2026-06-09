@@ -22,6 +22,7 @@ preprocessed_data: ${paths.scratch}/data/preprocessed/assembled/
 # Paths for training outputs
 checkpoints: ${paths.scratch}/checkpoints
 wandb: ${paths.scratch}/wandb
+figures: /home/cdauvill/inria/tcfuse/figures
 
 # Root directory for prediction runs.
 # Each run lives at ${paths.predictions}/<run_id>/ with manifest.yaml,

@@ -1,0 +1,10 @@
+# Configuration for data-loading profiler (no model, no optimizer).
+defaults:
+  - dataloader: default
+  - paths: local      # override with paths=jz on Jean-Zay
+  - setup: local      # override with setup=jz_cpu on Jean-Zay
+  - windows_setup: ibtracs_forecast_24h
+  - _self_
+
+# Set to true to submit the job via submitit (SLURM).
+submitit: false
