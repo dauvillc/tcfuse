@@ -96,33 +96,41 @@ def process_radar_file(
         if skip_existing and dest_path.exists():
             return True
 
-        # Radar group must exist and report availability for this swath.
-        if "radar_radiometer" not in raw.groups:
-            return False
-        radar_grp = raw["radar_radiometer"]
-        if int(radar_grp["availability_flag"][0]) == 0 or swath not in radar_grp.groups:
-            return False
-
-        lat, lon, data = _read_radar_swath(radar_grp[swath], variables)
-        if any(np.all(np.isnan(arr)) for arr in data.values()):
-            return False
-
-        # Storm-centered regrid at finest IFOV for this sensor/swath.
-        regridding_res = get_regridding_resolution(sensat, swath, ifovs)
-        target_area = create_storm_centered_equiangular_area(
-            meta["storm_lon"],
-            meta["storm_lat"],
-            regridding_res,
-            extent_half_km=extent_half_km,
-        )
         try:
-            (resampled, out_lats, out_lons), _ = regrid(lat, lon, data, target_area)
-        except ResamplingError:
-            return False
+            # Radar group must exist and report availability for this swath.
+            if "radar_radiometer" not in raw.groups:
+                raise ValueError("Radar group not found")
+            radar_grp = raw["radar_radiometer"]
+            if int(radar_grp["availability_flag"][0]) == 0 or swath not in radar_grp.groups:
+                raise ValueError("Radar swath not available")
 
-        values_np = np.stack([resampled[v] for v in variables], axis=-1).astype(np.float32)
-        lats = out_lats.astype(np.float32)
-        lons = out_lons.astype(np.float32)
+            lat, lon, data = _read_radar_swath(radar_grp[swath], variables)
+            if any(np.all(np.isnan(arr)) for arr in data.values()):
+                raise ValueError("Radar swath has all NaN values")
+
+            # Storm-centered regrid at finest IFOV for this sensor/swath.
+            regridding_res = get_regridding_resolution(sensat, swath, ifovs)
+            target_area = create_storm_centered_equiangular_area(
+                meta["storm_lon"],
+                meta["storm_lat"],
+                regridding_res,
+                extent_half_km=extent_half_km,
+            )
+            (resampled, out_lats, out_lons), _ = regrid(lat, lon, data, target_area)
+
+            values_np = np.stack([resampled[v] for v in variables], axis=-1).astype(np.float32)
+            lats = out_lats.astype(np.float32)
+            lons = out_lons.astype(np.float32)
+        except (ValueError, ResamplingError) as e:
+            warnings.warn(
+                f"Error processing {file}: {e}",
+                stacklevel=2,
+            )
+            # Check if the destination path exists and delete it if it does.
+            # That makes sure that if no leftovers from previous runs are left behind.
+            if dest_path.exists():
+                dest_path.unlink()
+            return False
 
     # Spatial coords only: [lat, lon] per pixel — time goes to Source.time_utc.
     coords_np = np.stack([lats, lons], axis=-1)
