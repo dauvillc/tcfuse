@@ -129,7 +129,7 @@ def process_radar_file(
             # Check if the destination path exists and delete it if it does.
             # That makes sure that if no leftovers from previous runs are left behind.
             if dest_path.exists():
-                dest_path.unlink()
+                dest_path.unlink(missing_ok=True)
             return False
 
     # Spatial coords only: [lat, lon] per pixel — time goes to Source.time_utc.

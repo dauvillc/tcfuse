@@ -132,7 +132,7 @@ def process_pmw_file(
             # Check if the destination path exists and delete it if it does.
             # That makes sure that if no leftovers from previous runs are left behind.
             if dest_path.exists():
-                dest_path.unlink()
+                dest_path.unlink(missing_ok=True)
             return False
 
         # Channel stack order must match vars_37 + vars_89 in metadata.
