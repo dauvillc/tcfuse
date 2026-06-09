@@ -201,9 +201,7 @@ class StormData:
                         "time_utc": time_utc,
                     }
                     # Merge extra snapshot attrs into meta; skip keys already on Source fields.
-                    skip_keys = {
-                        "source_name", "channels", "kind", "time_utc", "char_vars"
-                    }
+                    skip_keys = {"source_name", "channels", "kind", "time_utc", "char_vars"}
                     for key in snap_group.attrs:
                         if key not in skip_keys:
                             meta[key] = snap_group.attrs[key]
@@ -226,7 +224,7 @@ class StormData:
         assembled_root: Path,
         storm_id: str,
         snapshots: set[tuple[str, str]],
-    ) -> "StormData":
+    ) -> StormData:
         """Load only the specified ``(source_name, time_utc)`` snapshots from HDF5.
 
         Both sides of the match are normalised to :class:`pandas.Timestamp` so
