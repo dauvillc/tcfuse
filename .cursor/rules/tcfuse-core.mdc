@@ -3,6 +3,8 @@ description: Core project context and engineering rules for TC multi-source fusi
 alwaysApply: true
 ---
 
+<!-- Source of truth: .agents/context.md — this file is a Cursor mirror. Edit .agents/context.md first, then apply the change here. -->
+
 # TC-Fuse Core Context
 
 This project develops a machine learning framework for **tropical cyclone (TC) analysis and forecasting** by fusing heterogeneous observation sources. The central scientific idea is that each observation source — regardless of its physical nature — can be represented as a set of measurements associated with explicit spatio-temporal coordinates. This coordinate-aware multi-source representation is the backbone of the entire framework.
@@ -123,7 +125,7 @@ See also [`.cursor/rules/tcfuse-coding-style.mdc`](mdc:.cursor/rules/tcfuse-codi
 
 ### Python typing discipline
 
-See [`.cursor/rules/python-pyright.mdc`](mdc:.cursor/rules/python-pyright.mdc) (Cursor auto-applies this for `**/*.py`; Claude should read it before editing any Python file). Key points:
+See [`.cursor/rules/python-pyright.mdc`](mdc:.cursor/rules/python-pyright.mdc) (auto-applied for `**/*.py`). Key points:
 
 - Preserve basedpyright correctness for changed code; run `pixi run typecheck` after substantive edits.
 - Preserve linting correctness for changed code; run `pixi run lint` after any edit and fix all reported errors before finishing.
@@ -194,3 +196,4 @@ Full workflow and hardware configs (rsync, preflight, submission, monitoring, W&
    - A new dataset path is confirmed → update the dataset stack table and [`tcfuse-preprocess`](mdc:.cursor/skills/tcfuse-preprocess/SKILL.md).
    - A new W&B convention is established → update the W&B section.
    - Prediction storage convention or on-disk layout changes → update [`tcfuse-predictions`](mdc:.cursor/skills/tcfuse-predictions/SKILL.md) and `.claude/commands/predictions.md` if triggers or behavior rules change.
+   - A new skill area is added or an existing one is renamed/removed → update `.agents/<topic>.md`, then update **both** `.cursor/skills/<topic>/SKILL.md` (thin pointer) and `.claude/commands/<topic>.md` (slash-command redirect); update the skills table in `context.md`, `CLAUDE.md`, and `AGENTS.md`.
