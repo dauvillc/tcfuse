@@ -24,7 +24,6 @@ from scripts.preprocess.tc_primed.utils import (
 from scripts.preprocess.utils.regridding import (
     ResamplingError,
     create_storm_centered_equiangular_area,
-    near_antimeridian,
     regrid,
 )
 from scripts.preprocess.utils.runner import (
@@ -107,9 +106,6 @@ def process_pmw_file(
         lat89, lon89, data89 = _read_pmw_swath(raw["passive_microwave"][swath_89], vars_89)
         if any(np.all(np.isnan(arr)) for arr in data89.values()):
             return False
-        # Discard swaths that touch or cross the antimeridian — regridding breaks there.
-        if near_antimeridian(lon89):
-            return False
 
         # Build storm-centered equiangular target grid from finest 89 GHz IFOV.
         regridding_res = get_regridding_resolution(sensat, swath_89, ifovs)
@@ -127,8 +123,6 @@ def process_pmw_file(
         # Regrid 37 GHz onto the same target grid as 89 GHz.
         lat37, lon37, data37 = _read_pmw_swath(raw["passive_microwave"][swath_37], vars_37)
         if any(np.all(np.isnan(arr)) for arr in data37.values()):
-            return False
-        if near_antimeridian(lon37):
             return False
         try:
             (resampled37, _, _), _ = regrid(lat37, lon37, data37, target_area)

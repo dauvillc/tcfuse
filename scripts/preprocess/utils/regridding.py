@@ -59,12 +59,6 @@ def normalize_longitude_deg(lon: float) -> float:
     return wrapped
 
 
-def near_antimeridian(lon: np.ndarray, threshold_deg: float = 1.0) -> bool:
-    """Return True if any finite longitude is within threshold_deg of ±180°."""
-    finite = lon[np.isfinite(lon)]
-    return bool(np.any(finite > 180 - threshold_deg) or np.any(finite < -180 + threshold_deg))
-
-
 def grid_shape_for_extent(extent_half_km: float, resolution_km: float) -> tuple[int, int]:
     """Return (height, width) for a storm-centered grid spanning ±extent_half_km.
 
@@ -178,7 +172,7 @@ def regrid(
     #   then resample, then shift back.
     lons_were_shifted = False
     if np.any(lon < 0) and np.any(lon > 0):
-        lon_span = lon.max() - lon.min()
+        lon_span = np.nanmax(lon) - np.nanmin(lon)
         if lon_span > 180:
             lon = np.where(lon < 0, lon + 360, lon) - 180
             lons_were_shifted = True
@@ -188,6 +182,15 @@ def regrid(
                 raise ResamplingError(
                     "Failed to shift target area for antimeridian crossing"
                 ) from e
+
+    # Sanity check: guard against accidental high-resolution configs that would
+    # produce enormous arrays and silently exhaust memory.
+    out_h, out_w = target_area.shape
+    if out_h > 1000 or out_w > 1000:
+        raise ResamplingError(
+            f"Regridding target area has shape ({out_h}, {out_w}), which exceeds the "
+            f"1000-pixel safety limit in at least one dimension."
+        )
 
     swath = SwathDefinition(lons=lon, lats=lat)
 
