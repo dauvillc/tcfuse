@@ -183,6 +183,24 @@ def regrid(
                     "Failed to shift target area for antimeridian crossing"
                 ) from e
 
+    # The storm-centered target area can extend past ±180° even when the swath stays
+    # on one side (e.g. storm at 178°, target area reaches 184°). Pyresample drops
+    # those out-of-range pixels, making bilinear_s/bilinear_t smaller than NxN, so
+    # _reshape_to_target_area's np.reshape raises ValueError. Detect and fix here.
+    if not lons_were_shifted:
+        lon_min_area, _, lon_max_area, _ = target_area.area_extent
+        if lon_max_area > 180.0 or lon_min_area < -180.0:
+            centre_lon = (lon_min_area + lon_max_area) / 2.0
+            delta = ((centre_lon + 360.0 if centre_lon < 0.0 else centre_lon) - 180.0) - centre_lon
+            lon = lon + delta
+            lons_were_shifted = True
+            try:
+                target_area = _shift_area_by_180(target_area)
+            except ProjError as e:
+                raise ResamplingError(
+                    "Failed to shift target area for near-antimeridian storm"
+                ) from e
+
     # Sanity check: guard against accidental high-resolution configs that would
     # produce enormous arrays and silently exhaust memory.
     out_h, out_w = target_area.shape

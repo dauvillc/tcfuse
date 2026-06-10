@@ -111,3 +111,20 @@ class TestAntimeridianRegridding:
         data = {"tb": np.ones((height, width), dtype=np.float64)}
         (resampled, out_lats, out_lons), _ = regrid(lats, lons, data, area)
         assert resampled["tb"].shape == out_lats.shape == out_lons.shape
+
+    def test_regrid_storm_near_antimeridian_no_swath_crossing(self) -> None:
+        """Target area bleeds past 180° even when swath stays on positive side.
+
+        Storm at 178° makes the target area extend to ~184°. Pyresample used to drop
+        the out-of-range pixels, producing a bilinear weight array smaller than NxN
+        and causing np.reshape to raise ValueError inside the resampler.
+        """
+        storm_lon, storm_lat = 178.0, 20.0
+        area = create_storm_centered_equiangular_area(storm_lon, storm_lat, 5.0)
+        height, width = 40, 40
+        lats = np.linspace(15.0, 25.0, height)[:, None] * np.ones(width)
+        lons = np.linspace(173.0, 179.0, width)[None, :] * np.ones((height, 1))
+        data = {"tb": np.ones((height, width), dtype=np.float64)}
+        (resampled, out_lats, out_lons), _ = regrid(lats, lons, data, area)
+        assert resampled["tb"].shape == out_lats.shape == out_lons.shape
+        assert resampled["tb"].shape == area.shape
