@@ -1,4 +1,4 @@
-"""Lightning module for general WindowBatch source-value transformation."""
+"""Base Lightning module for WindowBatch source-value transformation."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from tcfuse.data.sources.metadata import MultisourceMetadata
 from tcfuse.lightning.lr_scheduler import CosineAnnealingWarmupRestarts
 
 
-class WindowSourceTransformModule(ABC, lightning.LightningModule):
+class BaseLightningModule(ABC, lightning.LightningModule):
     """Train and infer any source-transformation model over assimilation windows.
 
     Wraps an injected :class:`nn.Module` that maps a :class:`~tcfuse.data.collate.WindowBatch`
