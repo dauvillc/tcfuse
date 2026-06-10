@@ -67,7 +67,13 @@ These commands are available in the local shell (defined in `~/.bash_aliases` an
 4. **Use local tools for monitoring and debugging.** For job status use `jzstatus`; for diagnosing a failure use `jzdebug <jobid>`; for post-run analysis use `jzreport <jobid>`. Only fall back to raw SSH + `squeue`/`sacct` when these tools are unavailable.
 5. **Ask before cancelling.** Never call `scancel` without explicit user confirmation.
 6. **Pick the right partition.** Downloads that need internet → `setup=jz_prepost` (`prepost`). Preprocessing / eval without internet → `setup=jz_cpu` (default cpu, no `slurm_partition`). Archiving to `$STORE` is handled automatically on `prepost` by `submit_archive_job()` — `$STORE` is only mounted on prepost nodes.
-7. **Never hardcode paths.** Reference cluster paths as `$WORK/tcfuse` or `$SCRATCH/tcfuse`, not as absolute paths. Note: `$HOME` is a separate linkhome symlink — code lives under `$WORK`, not `$HOME`.
+7. **Never hardcode paths — but always use a login shell for SSH.** Reference cluster paths as `$WORK/tcfuse` or `$SCRATCH/tcfuse`, not as absolute paths. Note: `$HOME` is a separate linkhome symlink — code lives under `$WORK`, not `$HOME`.
+
+   `$WORK`, `$SCRATCH`, and `$STORE` are **not set in non-interactive SSH sessions**. Every `ssh jz "..."` command must wrap its payload in a login shell so IDRIS profile scripts are sourced:
+   ```bash
+   ssh jz "bash -l -c '<command>'"
+   ```
+   See the Resolved absolute paths table for hardcoded fallback values when needed. Do **not** use bare `ssh jz "$WORK/..."` — `$WORK` will be empty.
 8. **Report errors clearly.** If an SSH command fails or a preflight check fails, show the exact error and suggest a fix before proceeding.
 
 ## Storage layout
@@ -81,6 +87,17 @@ These commands are available in the local shell (defined in `~/.bash_aliases` an
 
 **Rule:** DataLoaders always read from `$SCRATCH`. After preprocessing, always copy a backup to `$STORE`.
 
+### Resolved absolute paths
+
+| Variable | Absolute path |
+|---|---|
+| `$WORK` | `/lustre/fswork/projects/rech/xyw/ute68qj` |
+| `$SCRATCH` | `/lustre/fsn1/projects/rech/xyw/ute68qj` |
+| `$STORE` | `/lustre/fsstor/projects/rech/xyw/ute68qj` |
+| `$HOME` | `/linkhome/rech/genini01/ute68qj` |
+
+In SSH commands, prefer `bash -l -c '...'` (login shell resolves them automatically) over substituting these directly. Use the table only when you truly need a hardcoded path.
+
 ## Job submission workflow
 
 Follow these steps in order every time a job is submitted:
@@ -90,40 +107,40 @@ Run `rsynctf` from the local project root.
 
 ### Step 2 — Preflight check
 ```bash
-ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && bash scripts/slurm/preflight_check.sh"
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && bash scripts/slurm/preflight_check.sh'"
 ```
 Abort if any check fails. Fix the issue (quota, missing env, etc.) before continuing.
 
 ### Step 3 — Submit the job
 ```bash
 # Training (V100 default)
-ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
-  python scripts/train.py paths=jz setup=jz_gpu_v100 experiment=<name>"
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
+  python scripts/train.py paths=jz setup=jz_gpu_v100 experiment=<name>'"
 
 # Training (A100)
-ssh jz "cd \$WORK/tcfuse && module load arch/a100 && module load pytorch-gpu/py3/2.8.0 && \
-  python scripts/train.py paths=jz setup=jz_gpu_a100 experiment=<name>"
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load arch/a100 && module load pytorch-gpu/py3/2.8.0 && \
+  python scripts/train.py paths=jz setup=jz_gpu_a100 experiment=<name>'"
 
 # Training (H100)
-ssh jz "cd \$WORK/tcfuse && module load arch/h100 && module load pytorch-gpu/py3/2.8.0 && \
-  python scripts/train.py paths=jz setup=jz_gpu_h100 experiment=<name>"
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load arch/h100 && module load pytorch-gpu/py3/2.8.0 && \
+  python scripts/train.py paths=jz setup=jz_gpu_h100 experiment=<name>'"
 
 # Preprocessing / eval (default CPU partition — no internet)
-ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
-  python scripts/preprocess/<source>.py paths=jz setup=jz_cpu"
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
+  python scripts/preprocess/<source>.py paths=jz setup=jz_cpu'"
 
 # Data download (prepost partition — internet access)
-ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
-  python scripts/preprocess/<source>/download_<source>.py paths=jz setup=jz_prepost"
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
+  python scripts/preprocess/<source>/download_<source>.py paths=jz setup=jz_prepost'"
 ```
 
 ### Step 4 — Verify launch
 ```bash
-ssh jz "squeue -u \$USER --format='%.10i %.15j %.8T %.10M %.10l %R'"
+ssh jz "bash -l -c 'squeue -u \$USER --format=\"%.10i %.15j %.8T %.10M %.10l %R\"'"
 ```
 Confirm the new job ID appears and report it to the user. If it does not appear within ~10 seconds, check for immediate failures:
 ```bash
-ssh jz "ls -lt \$WORK/tcfuse/submitit/ | head -5"
+ssh jz "bash -l -c 'ls -lt \$WORK/tcfuse/submitit/ | head -5'"
 ```
 
 ## Job monitoring — raw SSH fallbacks
@@ -132,21 +149,21 @@ Use the local CLI tools (see above) for day-to-day monitoring. These raw command
 
 ### Queue snapshot
 ```bash
-ssh jz "squeue -u \$USER --format='%.10i %.20j %.10T %.12M %.12l %.6D %R' --sort=-T"
+ssh jz "bash -l -c 'squeue -u \$USER --format=\"%.10i %.20j %.10T %.12M %.12l %.6D %R\" --sort=-T'"
 ```
 
 Format as a table — states to highlight: `RUNNING` (good), `PENDING` (show the reason), `FAILED`/`CANCELLED` (alert the user).
 
 ### Recently completed jobs
 ```bash
-ssh jz "sacct -u \$USER \
+ssh jz "bash -l -c 'sacct -u \$USER \
   --format=JobID,JobName,State,Start,End,Elapsed,AllocGRES,ExitCode \
-  --starttime=\$(date -d '3 days ago' +%Y-%m-%d) -n"
+  --starttime=\$(date -d \"3 days ago\" +%Y-%m-%d) -n'"
 ```
 
 ### Live log tail (when `jzlog` is unavailable)
 ```bash
-ssh jz "tail -f \$WORK/tcfuse/submitit/<jobid>_0_log.out"
+ssh jz "bash -l -c 'tail -f \$WORK/tcfuse/submitit/<jobid>_0_log.out'"
 ```
 Log files: `$WORK/tcfuse/submitit/<jobid>_<task>_log.out` / `…_log.err`.
 
@@ -161,15 +178,15 @@ Requires the correct `--account` and a matching QoS with available quota.
 
 ### Quota check
 ```bash
-ssh jz "idr_quota_user -m"          # personal $WORK and $SCRATCH usage
-ssh jz "idr_quota_user -s"          # personal $STORE usage
-ssh jz "idr_quota_project -w"       # project-level $WORK quota
+ssh jz "bash -l -c 'idr_quota_user -m'"          # personal $WORK and $SCRATCH usage
+ssh jz "bash -l -c 'idr_quota_user -s'"          # personal $STORE usage
+ssh jz "bash -l -c 'idr_quota_project -w'"       # project-level $WORK quota
 ```
 
 ### Hour consumption
 ```bash
-ssh jz "idracct"        # CPU and GPU hour consumption for the current project
-ssh jz "idr_compuse"    # project consumption state (% of allocation used)
+ssh jz "bash -l -c 'idracct'"        # CPU and GPU hour consumption for the current project
+ssh jz "bash -l -c 'idr_compuse'"    # project consumption state (% of allocation used)
 ```
 Check these when jobs are slow to schedule or allocation warnings appear.
 
@@ -204,19 +221,19 @@ Jobs must run with W&B offline. The `slurm_setup` commands in `conf/setup/jz_<hw
 
 After a job completes, sync from the login node:
 ```bash
-ssh jz "wandb sync \$WORK/tcfuse/wandb/offline-run-*/"
+ssh jz "bash -l -c 'wandb sync \$WORK/tcfuse/wandb/offline-run-*/'"
 ```
 
 ## One-time setup
 
 Run once on the JZ login node after cloning or a fresh rsync:
 ```bash
-ssh jz "cd \$WORK/tcfuse && bash scripts/setup_jz.sh"
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && bash scripts/setup_jz.sh'"
 ```
 
 Verify afterwards:
 ```bash
-ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && bash scripts/slurm/preflight_check.sh"
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && bash scripts/slurm/preflight_check.sh'"
 ```
 
 ## SLURM hardware configs
@@ -295,8 +312,8 @@ slurm_setup:
 
 To manually resume a run:
 ```bash
-ssh jz "cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
-  python scripts/train.py paths=jz setup=jz_<hw> experiment=<name> resume_run_id=<run_id>"
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
+  python scripts/train.py paths=jz setup=jz_<hw> experiment=<name> resume_run_id=<run_id>'"
 ```
 
 ## Maintenance
