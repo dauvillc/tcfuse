@@ -1,32 +1,34 @@
-"""Lightning module for IBTrACS forecasting from multi-source assimilation windows."""
+"""Lightning module for IBTrACS best-track masked-prediction forecasting."""
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import Any
 
-import lightning
 import torch
-from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch import nn
 
 from tcfuse.data.collate import WindowBatch
+from tcfuse.data.ibtracs import IBTRACS_CHANNELS, IBTRACS_SOURCE_NAME
 from tcfuse.data.sources.metadata import MultisourceMetadata
-from tcfuse.lightning.lr_scheduler import CosineAnnealingWarmupRestarts
-
-# Target best-track source and channels (used by task heads and validation plots).
-# See tcfuse.data.ibtracs.IBTRACS_SOURCE_NAME and IBTRACS_CHANNELS.
+from tcfuse.data.sources.torch_source import TorchSource
+from tcfuse.lightning.base_module import BaseLightningModule
 
 
-class IBTrACSForecastLightningModule(lightning.LightningModule):
-    """Train and infer IBTrACS lead-time forecasts from multi-source windows.
+class IBTrACSForecastLightningModule(BaseLightningModule):
+    """Train IBTrACS best-track forecasting via masked-prediction over assimilation windows.
 
-    Wraps an injected :class:`nn.Module` that maps a :class:`~tcfuse.data.collate.WindowBatch`
-    to predictions. Optimizer and LR scheduler hyperparameters are supplied as kwargs dicts
-    (typically from Hydra ``optimizer`` and ``lr_scheduler`` config groups).
+    At each step the ibtracs best-track sources are hidden from the model: their
+    values and coords are replaced with learned mask tokens and the mask is set to
+    all-False.  The model must reconstruct the original best-track values from the
+    remaining (non-ibtracs) observations.  The training signal is MSE between the
+    model's predicted ibtracs values and the original (pre-masking) values,
+    averaged over all valid ``(batch_sample, channel)`` positions.
 
     Args:
-        model: Backbone plus task heads; must accept :class:`WindowBatch` in ``forward``.
+        model: Backbone + task head; must accept a :class:`WindowBatch` in ``forward``
+            and return a :class:`WindowBatch` whose ibtracs sources carry predictions.
         sources_metadata: Static descriptors for sources present in training samples.
         adamw_kwargs: Keyword arguments for :class:`torch.optim.AdamW` (excluding ``params``).
         lr_scheduler_kwargs: Keyword arguments for :class:`CosineAnnealingWarmupRestarts`.
@@ -41,100 +43,94 @@ class IBTrACSForecastLightningModule(lightning.LightningModule):
         lr_scheduler_kwargs: dict[str, Any],
         validation_dir: str | Path,
     ) -> None:
-        super().__init__()
-        # Register the Hydra-instantiated model as a submodule for parameter tracking.
-        self.model = model
-        # Snapshot metadata so later mutations to the injected object cannot leak in.
-        self._sources_metadata = MultisourceMetadata.from_dict(sources_metadata.to_dict())
-        self._adamw_kwargs = dict(adamw_kwargs)
-        self._lr_scheduler_kwargs = dict(lr_scheduler_kwargs)
-        self._validation_dir = Path(validation_dir)
-        # Do not serialize the full model tree or metadata into checkpoints.
-        self.save_hyperparameters(ignore=["model", "sources_metadata"])
+        super().__init__(
+            model=model,
+            sources_metadata=sources_metadata,
+            adamw_kwargs=adamw_kwargs,
+            lr_scheduler_kwargs=lr_scheduler_kwargs,
+            validation_dir=validation_dir,
+        )
+        # Learned mask tokens substituted in place of real ibtracs values/coords.
+        # Initialised to zeros; trained jointly with the backbone.
+        self._ibtracs_values_token = nn.Parameter(torch.zeros(len(IBTRACS_CHANNELS)))
+        self._ibtracs_coords_token = nn.Parameter(torch.zeros(2))
 
-    @property
-    def sources_metadata(self) -> MultisourceMetadata:
-        """Static source descriptors (channels, shape, kind) for this run."""
-        return MultisourceMetadata.from_dict(self._sources_metadata.to_dict())
+    def _mask_ibtracs(
+        self,
+        batch: WindowBatch,
+    ) -> tuple[WindowBatch, dict[tuple[str, int], TorchSource]]:
+        """Replace every ibtracs source in ``batch`` with learned mask tokens.
 
-    def forward(self, batch: WindowBatch) -> object:
-        """Run the injected model on a collated window batch."""
-        return self.model(batch)
+        Args:
+            batch: Collated input batch from the dataloader.
+
+        Returns:
+            A ``(masked_batch, originals)`` pair where ``masked_batch`` has all
+            ibtracs sources replaced and ``originals`` maps each ibtracs key to
+            its original :class:`TorchSource` (for loss computation).
+        """
+        originals: dict[tuple[str, int], TorchSource] = {}
+        # Shallow-copy the sources dict so we can replace ibtracs entries safely.
+        masked_sources: dict[tuple[str, int], TorchSource] = dict(batch.sources)
+
+        for key, source in batch.sources.items():
+            source_name, _idx = key
+            if source_name != IBTRACS_SOURCE_NAME:
+                continue
+
+            originals[key] = source
+            B = source.batch_size
+
+            # Broadcast the learned (C,) / (2,) tokens to (B, C) / (B, 2).
+            masked_values = self._ibtracs_values_token.unsqueeze(0).expand(B, -1)
+            masked_coords = self._ibtracs_coords_token.unsqueeze(0).expand(B, -1)
+            # all-False mask: signals to the model that these values are hidden.
+            masked_mask = torch.zeros_like(source.mask)
+
+            masked_sources[key] = TorchSource(
+                kind=source.kind,
+                values=masked_values,
+                coords=masked_coords,
+                source_name=source.source_name,
+                channels=source.channels,
+                mask=masked_mask,
+                time=source.time,  # time is not masked
+            )
+
+        return dataclasses.replace(batch, sources=masked_sources), originals
 
     def _shared_step(self, batch: WindowBatch, stage: str) -> torch.Tensor:
-        """Forward pass and loss for train / validation."""
-        # Run the multi-source model on this batch.
-        _outputs = self(batch)
-        # Loss computation is task-specific — implemented when the model head exists.
-        raise NotImplementedError(f"Loss for stage {stage!r} is not implemented yet.")
+        """Mask ibtracs, run the model, return MSE against the original values.
 
-    def training_step(self, batch: WindowBatch, batch_idx: int) -> torch.Tensor:
-        """One training optimizer step."""
-        loss = self._shared_step(batch, "train")
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
-        return loss
+        Args:
+            batch: Collated input batch from the dataloader.
+            stage: One of ``"train"`` or ``"val"``.
 
-    def validation_step(self, batch: WindowBatch, batch_idx: int) -> torch.Tensor:
-        """One validation forward pass."""
-        loss = self._shared_step(batch, "val")
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        return loss
+        Returns:
+            Scalar MSE loss averaged over all valid ibtracs ``(sample, channel)`` positions.
+        """
+        # Hide ibtracs sources from the model and stash the originals.
+        masked_batch, originals = self._mask_ibtracs(batch)
 
-    def predict_step(self, batch: WindowBatch, batch_idx: int) -> dict[str, Any]:
-        """Inference hook; returns per-batch metadata without writing to disk."""
-        # Forward predictions for export into SamplePrediction / PredictionRun later.
-        _outputs = self(batch)
-        return {
-            "sample_ids": batch.sample_ids,
-            "sids": batch.sids,
-            "init_times_utc": batch.window_ref_times_utc,
-            "outputs": _outputs,
-        }
+        # Forward: model must return a WindowBatch with ibtracs predictions.
+        output_batch = self(masked_batch)
 
-    def configure_optimizers(self) -> OptimizerLRScheduler:
-        """AdamW optimizer with cosine warmup-restarts LR schedule (per-step)."""
-        # Map parameter names to tensors for decay vs no-decay grouping.
-        params = dict(self.named_parameters())
-        # Decay 2D+ tensors only (weight matrices, conv kernels).
-        # Skip 1D tensors (norms, biases, embeddings if 1D).
-        decay_params = {k for k, v in params.items() if v.ndim >= 2 and "norm" not in k}
-        # Weight decay applies only to the decay group; other kwargs go to AdamW.
-        adamw_kwargs = dict(self._adamw_kwargs)
-        weight_decay = adamw_kwargs.pop("weight_decay", 0.0)
-        # Matrices and conv kernels get L2 decay; biases, norms, and 1D params do not.
-        param_groups: list[dict[str, Any]] = [
-            {
-                "params": [params[k] for k in decay_params],
-                "weight_decay": weight_decay,
-            },
-            {
-                "params": [params[k] for k in params if k not in decay_params],
-                "weight_decay": 0.0,
-            },
-        ]
-        optimizer = torch.optim.AdamW(param_groups, **adamw_kwargs)
-        scheduler = CosineAnnealingWarmupRestarts(optimizer, **self._lr_scheduler_kwargs)
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "step",
-            },
-        }
+        # Collect squared residuals over all valid positions across all ibtracs keys.
+        all_diffs: list[torch.Tensor] = []
+        for key, original in originals.items():
+            # original.mask is True where the original best-track value was present.
+            valid = original.mask  # (B, C) bool
+            if not valid.any():
+                # This key is all NaN-fill padding — skip it.
+                continue
+            pred_values = output_batch.sources[key].values  # (B, C)
+            true_values = original.values  # (B, C)
+            # Index by valid mask to get a flat vector of residuals.
+            all_diffs.append(pred_values[valid] - true_values[valid])
 
-    def on_validation_epoch_end(self) -> None:
-        """Write validation figures on the primary process after each val epoch."""
-        trainer = self.trainer
-        if trainer is None:
-            return
-        # Only rank 0 writes figures; skip the initial sanity-check pass.
-        if not trainer.is_global_zero or trainer.sanity_checking:
-            return
-        self._save_validation_figures()
+        if not all_diffs:
+            # No valid ibtracs positions in this batch; return a zero-grad loss.
+            return torch.tensor(0.0, device=self.device, requires_grad=True)
 
-    def _save_validation_figures(self) -> None:
-        """Persist validation diagnostic plots under validation_dir."""
-        self._validation_dir.mkdir(parents=True, exist_ok=True)
-        # TODO: call tcfuse.data.visualization.training once implemented.
-        epoch = self.current_epoch
-        _figure_path = self._validation_dir / f"{epoch:04d}_val_summary.svg"
+        residuals = torch.cat(all_diffs)
+        return (residuals**2).mean()

@@ -79,7 +79,7 @@ project_root/
 │   │   └── dataset.py         ← TCWindowDataset (PyTorch map-style Dataset)
 │   ├── lightning/
 │   │   ├── datamodule.py      ← TCWindowDataModule (LightningDataModule)
-│   │   ├── ibtracs_forecast.py ← IBTrACSForecastLightningModule
+│   │   ├── ibtracs_forecast.py ← IBTrACSForecastLightningModule (BaseLightningModule subclass; masks ibtracs values/coords with learned tokens, MSE loss)
 │   │   ├── base_module.py ← BaseLightningModule (general WindowBatch→WindowBatch)
 │   │   └── lr_scheduler.py    ← CosineAnnealingWarmupRestarts
 │   ├── model/
