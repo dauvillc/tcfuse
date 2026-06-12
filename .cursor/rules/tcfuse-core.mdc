@@ -69,7 +69,7 @@ On-disk layouts (Stage 0–3, HDF5 schemas, index.parquet columns, I/O API) → 
 
 ```
 project_root/
-├── conf/                      ← Hydra config tree (dataloader/, datamodule/, model/, paths/, optimizer/, lr_scheduler/, experiment/)
+├── conf/                      ← Hydra config tree (dataloader/, datamodule/, lightning_module/, model/, trainer/, optimizer/, lr_scheduler/, setup/, paths/, windows_setup/, experiment/)
 ├── src/tcfuse/
 │   ├── data/
 │   │   ├── sources/           ← Source, SourceKind, SourceMetadata, MultisourceMetadata, StormData
@@ -90,7 +90,7 @@ project_root/
 │   ├── training/              ← losses.py, callbacks.py
 │   └── utils/                 ← coords.py, archive.py
 ├── scripts/preprocess/        ← prepare_*.py, assemble.py, build_splits.py, compute_normalization.py
-├── scripts/train/             ← profile_data.py and future training-adjacent scripts (hydra+submitit, no model)
+├── scripts/train/             ← train.py (Hydra+submitit, Checkpointable, ModelCheckpoint), profile_data.py
 ├── tests/
 └── notebooks/                 ← exploration only, never imported by src/
 ```

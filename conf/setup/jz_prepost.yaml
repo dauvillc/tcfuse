@@ -16,7 +16,7 @@ setup:
   name: download_jz
   slurm_signal_delay_s: 120
   slurm_setup:
-    - "module load pytorch-gpu/py3/2.8.0"
+    - "source ${oc.env:HOME}/.bash_profile"
 
 workers: 16                 # concurrent S3 download threads
 archive: true

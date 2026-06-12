@@ -17,7 +17,7 @@ setup:
   slurm_additional_parameters:
     hint: nomultithread
   slurm_setup:
-    - "module load pytorch-gpu/py3/2.8.0"
+    - "source ${oc.env:HOME}/.bash_profile"
   
 num_workers: 39
 archive: true

@@ -2,26 +2,32 @@
 # Jean-Zay H100 quad-GPU partition (gpu_p6, Eviden nodes).
 # Hardware: 4x H100 SXM5 80 GB NVLink, 96 CPUs (Intel), ~468 GB RAM.
 # QoS: qos_gpu_h100-t3 (default, 20h) or qos_gpu_h100-t4 (100h, <=16 GPU/job).
-# NOTE: Specific hardware architecture requires module load arch/h100 BEFORE pytorch module.
 # Slurm constraint -C h100 is mandatory to target this partition.
 
 defaults:
   - override /paths: jz
 
 setup:
-  slurm_partition: gpu_p6
-  slurm_account: xyw@h100
-  slurm_constraint: h100          # -C h100 is mandatory for this partition
-  nodes: 1
-  tasks_per_node: 1
-  gpus_per_node: 4
-  cpus_per_task: 96
-  mem_gb: 468
   timeout_min: 1200               # 20h default; set 6000 for qos_gpu_h100-t4
-  signal_delay_s: 120
+  slurm_nodes: 1
+  cpus_per_task: 96
+  slurm_ntasks_per_node: ${trainer.devices}
+  slurm_gres: "gpu:4"
+  slurm_constraint: h100          # -C h100 is mandatory for this partition
+  slurm_account: "xyw@h100"
+  slurm_signal_delay_s: 120
+  slurm_additional_parameters:
+    hint: nomultithread
   slurm_setup:
-    - "module load arch/h100"     # must load BEFORE pytorch — specific Eviden HW arch
-    - "module load pytorch-gpu/py3/2.8.0"
-  num_workers: 22                 # per GPU (96 CPUs / 4 GPUs, leaving slack)
+    - "source ${oc.env:HOME}/.bash_profile"
+    - "h100"
   name: tc_fusion_jz_h100
+
+trainer:
+  devices: 4
+  num_nodes: 1
+
+dataloader:
+  num_workers: 22                 # per GPU (96 CPUs / 4 GPUs, leaving slack)
+
 archive: true

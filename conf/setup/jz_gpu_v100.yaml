@@ -8,17 +8,25 @@ defaults:
   - override /paths: jz
 
 setup:
-  slurm_partition: gpu_p13
-  slurm_account: xyw@v100
-  nodes: 1
-  tasks_per_node: 1
-  gpus_per_node: 4
-  cpus_per_task: 40
-  mem_gb: 160
   timeout_min: 1200               # 20h (qos_gpu-t3 default); set 6000 for qos_gpu-t4
-  signal_delay_s: 120
+  slurm_nodes: 1
+  cpus_per_task: 40
+  slurm_ntasks_per_node: ${trainer.devices}
+  slurm_gres: "gpu:4"
+  slurm_account: "xyw@v100"
+  slurm_signal_delay_s: 120
+  slurm_additional_parameters:
+    hint: nomultithread
   slurm_setup:
-    - "module load pytorch-gpu/py3/2.8.0"
-  num_workers: 8                  # per GPU (40 CPUs / 4 GPUs, leaving slack)
+    - "source ${oc.env:HOME}/.bash_profile"
+    - "v100"
   name: tc_fusion_jz_v100
+
+trainer:
+  devices: 4
+  num_nodes: 1
+
+dataloader:
+  num_workers: 8                  # per GPU (40 CPUs / 4 GPUs, leaving slack)
+
 archive: true

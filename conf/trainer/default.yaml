@@ -1,0 +1,13 @@
+# pl.Trainer kwargs — all overridable per experiment.
+# devices and num_nodes default to 1 for local runs; JZ setup configs override
+# them at the global level (e.g. setup=jz_gpu_h100 sets trainer.devices=4).
+max_epochs: ???               # required; set in experiment config
+precision: 32-true            # override with bf16-mixed on A100/H100
+log_every_n_steps: 50
+strategy: ddp                 # single-GPU experiments can override to auto
+devices: 1
+num_nodes: 1
+accelerator: gpu              # override to cpu for CPU-only runs
+
+# ModelCheckpoint kwarg — not forwarded to Trainer, consumed by train.py
+checkpoint_every_n_steps: 500

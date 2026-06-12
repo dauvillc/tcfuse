@@ -1,4 +1,4 @@
-# @package _global_
 _target_: tcfuse.lightning.datamodule.TCWindowDataModule
 assembled_root: ${paths.preprocessed_data}
+windows_setup_name: ${windows_setup.name}
 dataloader_kwargs: ${dataloader}
