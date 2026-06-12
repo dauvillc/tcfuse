@@ -29,6 +29,18 @@ def _sample_multisource_metadata() -> MultisourceMetadata:
     )
 
 
+def _sample_normalization_stats() -> dict[str, Any]:
+    """Minimal normalization stats matching :func:`_sample_multisource_metadata`."""
+    return {
+        "pmw_amsr2_gcomw1": {
+            "kind": "field",
+            "channels": {
+                "tb_36.5h": {"mean": 0.0, "std": 1.0, "count": 100},
+            },
+        }
+    }
+
+
 def test_configure_optimizers_returns_adamw_and_scheduler(tmp_path: Path) -> None:
     """configure_optimizers wires AdamW and CosineAnnealingWarmupRestarts."""
     model = nn.Linear(2, 1)
@@ -36,6 +48,7 @@ def test_configure_optimizers_returns_adamw_and_scheduler(tmp_path: Path) -> Non
     module = IBTrACSForecastLightningModule(
         model=model,
         sources_metadata=metadata,
+        normalization_stats=_sample_normalization_stats(),
         adamw_kwargs={"lr": 1.0e-4, "weight_decay": 0.01},
         lr_scheduler_kwargs={
             "first_cycle_steps": 10,
@@ -75,6 +88,7 @@ def test_sources_metadata_property_returns_snapshot(tmp_path: Path) -> None:
     module = IBTrACSForecastLightningModule(
         model=nn.Linear(1, 1),
         sources_metadata=metadata,
+        normalization_stats=_sample_normalization_stats(),
         adamw_kwargs={"lr": 1.0e-4},
         lr_scheduler_kwargs={"first_cycle_steps": 10, "warmup_steps": 0, "max_lr": 1.0e-4},
         validation_dir=tmp_path,

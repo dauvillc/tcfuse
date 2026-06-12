@@ -116,13 +116,14 @@ class TrainingTask(submitit.helpers.Checkpointable):
         # Instantiate the model backbone (experiment config provides _target_).
         model = instantiate(OmegaConf.create(cfg["model"]))
 
-        # Instantiate the task-specific lightning module and inject the two values
-        # absent from the YAML: model (instantiated above) and sources_metadata
-        # (loaded from disk by dm.setup()).
+        # Instantiate the task-specific lightning module and inject the values absent
+        # from the YAML: model (instantiated above), plus sources_metadata and
+        # normalization_stats (both loaded from disk by dm.setup()).
         lightning_module = instantiate(
             OmegaConf.create(cfg["lightning_module"]),
             model=model,
             sources_metadata=dm.sources_metadata,
+            normalization_stats=dm.normalization_stats,
         )
 
         trainer = _build_trainer(cfg, self.checkpoint_dir)

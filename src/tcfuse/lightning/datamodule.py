@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any, cast, override
 
 import lightning
 import torch
+import yaml
 from torch.utils.data import DataLoader
 
 from tcfuse.data.collate import WindowBatch, collate_window_samples
@@ -14,6 +16,7 @@ from tcfuse.data.dataset import TCWindowDataset
 from tcfuse.data.sources.metadata import MultisourceMetadata
 
 _SOURCES_METADATA_FILENAME = "sources_metadata.yaml"
+_NORMALIZATION_STATS_FILENAME = "normalization_stats.yaml"
 
 
 class TCWindowDataModule(lightning.LightningDataModule):
@@ -49,6 +52,7 @@ class TCWindowDataModule(lightning.LightningDataModule):
         self._dataloader_kwargs = dict(dataloader_kwargs)
 
         self._sources_metadata: MultisourceMetadata | None = None
+        self._normalization_stats: dict[str, Any] | None = None
         self._train_dataset: TCWindowDataset | None = None
         self._val_dataset: TCWindowDataset | None = None
         self._test_dataset: TCWindowDataset | None = None
@@ -63,6 +67,18 @@ class TCWindowDataModule(lightning.LightningDataModule):
         if self._sources_metadata is None:
             raise RuntimeError("sources_metadata is not available before setup() is called.")
         return MultisourceMetadata.from_dict(self._sources_metadata.to_dict())
+
+    @property
+    def normalization_stats(self) -> dict[str, Any]:
+        """Per-source, per-channel mean/std statistics loaded during :meth:`setup`.
+
+        Raises:
+            RuntimeError: If :meth:`setup` has not been called yet.
+        """
+        if self._normalization_stats is None:
+            raise RuntimeError("normalization_stats is not available before setup() is called.")
+        # Deep-copy so callers cannot mutate the cached statistics.
+        return copy.deepcopy(self._normalization_stats)
 
     def setup(self, stage: str | None = None) -> None:
         """Instantiate datasets for the requested stage.
@@ -80,6 +96,11 @@ class TCWindowDataModule(lightning.LightningDataModule):
                 self._assembled_root / _SOURCES_METADATA_FILENAME
             )
             self._sources_metadata = MultisourceMetadata.from_dict(loaded.to_dict())
+
+        # Load normalization statistics once; injected into the lightning module at train time.
+        if self._normalization_stats is None:
+            with open(self._assembled_root / _NORMALIZATION_STATS_FILENAME) as f:
+                self._normalization_stats = yaml.safe_load(f)
 
         make = self._make_dataset
         if stage in ("fit", None):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from torch import nn
 
 from tcfuse.data.collate import WindowBatch
 from tcfuse.data.sources.metadata import MultisourceMetadata
+from tcfuse.data.sources.torch_source import TorchSource
 from tcfuse.lightning.lr_scheduler import CosineAnnealingWarmupRestarts
 
 
@@ -31,6 +33,11 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         model: The source-transformation model; must accept a :class:`WindowBatch` in
             ``forward`` and return a :class:`WindowBatch`.
         sources_metadata: Static descriptors for sources present in training samples.
+        normalization_stats: Per-source, per-channel ``mean``/``std`` statistics
+            (see :meth:`normalize`). Produced by
+            ``scripts/preprocess/compute_normalization.py`` and shaped
+            ``{source_name: {"kind": str, "channels": {channel: {"mean", "std", "count"}}}}``.
+            Every source in ``sources_metadata`` must have an entry.
         adamw_kwargs: Keyword arguments for :class:`torch.optim.AdamW` (excluding ``params``).
         lr_scheduler_kwargs: Keyword arguments for :class:`CosineAnnealingWarmupRestarts`.
         validation_dir: Directory where validation figures are written each epoch.
@@ -40,6 +47,7 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         self,
         model: nn.Module,
         sources_metadata: MultisourceMetadata,
+        normalization_stats: dict[str, Any],
         adamw_kwargs: dict[str, Any],
         lr_scheduler_kwargs: dict[str, Any],
         validation_dir: str | Path,
@@ -52,8 +60,11 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         self._adamw_kwargs = dict(adamw_kwargs)
         self._lr_scheduler_kwargs = dict(lr_scheduler_kwargs)
         self._validation_dir = Path(validation_dir)
-        # Do not serialize the full model tree or metadata into checkpoints.
-        self.save_hyperparameters(ignore=["model", "sources_metadata"])
+        # Build per-source mean/std buffers from the training-split statistics.
+        self._register_normalization_buffers(normalization_stats)
+        # Do not serialize the full model tree, metadata, or raw stats into hparams;
+        # the normalization tensors are persisted as buffers instead.
+        self.save_hyperparameters(ignore=["model", "sources_metadata", "normalization_stats"])
 
     @property
     def sources_metadata(self) -> MultisourceMetadata:
@@ -80,20 +91,134 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         """
 
     def training_step(self, batch: WindowBatch, batch_idx: int) -> torch.Tensor:
-        """One training optimizer step."""
-        loss = self._shared_step(batch, "train")
+        """One training optimizer step (in normalized space)."""
+        loss = self._shared_step(self.normalize(batch), "train")
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch: WindowBatch, batch_idx: int) -> torch.Tensor:
-        """One validation forward pass."""
-        loss = self._shared_step(batch, "val")
+        """One validation forward pass (in normalized space)."""
+        loss = self._shared_step(self.normalize(batch), "val")
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def predict_step(self, batch: WindowBatch, batch_idx: int) -> WindowBatch:
-        """Inference hook; returns the transformed WindowBatch for downstream use."""
-        return self(batch)
+        """Inference hook; runs the model in normalized space and de-normalizes the output.
+
+        Returns the transformed :class:`WindowBatch` back in physical units so
+        downstream consumers see predictions on the original scale.
+        """
+        return self.denormalize(self(self.normalize(batch)))
+
+    def on_validation_epoch_end(self) -> None:
+        """Write validation figures on the primary process after each val epoch."""
+        trainer = self.trainer
+        if trainer is None:
+            return
+        # Only rank 0 writes figures; skip the initial sanity-check pass.
+        if not trainer.is_global_zero or trainer.sanity_checking:
+            return
+        self._save_validation_figures()
+
+    def _save_validation_figures(self) -> None:
+        """Persist validation diagnostic plots under validation_dir."""
+        self._validation_dir.mkdir(parents=True, exist_ok=True)
+        # TODO: call tcfuse.data.visualization.training once implemented.
+        epoch = self.current_epoch
+        _figure_path = self._validation_dir / f"{epoch:04d}_val_summary.svg"
+
+    def _register_normalization_buffers(self, normalization_stats: dict[str, Any]) -> None:
+        """Register per-source mean/std buffers ordered by each source's channels.
+
+        Statistics are per-channel (one mean/std per channel, pooled over levels or
+        pixels), so a single ``(C,)`` vector per source broadcasts against the trailing
+        channel axis for every :class:`SourceKind`. Buffers move with the module and are
+        saved into checkpoints, so inference does not need the stats YAML on disk.
+
+        Args:
+            normalization_stats: Mapping ``{source_name: {"channels": {channel:
+                {"mean", "std", ...}}}}`` covering every source in ``sources_metadata``.
+
+        Raises:
+            KeyError: If a source or one of its channels is missing from the stats.
+        """
+        # Names of sources we normalize; used to look up buffers at runtime.
+        self._normalized_sources: list[str] = []
+        for name in self._sources_metadata.names:
+            if name not in normalization_stats:
+                raise KeyError(
+                    f"No normalization statistics for source {name!r}. "
+                    "Re-run scripts/preprocess/compute_normalization.py."
+                )
+            channel_stats = normalization_stats[name]["channels"]
+            channels = self._sources_metadata[name].channels
+            # Order mean/std by the source's canonical channel list (matches values' last axis).
+            means = torch.tensor(
+                [float(channel_stats[ch]["mean"]) for ch in channels], dtype=torch.float32
+            )
+            stds = torch.tensor(
+                [float(channel_stats[ch]["std"]) for ch in channels], dtype=torch.float32
+            )
+            # Guard against divide-by-zero on constant channels (std == 0).
+            stds = stds.clamp_min(1e-6)
+            self.register_buffer(self._mean_buffer_name(name), means)
+            self.register_buffer(self._std_buffer_name(name), stds)
+            self._normalized_sources.append(name)
+
+    @staticmethod
+    def _mean_buffer_name(source_name: str) -> str:
+        """Deterministic buffer attribute name holding a source's per-channel means."""
+        return f"_norm_mean__{source_name}"
+
+    @staticmethod
+    def _std_buffer_name(source_name: str) -> str:
+        """Deterministic buffer attribute name holding a source's per-channel stds."""
+        return f"_norm_std__{source_name}"
+
+    def _affine_transform(self, batch: WindowBatch, *, invert: bool) -> WindowBatch:
+        """Apply ``(v - mean) / std`` (or its inverse) per source, returning a new batch.
+
+        Only sources with registered statistics are transformed; all other batch
+        fields (coords, mask, time, scalar attributes) are carried over untouched.
+        NaN-fill values at masked/padding positions stay NaN and are handled by masks
+        downstream. The input batch is not mutated.
+
+        Args:
+            batch: Collated window batch (already on the module's device).
+            invert: If ``True`` de-normalize (``v * std + mean``); otherwise normalize.
+
+        Returns:
+            A new :class:`WindowBatch` with transformed source values.
+        """
+        # Shallow-copy the sources dict so untransformed entries are shared, not rebuilt.
+        new_sources: dict[tuple[str, int], TorchSource] = dict(batch.sources)
+        for key, source in batch.sources.items():
+            source_name, _idx = key
+            if source_name not in self._normalized_sources:
+                continue
+            # Buffers are (C,); they broadcast over the trailing channel axis of values.
+            mean = getattr(self, self._mean_buffer_name(source_name))
+            std = getattr(self, self._std_buffer_name(source_name))
+            if invert:
+                new_values = source.values * std + mean
+            else:
+                new_values = (source.values - mean) / std
+            # Rebuild the source with new values; every other field is unchanged.
+            new_sources[key] = dataclasses.replace(source, values=new_values)
+        return dataclasses.replace(batch, sources=new_sources)
+
+    def normalize(self, batch: WindowBatch) -> WindowBatch:
+        """Center and scale every source's values into normalized space.
+
+        Subtracts the per-channel training mean and divides by the per-channel
+        training std. Applied before the backbone sees the batch; training and
+        validation run entirely in this normalized space.
+        """
+        return self._affine_transform(batch, invert=False)
+
+    def denormalize(self, batch: WindowBatch) -> WindowBatch:
+        """Invert :meth:`normalize`, mapping values back to physical units."""
+        return self._affine_transform(batch, invert=True)
 
     def configure_optimizers(self) -> OptimizerLRScheduler:
         """AdamW optimizer with cosine warmup-restarts LR schedule (per-step)."""
@@ -125,20 +250,3 @@ class BaseLightningModule(ABC, lightning.LightningModule):
                 "interval": "step",
             },
         }
-
-    def on_validation_epoch_end(self) -> None:
-        """Write validation figures on the primary process after each val epoch."""
-        trainer = self.trainer
-        if trainer is None:
-            return
-        # Only rank 0 writes figures; skip the initial sanity-check pass.
-        if not trainer.is_global_zero or trainer.sanity_checking:
-            return
-        self._save_validation_figures()
-
-    def _save_validation_figures(self) -> None:
-        """Persist validation diagnostic plots under validation_dir."""
-        self._validation_dir.mkdir(parents=True, exist_ok=True)
-        # TODO: call tcfuse.data.visualization.training once implemented.
-        epoch = self.current_epoch
-        _figure_path = self._validation_dir / f"{epoch:04d}_val_summary.svg"

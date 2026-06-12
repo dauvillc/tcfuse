@@ -30,6 +30,9 @@ class IBTrACSForecastLightningModule(BaseLightningModule):
         model: Backbone + task head; must accept a :class:`WindowBatch` in ``forward``
             and return a :class:`WindowBatch` whose ibtracs sources carry predictions.
         sources_metadata: Static descriptors for sources present in training samples.
+        normalization_stats: Per-source, per-channel mean/std statistics applied by the
+            base module (see :meth:`BaseLightningModule.normalize`). The masked-prediction
+            loss is therefore computed in normalized space.
         adamw_kwargs: Keyword arguments for :class:`torch.optim.AdamW` (excluding ``params``).
         lr_scheduler_kwargs: Keyword arguments for :class:`CosineAnnealingWarmupRestarts`.
         validation_dir: Directory where validation figures are written each epoch.
@@ -39,6 +42,7 @@ class IBTrACSForecastLightningModule(BaseLightningModule):
         self,
         model: nn.Module,
         sources_metadata: MultisourceMetadata,
+        normalization_stats: dict[str, Any],
         adamw_kwargs: dict[str, Any],
         lr_scheduler_kwargs: dict[str, Any],
         validation_dir: str | Path,
@@ -46,6 +50,7 @@ class IBTrACSForecastLightningModule(BaseLightningModule):
         super().__init__(
             model=model,
             sources_metadata=sources_metadata,
+            normalization_stats=normalization_stats,
             adamw_kwargs=adamw_kwargs,
             lr_scheduler_kwargs=lr_scheduler_kwargs,
             validation_dir=validation_dir,
