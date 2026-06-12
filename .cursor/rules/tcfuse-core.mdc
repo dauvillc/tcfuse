@@ -78,10 +78,11 @@ project_root/
 │   │   ├── collate.py         ← collate_window_samples → WindowBatch
 │   │   └── dataset.py         ← TCWindowDataset (PyTorch map-style Dataset)
 │   ├── lightning/
-│   │   ├── datamodule.py      ← TCWindowDataModule (LightningDataModule)
-│   │   ├── ibtracs_forecast.py ← IBTrACSForecastLightningModule (BaseLightningModule subclass; masks ibtracs values/coords with learned tokens, MSE loss)
-│   │   ├── base_module.py ← BaseLightningModule (general WindowBatch→WindowBatch)
-│   │   └── lr_scheduler.py    ← CosineAnnealingWarmupRestarts
+│   │   ├── datamodule.py           ← TCWindowDataModule (LightningDataModule)
+│   │   ├── base_module.py          ← BaseLightningModule (general WindowBatch→WindowBatch, normalization, AdamW+cosine-LR)
+│   │   ├── ibtracs_forecast.py     ← IBTrACSForecastLightningModule (masks ibtracs values/coords with learned tokens, MSE loss)
+│   │   ├── masked_reconstruction.py ← MaskedReconstructionLightningModule (general masked-source reconstruction; targets from WindowBatch.is_target, NaN masking, MSE loss)
+│   │   └── lr_scheduler.py         ← CosineAnnealingWarmupRestarts
 │   ├── model/
 │   │   ├── embeddings/        ← value embedders per source type (0D, 1D, 2D)
 │   │   ├── encoders/          ← interchangeable backbone architectures

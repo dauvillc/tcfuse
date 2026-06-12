@@ -1,0 +1,5 @@
+_target_: tcfuse.lightning.masked_reconstruction.MaskedReconstructionLightningModule
+adamw_kwargs: ${optimizer}
+lr_scheduler_kwargs: ${lr_scheduler}
+validation_dir: ${paths.figures}
+# model, sources_metadata, and normalization_stats are injected at instantiation time from train.py
