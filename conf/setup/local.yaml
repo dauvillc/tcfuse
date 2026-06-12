@@ -1,3 +1,7 @@
-timeout_min: 60
-name: tc_fusion_local
+# @package _global_
+# Local development setup (no SLURM, no archiving).
+setup:
+  timeout_min: 60
+  name: tc_fusion_local
+
 archive: false

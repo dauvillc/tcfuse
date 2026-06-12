@@ -29,7 +29,11 @@ class MaskedReconstructionLightningModule(BaseLightningModule):
     **normalized space**.
 
     No additional parameters beyond those in :class:`BaseLightningModule` are
-    introduced; ``__init__`` is inherited unchanged.
+    introduced; ``__init__`` is inherited unchanged.  The backbone constructor
+    is expected to accept ``sources_metadata`` as a keyword argument so it can
+    allocate per-source parameters at construction time; when the config uses
+    ``_partial_: true``, :class:`BaseLightningModule` calls the resulting
+    factory with ``sources_metadata`` automatically.
     """
 
     def _mask_targets(

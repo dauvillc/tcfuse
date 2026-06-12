@@ -1,0 +1,21 @@
+# @package _global_
+# Dummy experiment: reconstruct pmw_gmi_gpm from concurrent PMW passes.
+# Uses ChannelwiseAffineBackbone (via masked_reconstruction defaults) for quick
+# local smoke-testing.
+defaults:
+  - override /lightning_module: masked_reconstruction
+  - override /windows_setup: pmw_gmi_reconstruction
+
+trainer:
+  max_epochs: 2
+  accelerator: gpu
+  strategy: auto
+  devices: 1
+
+dataloader:
+  batch_size: 4
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
+
+submitit: false

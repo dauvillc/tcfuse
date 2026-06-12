@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -30,8 +31,12 @@ class BaseLightningModule(ABC, lightning.LightningModule):
     translation tasks.
 
     Args:
-        model: The source-transformation model; must accept a :class:`WindowBatch` in
-            ``forward`` and return a :class:`WindowBatch`.
+        model: The source-transformation model.  Can be either a fully instantiated
+            :class:`~torch.nn.Module` or a factory callable (e.g. a Hydra partial from
+            ``_partial_: true``) that accepts ``sources_metadata`` as its sole keyword
+            argument and returns an :class:`~torch.nn.Module`.  Using a factory lets
+            the backbone constructor read channel counts and shapes directly from the
+            metadata without duplicating that information in the Hydra config.
         sources_metadata: Static descriptors for sources present in training samples.
         normalization_stats: Per-source, per-channel ``mean``/``std`` statistics
             (see :meth:`normalize`). Produced by
@@ -45,7 +50,7 @@ class BaseLightningModule(ABC, lightning.LightningModule):
 
     def __init__(
         self,
-        model: nn.Module,
+        model: nn.Module | Callable[..., nn.Module],
         sources_metadata: MultisourceMetadata,
         normalization_stats: dict[str, Any],
         adamw_kwargs: dict[str, Any],
@@ -53,13 +58,16 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         validation_dir: str | Path,
     ) -> None:
         super().__init__()
-        # Register the Hydra-instantiated model as a submodule for parameter tracking.
-        self.model = model
-        # Snapshot metadata so later mutations to the injected object cannot leak in.
+        # Snapshot metadata first — the model factory needs it to allocate parameters.
         self._sources_metadata = MultisourceMetadata.from_dict(sources_metadata.to_dict())
         self._adamw_kwargs = dict(adamw_kwargs)
         self._lr_scheduler_kwargs = dict(lr_scheduler_kwargs)
         self._validation_dir = Path(validation_dir)
+        # If model is a Hydra partial (not yet an nn.Module), call it now so the
+        # backbone can read channel counts and shapes from sources_metadata.
+        if not isinstance(model, nn.Module):
+            model = model(sources_metadata=sources_metadata)
+        self.model = model
         # Build per-source mean/std buffers from the training-split statistics.
         self._register_normalization_buffers(normalization_stats)
         # Do not serialize the full model tree, metadata, or raw stats into hparams;

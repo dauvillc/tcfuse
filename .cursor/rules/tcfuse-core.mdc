@@ -79,15 +79,12 @@ project_root/
 │   │   └── dataset.py         ← TCWindowDataset (PyTorch map-style Dataset)
 │   ├── lightning/
 │   │   ├── datamodule.py           ← TCWindowDataModule (LightningDataModule)
-│   │   ├── base_module.py          ← BaseLightningModule (general WindowBatch→WindowBatch, normalization, AdamW+cosine-LR)
+│   │   ├── base_module.py          ← BaseLightningModule (general WindowBatch→WindowBatch, normalization, AdamW+cosine-LR; accepts backbone as nn.Module or Hydra partial)
 │   │   ├── ibtracs_forecast.py     ← IBTrACSForecastLightningModule (masks ibtracs values/coords with learned tokens, MSE loss)
 │   │   ├── masked_reconstruction.py ← MaskedReconstructionLightningModule (general masked-source reconstruction; targets from WindowBatch.is_target, NaN masking, MSE loss)
 │   │   └── lr_scheduler.py         ← CosineAnnealingWarmupRestarts
-│   ├── model/
-│   │   ├── embeddings/        ← value embedders per source type (0D, 1D, 2D)
-│   │   ├── encoders/          ← interchangeable backbone architectures
-│   │   ├── decoders/          ← task heads (regression, generative, classification)
-│   │   └── model.py           ← top-level nn.Module backbone
+│   ├── models/
+│   │   └── affine_backbone.py      ← ChannelwiseAffineBackbone (per-channel weight+bias, testing/baseline)
 │   ├── training/              ← losses.py, callbacks.py
 │   └── utils/                 ← coords.py, archive.py
 ├── scripts/preprocess/        ← prepare_*.py, assemble.py, build_splits.py, compute_normalization.py
@@ -159,7 +156,7 @@ The framework is **architecture-agnostic at the backbone level**. The embedding 
 
 - Input: a list of token sequences, one per source, each of shape `(B, N_i, D)` where `N_i` is the number of tokens for source `i` and `D` is the embedding dimension.
 - Output: a representation that the task head can query — exact form depends on architecture (latent array for Perceiver, CLS token for ViT-style, etc.).
-- The encoder must be instantiable from a Hydra config node.
+- The encoder must be instantiable from a Hydra config node, using `_partial_: true` so that `BaseLightningModule` can pass `sources_metadata` to the constructor at runtime (allowing backbones to allocate per-source parameters from channel counts).  The model config lives in `conf/model/` and is imported into the lightning module config via a defaults package-override entry: `- /model@model: <name>`.
 
 **Candidate architectures to benchmark** (extend as needed):
 

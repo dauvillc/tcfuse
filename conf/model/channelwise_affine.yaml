@@ -1,0 +1,2 @@
+_target_: tcfuse.models.affine_backbone.ChannelwiseAffineBackbone
+_partial_: true

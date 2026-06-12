@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -27,8 +28,13 @@ class IBTrACSForecastLightningModule(BaseLightningModule):
     averaged over all valid ``(batch_sample, channel)`` positions.
 
     Args:
-        model: Backbone + task head; must accept a :class:`WindowBatch` in ``forward``
-            and return a :class:`WindowBatch` whose ibtracs sources carry predictions.
+        model: Backbone + task head.  Can be a fully instantiated
+            :class:`~torch.nn.Module` or a factory callable (e.g. a Hydra partial
+            from ``_partial_: true``) that accepts ``sources_metadata`` as its sole
+            keyword argument and returns an :class:`~torch.nn.Module`.  The base class
+            handles factory instantiation automatically.  The model must accept a
+            :class:`WindowBatch` in ``forward`` and return a :class:`WindowBatch`
+            whose ibtracs sources carry predictions.
         sources_metadata: Static descriptors for sources present in training samples.
         normalization_stats: Per-source, per-channel mean/std statistics applied by the
             base module (see :meth:`BaseLightningModule.normalize`). The masked-prediction
@@ -40,7 +46,7 @@ class IBTrACSForecastLightningModule(BaseLightningModule):
 
     def __init__(
         self,
-        model: nn.Module,
+        model: nn.Module | Callable[..., nn.Module],
         sources_metadata: MultisourceMetadata,
         normalization_stats: dict[str, Any],
         adamw_kwargs: dict[str, Any],

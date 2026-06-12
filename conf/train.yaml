@@ -2,15 +2,14 @@
 defaults:
   - dataloader: default
   - datamodule: default
-  - lightning_module: ???   # must be specified by experiment
-  - model: null             # experiment provides via "- override /model: <name>"
+  - lightning_module: ???   # must be specified by experiment; the lightning_module config imports its model via defaults
   - trainer: default
   - optimizer: default
   - lr_scheduler: default
   - windows_setup: ???      # must be specified by experiment
   - paths: local            # override with paths=jz on Jean-Zay
   - setup: local            # override with setup=jz_<hw> on Jean-Zay
-  - experiment: ???         # must be specified at launch
   - _self_
+  - experiment: ???         # must be specified at launch; can override submitit and other base values
 
 submitit: true  # Set to false to run locally

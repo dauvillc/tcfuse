@@ -113,15 +113,16 @@ class TrainingTask(submitit.helpers.Checkpointable):
         # injected into the lightning module constructor below.
         dm.setup("fit")
 
-        # Instantiate the model backbone (experiment config provides _target_).
-        model = instantiate(OmegaConf.create(cfg["model"]))
-
-        # Instantiate the task-specific lightning module and inject the values absent
-        # from the YAML: model (instantiated above), plus sources_metadata and
-        # normalization_stats (both loaded from disk by dm.setup()).
-        lightning_module = instantiate(
-            OmegaConf.create(cfg["lightning_module"]),
-            model=model,
+        # Instantiate the task-specific lightning module.  The model backbone is
+        # embedded in cfg["lightning_module"] as a nested Hydra config with
+        # _partial_: true; BaseLightningModule.__init__ calls the resulting partial
+        # with sources_metadata so the backbone can allocate per-source parameters.
+        # Use _partial_=True so that sources_metadata and normalization_stats are
+        # passed directly to the constructor — bypassing Hydra's OmegaConf merge,
+        # which would otherwise wrap the MultisourceMetadata dataclass as a
+        # structured DictConfig and break attribute access inside __init__.
+        lm_factory = instantiate(OmegaConf.create(cfg["lightning_module"]), _partial_=True)
+        lightning_module = lm_factory(
             sources_metadata=dm.sources_metadata,
             normalization_stats=dm.normalization_stats,
         )
