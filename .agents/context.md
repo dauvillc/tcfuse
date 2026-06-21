@@ -4,12 +4,9 @@ This project develops a machine learning framework for **tropical cyclone (TC) a
 
 This is a standalone research project. It is not a version or extension of any prior system — it is designed from first principles with efficiency, modularity, and multi-architecture support in mind.
 
-**Target tasks (in order of priority):**
+**Primary goal:** train a **self-supervised multi-source foundation model** for tropical cyclones — a single encoder that learns from heterogeneous TC observations (PMW, IR, ERA5, profiles, best-track, etc.) without task-specific labels.
 
-1. Rapid intensification (RI) forecasting at lead times of +6 h to +48 h.
-2. High-resolution inner-core wind field and pressure reconstruction.
-3. Microwave image interpolation from sparse multi-source satellite passes.
-4. Track forecasting (downstream, via fine-tuning).
+The default pre-training objective is **masked-source reconstruction**: randomly mask one source at training time and reconstruct its values from all remaining sources, using only its coordinates and instrument metadata as queries (see Architecture philosophy below). Downstream supervised tasks — RI forecasting, track prediction, wind-field reconstruction, microwave interpolation — are future fine-tuning applications of this foundation model, not the current focus.
 
 ## On-demand skills (`.agents/`)
 
