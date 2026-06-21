@@ -81,7 +81,7 @@ class BaseLightningModule(ABC, lightning.LightningModule):
 
     def forward(self, batch: WindowBatch) -> WindowBatch:
         """Run the injected model on a collated window batch, returning a new WindowBatch."""
-        return self.preprocess_batch(self.model(batch))  # type: ignore[return-value]
+        return self.model(self.preprocess_batch(batch))  # type: ignore[return-value]
 
     @abstractmethod
     def _shared_step(self, batch: WindowBatch, stage: str) -> torch.Tensor:
@@ -133,8 +133,11 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         # Shallow-copy the sources dict; every entry is rebuilt with cleaned values.
         new_sources: dict[tuple[str, int], TorchSource] = {}
         for key, source in batch.sources.items():
-            # mask is True where valid; fill everywhere else with 0.
-            new_values = torch.where(source.mask, source.values, source.values.new_zeros(()))
+            # Only NaN-fill positions get zeroed; masked-but-finite values (e.g. learned
+            # mask tokens substituted by a subclass) are left untouched.
+            new_values = torch.where(
+                torch.isnan(source.values), source.values.new_zeros(()), source.values
+            )
             new_sources[key] = dataclasses.replace(source, values=new_values)
         return dataclasses.replace(batch, sources=new_sources)
 
