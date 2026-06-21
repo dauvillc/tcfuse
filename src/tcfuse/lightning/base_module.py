@@ -81,7 +81,7 @@ class BaseLightningModule(ABC, lightning.LightningModule):
 
     def forward(self, batch: WindowBatch) -> WindowBatch:
         """Run the injected model on a collated window batch, returning a new WindowBatch."""
-        return self.model(batch)  # type: ignore[return-value]
+        return self.preprocess_batch(self.model(batch))  # type: ignore[return-value]
 
     @abstractmethod
     def _shared_step(self, batch: WindowBatch, stage: str) -> torch.Tensor:
@@ -117,6 +117,26 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         downstream consumers see predictions on the original scale.
         """
         return self.denormalize(self(self.normalize(batch)))
+
+    def preprocess_batch(self, batch: WindowBatch) -> WindowBatch:
+        """Apply pre-backbone preprocessing to every source in a batch.
+
+        Runs after normalization and before the batch reaches the backbone in
+        the training / validation / predict steps.
+
+        Args:
+            batch: Collated, normalized window batch.
+
+        Returns:
+            A new WindowBatch with updated sources.
+        """
+        # Shallow-copy the sources dict; every entry is rebuilt with cleaned values.
+        new_sources: dict[tuple[str, int], TorchSource] = {}
+        for key, source in batch.sources.items():
+            # mask is True where valid; fill everywhere else with 0.
+            new_values = torch.where(source.mask, source.values, source.values.new_zeros(()))
+            new_sources[key] = dataclasses.replace(source, values=new_values)
+        return dataclasses.replace(batch, sources=new_sources)
 
     def on_validation_epoch_end(self) -> None:
         """Write validation figures on the primary process after each val epoch."""
