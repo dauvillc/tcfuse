@@ -163,7 +163,22 @@ def main(raw_cfg: DictConfig) -> None:
     # SLURM execution: submit via submitit and block until the job finishes.
     executor = make_executor(cfg, "train")
     job = executor.submit(task)
-    job.result()
+
+    # Multi-GPU runs set slurm_ntasks_per_node = trainer.devices, so submitit launches
+    # one task (process) per GPU and exposes them as sub-jobs (one result per DDP rank).
+    # Total task count is tasks-per-node x nodes; default to 1 when the keys are absent.
+    setup = cfg["setup"]
+    n_total_tasks = int(setup.get("slurm_ntasks_per_node", 1)) * int(setup.get("slurm_nodes", 1))
+
+    # result() (singular) asserts the job has no sub-jobs and would crash on any DDP
+    # run; results() (plural) blocks on every rank and re-raises if any rank failed.
+    # Both calls block until completion and propagate job-side exceptions to the launcher.
+    if n_total_tasks > 1:
+        # Multi-task DDP job: collect one result per rank.
+        job.results()
+    else:
+        # Single-task job: collect the lone result.
+        job.result()
 
 
 if __name__ == "__main__":
