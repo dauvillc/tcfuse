@@ -168,13 +168,24 @@ ssh jz "bash -l -c 'tail -f \$WORK/tcfuse/submitit/<jobid>_0_log.out'"
 Log files: `$WORK/tcfuse/submitit/<jobid>_<task>_log.out` / `…_log.err`.
 
 ### Interactive session on a compute node
+
+The compute account is keyed by the **project group `xyw`**, not the username — use `xyw@v100`, `xyw@a100`, `xyw@h100`, or `xyw@cpu` (verify with `sacctmgr -n show assoc user=$USER format=Account,Partition,QOS`).
+
 ```bash
-# GPU node (replace <acct> with e.g. ute68qj@v100 or ute68qj@a100)
-ssh jz "srun --pty -n1 --gres=gpu:1 --time=00:30:00 --account=<acct> bash"
+# GPU node (V100 dev QoS)
+ssh jz "srun --pty -n1 --gres=gpu:1 --time=00:30:00 --qos=qos_gpu-dev --account=xyw@v100 bash"
 # CPU node
-ssh jz "srun --pty -n1 --time=00:30:00 --account=<acct>@cpu bash"
+ssh jz "srun --pty -n1 --time=00:30:00 --account=xyw@cpu bash"
 ```
 Requires the correct `--account` and a matching QoS with available quota.
+
+**`$WORK`/`$SCRATCH` are empty inside `srun`, even under `bash -l`.** The IDRIS profile that exports them is not sourced on compute nodes, so `srun bash -l -c 'cd $WORK/...'` lands in `/...`. Resolve the path in a login-node shell first and let `srun` inherit the working directory:
+```bash
+# Right: outer bash -l -c resolves $WORK on the login node; srun inherits CWD.
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && srun -n1 --gres=gpu:1 --time=00:30:00 \
+  --qos=qos_gpu-dev --account=xyw@v100 \
+  bash -c \"module load pytorch-gpu/py3/2.8.0; <command>\"'"
+```
 
 ### Quota check
 ```bash
