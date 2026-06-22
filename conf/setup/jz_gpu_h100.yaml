@@ -10,7 +10,7 @@ defaults:
 setup:
   timeout_min: 1200               # 20h default; set 6000 for qos_gpu_h100-t4
   slurm_nodes: 1
-  cpus_per_task: 96
+  cpus_per_task: 24
   slurm_ntasks_per_node: ${trainer.devices}
   slurm_gres: "gpu:4"
   slurm_constraint: h100          # -C h100 is mandatory for this partition

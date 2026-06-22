@@ -10,7 +10,7 @@ defaults:
 setup:
   timeout_min: 1200               # 20h (qos_gpu-t3 default); set 6000 for qos_gpu-t4
   slurm_nodes: 1
-  cpus_per_task: 40
+  cpus_per_task: 10
   slurm_ntasks_per_node: ${trainer.devices}
   slurm_gres: "gpu:4"
   slurm_account: "xyw@v100"
