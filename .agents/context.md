@@ -70,7 +70,6 @@ project_root/
 │   ├── lightning/
 │   │   ├── datamodule.py           ← TCWindowDataModule (LightningDataModule)
 │   │   ├── base_module.py          ← BaseLightningModule (general WindowBatch→WindowBatch, normalization, AdamW+cosine-LR; accepts backbone as nn.Module or Hydra partial)
-│   │   ├── ibtracs_forecast.py     ← IBTrACSForecastLightningModule (masks ibtracs values/coords with learned tokens, MSE loss)
 │   │   ├── masked_reconstruction.py ← MaskedReconstructionLightningModule (general masked-source reconstruction; targets from WindowBatch.is_target, NaN masking, MSE loss)
 │   │   └── lr_scheduler.py         ← CosineAnnealingWarmupRestarts
 │   ├── models/
