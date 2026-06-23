@@ -21,6 +21,7 @@ When a task touches one of these areas, read the matching skill file before maki
 | Jean-Zay cluster operations (rsync, SLURM, monitoring, W&B sync, checkpoints) | [`.agents/jz.md`](.agents/jz.md) | `/jz` |
 | Forecast output storage (`PredictionRun`, `SamplePrediction`, `ibtracs.parquet`) | [`.agents/predictions/skill.md`](.agents/predictions/skill.md) | `/predictions` |
 | Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`.agents/visualize.md`](.agents/visualize.md) | `/visualize` |
+| Model backbone architecture (embedding/encoder/decoder design, candidate backbones, pre-training task) | [`.agents/architecture.md`](.agents/architecture.md) | `/architecture` |
 | Basedpyright diagnostics workflow | [`.agents/pyright-fixer.md`](.agents/pyright-fixer.md) | (none) |
 
 ## Update protocol
