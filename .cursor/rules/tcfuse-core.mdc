@@ -152,6 +152,8 @@ The framework is **architecture-agnostic at the backbone level**. The embedding 
 
 **The embedding layer (implemented):** `tcfuse.models.encoders` patch-embeds each `TorchSource` into an `EmbeddedSource` carrying a single `features` tensor — `(B, D)` SCALAR, `(B, El, D)` PROFILE, `(B, Eh, Ew, D)` FIELD, with `El/Eh/Ew = L/H/W // patch_size`. `MultiSourceEncoder` (Hydra `_partial_: true`, allocates one per-source encoder from `sources_metadata`, mirrors `ChannelwiseAffineBackbone`) maps a `WindowBatch` → `EmbeddedBatch` (`sources` + `is_target` only; coords/mask/time dropped). Current encoders are **value-only**; coordinate/time encoding and a token-validity mask are deferred follow-ups.
 
+**The un-embedding layer (implemented):** `tcfuse.models.decoders` is the symmetric inverse, mapping an `EmbeddedBatch` → `DecodedBatch` (`DecodedSource.values` matching the original `TorchSource.values` layout; `is_target` passed through). `ScalarDecoder`/`ProfileDecoder` are exact shape inverses (`nn.Linear` / `nn.ConvTranspose1d`) of their encoders; `FieldDecoder` instead uses sub-pixel convolution (`Conv2d` + `PixelShuffle`) with ICNR-initialized weights to avoid checkerboard artifacts on image-like FIELD data. `MultiSourceDecoder` mirrors `MultiSourceEncoder`'s Hydra-partial/per-source-allocation pattern. Not yet wired into `BaseLightningModule` or any task head's cross-source querying mechanism.
+
 **The encoder interface:**
 
 - Input: a list of token sequences, one per source, each of shape `(B, N_i, D)` where `N_i` is the number of tokens for source `i` and `D` is the embedding dimension.
