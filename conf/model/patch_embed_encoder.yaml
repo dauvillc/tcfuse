@@ -1,0 +1,4 @@
+_target_: tcfuse.models.encoders.multisource.MultiSourceEncoder
+_partial_: true
+embed_dim: 256
+patch_size: 4

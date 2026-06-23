@@ -81,7 +81,8 @@ project_root/
 │   │   ├── masked_reconstruction.py ← MaskedReconstructionLightningModule (general masked-source reconstruction; targets from WindowBatch.is_target, NaN masking, MSE loss)
 │   │   └── lr_scheduler.py         ← CosineAnnealingWarmupRestarts
 │   ├── models/
-│   │   └── affine_backbone.py      ← ChannelwiseAffineBackbone (per-channel weight+bias, testing/baseline)
+│   │   ├── affine_backbone.py      ← ChannelwiseAffineBackbone (per-channel weight+bias, testing/baseline)
+│   │   └── encoders/               ← source embedding layer: EmbeddedSource/EmbeddedBatch (embedded.py), SourceEncoder (base.py), Scalar/Profile/Field patch-embed encoders (patch_embed.py), MultiSourceEncoder dispatcher WindowBatch→EmbeddedBatch (multisource.py)
 │   ├── training/              ← losses.py, callbacks.py
 │   └── utils/                 ← coords.py, archive.py
 ├── scripts/preprocess/        ← prepare_*.py, assemble.py, build_splits.py, compute_normalization.py
@@ -148,6 +149,8 @@ The framework is **architecture-agnostic at the backbone level**. The embedding 
 [Source 2: values + coords] ──┼──► [Source Embeddings] ──► [Encoder (swappable)] ──► [Task Head]
 [Source N: values + coords] ──┘
 ```
+
+**The embedding layer (implemented):** `tcfuse.models.encoders` patch-embeds each `TorchSource` into an `EmbeddedSource` carrying a single `features` tensor — `(B, D)` SCALAR, `(B, El, D)` PROFILE, `(B, Eh, Ew, D)` FIELD, with `El/Eh/Ew = L/H/W // patch_size`. `MultiSourceEncoder` (Hydra `_partial_: true`, allocates one per-source encoder from `sources_metadata`, mirrors `ChannelwiseAffineBackbone`) maps a `WindowBatch` → `EmbeddedBatch` (`sources` + `is_target` only; coords/mask/time dropped). Current encoders are **value-only**; coordinate/time encoding and a token-validity mask are deferred follow-ups.
 
 **The encoder interface:**
 
