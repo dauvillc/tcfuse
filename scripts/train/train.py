@@ -27,6 +27,7 @@ from omegaconf import DictConfig, OmegaConf
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tcfuse.utils.checkpoint import build_checkpoint_callbacks, latest_checkpoint
+from tcfuse.utils.precision import resolve_precision
 from tcfuse.utils.submitit_utils import make_executor
 
 # ── trainer builder ───────────────────────────────────────────────────────────
@@ -45,6 +46,8 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     trainer_cfg = dict(cfg["trainer"])
     # checkpoint_every_n_steps is a ModelCheckpoint kwarg, not a Trainer kwarg.
     checkpoint_every_n_steps: int = trainer_cfg.pop("checkpoint_every_n_steps")
+    # Resolve the "auto" precision sentinel against the current hardware.
+    trainer_cfg["precision"] = resolve_precision(trainer_cfg["precision"])
     ckpt_cbs = build_checkpoint_callbacks(checkpoint_dir, checkpoint_every_n_steps)
     return pl.Trainer(
         **trainer_cfg,
