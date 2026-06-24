@@ -145,7 +145,7 @@ Python 3.10+, PyTorch, PyTorch Lightning, Hydra (config), Weights & Biases (logg
 
 - Project name: `tcfuse`.
 - Entity: `arches`.
-- Run naming: `{architecture}_{sources}_{task}_{date}` — e.g. `perceiver_pmw-era5-argo_ri_20250901`.
+- Run naming: `{experiment_name}-{run_id}`, where `experiment_name` is the `name` field of the experiment config (`conf/experiment/*.yaml`) and `run_id` is the W&B run id (the Hydra output-dir timestamp, stable across SLURM requeues). Set in `BaseLightningModule.on_train_start` (`src/tcfuse/lightning/base_module.py`) — only the display name, never the run `id`.
 - Always log: source types present, number of training samples, GPU memory peak, val metrics per task head.
 
 ## Jean-Zay cluster quick reference

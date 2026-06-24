@@ -112,6 +112,7 @@ class TrainingTask(submitit.helpers.Checkpointable):
         lightning_module = lm_factory(
             sources_metadata=dm.sources_metadata,
             normalization_stats=dm.normalization_stats,
+            experiment_name=cfg["name"],
         )
 
         trainer = _build_trainer(cfg, self.checkpoint_dir)

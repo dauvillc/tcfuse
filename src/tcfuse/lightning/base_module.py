@@ -48,6 +48,9 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         adamw_kwargs: Keyword arguments for :class:`torch.optim.AdamW` (excluding ``params``).
         lr_scheduler_kwargs: Keyword arguments for :class:`CosineAnnealingWarmupRestarts`.
         validation_dir: Directory where validation figures are written each epoch.
+        experiment_name: Short name from the experiment config (``cfg["name"]``), used to
+            build the W&B run's display name as ``{experiment_name}-{run_id}`` (see
+            :meth:`on_train_start`).
     """
 
     def __init__(
@@ -58,6 +61,7 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         adamw_kwargs: dict[str, Any],
         lr_scheduler_kwargs: dict[str, Any],
         validation_dir: str | Path,
+        experiment_name: str,
     ) -> None:
         super().__init__()
         # Snapshot metadata first — the model factory needs it to allocate parameters.
@@ -65,6 +69,7 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         self._adamw_kwargs = dict(adamw_kwargs)
         self._lr_scheduler_kwargs = dict(lr_scheduler_kwargs)
         self._validation_dir = Path(validation_dir)
+        self._experiment_name = experiment_name
         # If model is a Hydra partial (not yet an nn.Module), call it now so the
         # backbone can read channel counts and shapes from sources_metadata.
         if not isinstance(model, nn.Module):
@@ -149,6 +154,10 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         if not self.trainer.is_global_zero:
             return
         wandb_logger = cast(WandbLogger, self.logger)
+        # Display name only; the run id (used for resume across SLURM requeues) is set
+        # once in train.py and never touched here. Deriving from .id rather than .name
+        # keeps this idempotent if on_train_start runs again after a requeue.
+        wandb_logger.experiment.name = f"{self._experiment_name}-{wandb_logger.experiment.id}"
         train_dataloader = self.trainer.train_dataloader
         # Per .agents/context.md W&B conventions: always log source types and
         # the number of training samples.
