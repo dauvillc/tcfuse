@@ -6,10 +6,12 @@ import dataclasses
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import lightning
 import torch
+import wandb
+from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch import nn
 
@@ -141,6 +143,31 @@ class BaseLightningModule(ABC, lightning.LightningModule):
             new_sources[key] = dataclasses.replace(source, values=new_values)
         return dataclasses.replace(batch, sources=new_sources)
 
+    def on_train_start(self) -> None:
+        """Log static run metadata to W&B once, at the very start of training."""
+        # Only rank 0 holds the real wandb run; other DDP ranks get a no-op logger.
+        if not self.trainer.is_global_zero:
+            return
+        wandb_logger = cast(WandbLogger, self.logger)
+        train_dataloader = self.trainer.train_dataloader
+        # Per .agents/context.md W&B conventions: always log source types and
+        # the number of training samples.
+        wandb_logger.experiment.config.update(
+            {
+                "sources": self._sources_metadata.to_dict(),
+                "num_training_samples": len(train_dataloader.dataset),  # type: ignore[arg-type]
+            },
+            allow_val_change=True,
+        )
+
+    def on_train_end(self) -> None:
+        """Log peak GPU memory usage to W&B at the end of training."""
+        if not self.trainer.is_global_zero:
+            return
+        if torch.cuda.is_available():
+            peak_mb = torch.cuda.max_memory_allocated() / 1e6
+            cast(WandbLogger, self.logger).experiment.summary["train/gpu_mem_peak_mb"] = peak_mb
+
     def on_validation_epoch_end(self) -> None:
         """Write validation figures on the primary process after each val epoch."""
         trainer = self.trainer
@@ -156,7 +183,12 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         self._validation_dir.mkdir(parents=True, exist_ok=True)
         # TODO: call tcfuse.data.visualization.training once implemented.
         epoch = self.current_epoch
-        _figure_path = self._validation_dir / f"{epoch:04d}_val_summary.svg"
+        figure_path = self._validation_dir / f"{epoch:04d}_val_summary.svg"
+        # No-op until the TODO above actually writes figure_path; activates
+        # automatically once tcfuse.data.visualization.training is implemented.
+        if figure_path.exists():
+            wandb_logger = cast(WandbLogger, self.logger)
+            wandb_logger.experiment.log({"val/summary": wandb.Image(str(figure_path))})
 
     def _register_normalization_buffers(self, normalization_stats: dict[str, Any]) -> None:
         """Register per-source mean/std buffers ordered by each source's channels.

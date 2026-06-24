@@ -143,8 +143,8 @@ Python 3.10+, PyTorch, PyTorch Lightning, Hydra (config), Weights & Biases (logg
 
 ## W&B conventions
 
-- Project name: `TODO`.
-- Entity: `TODO`.
+- Project name: `tcfuse`.
+- Entity: `arches`.
 - Run naming: `{architecture}_{sources}_{task}_{date}` — e.g. `perceiver_pmw-era5-argo_ri_20250901`.
 - Always log: source types present, number of training samples, GPU memory peak, val metrics per task head.
 

@@ -49,9 +49,19 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     # Resolve the "auto" precision sentinel against the current hardware.
     trainer_cfg["precision"] = resolve_precision(trainer_cfg["precision"])
     ckpt_cbs = build_checkpoint_callbacks(checkpoint_dir, checkpoint_every_n_steps)
+    # Run dir name is stable across SLURM requeues, so reusing it as the W&B run
+    # id/name lets a resumed run continue logging to the same W&B run.
+    run_name = checkpoint_dir.parent.name
+    wandb_logger = instantiate(
+        OmegaConf.create(cfg["logger"]),
+        name=run_name,
+        id=run_name,
+        resume="allow",
+    )
     return pl.Trainer(
         **trainer_cfg,
         callbacks=ckpt_cbs,
+        logger=wandb_logger,
         # Absolute path: stable across SLURM requeues where CWD may change.
         default_root_dir=str(checkpoint_dir.parent),
     )
