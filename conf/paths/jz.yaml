@@ -20,7 +20,7 @@ preprocessed_sources: ${paths.scratch}/data/preprocessed/sources
 preprocessed_data: ${paths.scratch}/data/preprocessed/assembled/
 
 # Paths for training outputs
-checkpoints: ${paths.scratch}/checkpoints
+checkpoints: ${paths.work}/checkpoints
 wandb: ${paths.scratch}/wandb
 figures: ${paths.work}/figures
 

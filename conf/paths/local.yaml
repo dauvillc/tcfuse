@@ -1,5 +1,5 @@
 # Base directories
-work: /home/cdauvill/tcfuse
+work: /home/cdauvill/inria/tcfuse
 scratch: /home/cdauvill/scratch/tcfuse
 store: /home/cdauvill/scratch/tcfuse  # There's no store on the local machine.
 
@@ -20,7 +20,7 @@ preprocessed_sources: ${paths.scratch}/data/preprocessed/sources
 preprocessed_data: ${paths.scratch}/data/preprocessed/assembled/
 
 # Paths for training outputs
-checkpoints: ${paths.scratch}/checkpoints
+checkpoints: ${paths.work}/checkpoints
 wandb: ${paths.scratch}/wandb
 figures: /home/cdauvill/inria/tcfuse/figures
 

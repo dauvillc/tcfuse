@@ -13,6 +13,7 @@ Usage::
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -133,14 +134,19 @@ class TrainingTask(submitit.helpers.Checkpointable):
 
 @hydra.main(config_path="../../conf/", config_name="train", version_base=None)
 def main(raw_cfg: DictConfig) -> None:
-    # Capture the absolute Hydra output dir before converting cfg to a plain dict.
-    # HydraConfig is only available inside @hydra.main scope. The output dir is
-    # stored as an absolute path inside TrainingTask so SLURM requeues (different
-    # CWD) still point to the same checkpoint directory.
-    output_dir = Path(HydraConfig.get().runtime.output_dir)
-    checkpoint_dir = output_dir / "checkpoints"
-
     cfg = cast(dict[str, Any], OmegaConf.to_container(raw_cfg, resolve=True))
+
+    # Use Hydra's <date>/<time> run dir names purely as a unique, requeue-stable
+    # run identifier (reformatted as MMDDhhmmss so the day is visible at a
+    # glance), but root checkpoints under paths.checkpoints (configurable
+    # storage tier) rather than under Hydra's own outputs/ directory.
+    output_dir = Path(HydraConfig.get().runtime.output_dir)
+    run_started_at = datetime.strptime(
+        f"{output_dir.parent.name} {output_dir.name}", "%Y-%m-%d %H-%M-%S"
+    )
+    run_id = run_started_at.strftime("%m%d%H%M%S")
+    checkpoint_dir = Path(cfg["paths"]["checkpoints"]) / run_id / "checkpoints"
+
     task = TrainingTask(cfg, checkpoint_dir)
 
     # Local execution: run the task directly in the current process.
