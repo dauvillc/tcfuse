@@ -21,35 +21,13 @@ import lightning as pl
 import submitit
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
-from lightning.pytorch.callbacks import ModelCheckpoint
 from omegaconf import DictConfig, OmegaConf
 
 # Resolve project root so tcfuse imports work regardless of CWD.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from tcfuse.utils.checkpoint import build_checkpoint_callbacks, latest_checkpoint
 from tcfuse.utils.submitit_utils import make_executor
-
-# ── checkpoint utilities ──────────────────────────────────────────────────────
-
-
-def _latest_checkpoint(checkpoint_dir: Path) -> Path | None:
-    """Return the most recent checkpoint in checkpoint_dir, or None if absent.
-
-    Args:
-        checkpoint_dir: Directory written by ModelCheckpoint.
-
-    Returns:
-        Path to last.ckpt if it exists, else the lexicographically newest .ckpt,
-        else None (triggers a fresh training run).
-    """
-    # last.ckpt is Lightning's canonical "resume here" file.
-    last = checkpoint_dir / "last.ckpt"
-    if last.exists():
-        return last
-    # Fall back to the newest checkpoint by name (epoch/step suffix sorts correctly).
-    ckpts = sorted(checkpoint_dir.glob("*.ckpt"))
-    return ckpts[-1] if ckpts else None
-
 
 # ── trainer builder ───────────────────────────────────────────────────────────
 
@@ -67,14 +45,10 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     trainer_cfg = dict(cfg["trainer"])
     # checkpoint_every_n_steps is a ModelCheckpoint kwarg, not a Trainer kwarg.
     checkpoint_every_n_steps: int = trainer_cfg.pop("checkpoint_every_n_steps")
-    ckpt_cb = ModelCheckpoint(
-        dirpath=checkpoint_dir,
-        save_last=True,
-        every_n_train_steps=checkpoint_every_n_steps,
-    )
+    ckpt_cbs = build_checkpoint_callbacks(checkpoint_dir, checkpoint_every_n_steps)
     return pl.Trainer(
         **trainer_cfg,
-        callbacks=[ckpt_cb],
+        callbacks=ckpt_cbs,
         # Absolute path: stable across SLURM requeues where CWD may change.
         default_root_dir=str(checkpoint_dir.parent),
     )
@@ -104,7 +78,7 @@ class TrainingTask(submitit.helpers.Checkpointable):
         """Assemble all components and run trainer.fit(), resuming from last checkpoint."""
         cfg = self.cfg
         # Pick up the checkpoint saved before preemption, if any.
-        ckpt_path = _latest_checkpoint(self.checkpoint_dir)
+        ckpt_path = latest_checkpoint(self.checkpoint_dir)
 
         # Instantiate the data module and scan the assembled dataset root.
         dm = instantiate(OmegaConf.create(cfg["datamodule"]))
