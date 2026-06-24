@@ -32,6 +32,7 @@ ignore = [
     "D104", # missing docstring in public package
     "D107", # missing docstring in __init__
     "N806", # uppercase dimension variables (B, H, W, C, L) are conventional in ML code
+    "N812", # allow `import torch.nn.functional as F` (PyTorch convention)
 ]
 
 [tool.ruff.lint.per-file-ignores]

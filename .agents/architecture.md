@@ -24,10 +24,13 @@ The framework is **architecture-agnostic at the backbone level**. The embedding 
 - Output: a representation that the task head can query — exact form depends on architecture (latent array for Perceiver, CLS token for ViT-style, etc.).
 - The encoder must be instantiable from a Hydra config node, using `_partial_: true` so that `BaseLightningModule` can pass `sources_metadata` to the constructor at runtime (allowing backbones to allocate per-source parameters from channel counts). The model config lives in `conf/model/` and is imported into the lightning module config via a defaults package-override entry: `- /model@model: <name>`.
 
+**The plain single-sequence transformer backbone (implemented):** `tcfuse.models.transformer.backbone.SingleSequenceTransformerBackbone` is the first concrete backbone candidate. Unlike `ChannelwiseAffineBackbone`, it owns its own `MultiSourceEncoder` / `MultiSourceDecoder` internally (built from `sources_metadata` + `embed_dim` + `patch_size` passed to its constructor), so externally it still satisfies `WindowBatch -> WindowBatch`. Internally: every source's embedded tokens are flattened to `(B, Ls, D)` and concatenated into one `(B, L_total, D)` multi-source sequence; a stack of pre-norm `TransformerBlock`s (`tcfuse.models.transformer.block`) processes the whole sequence with dense self-attention (`tcfuse.models.transformer.attention.MultiHeadSelfAttention`, built on `torch.nn.functional.scaled_dot_product_attention`, no mask — see token-validity caveat below) and a position-wise feed-forward sub-layer (`tcfuse.models.transformer.feedforward.FeedForward`); the sequence is then split and reshaped back per source and decoded. Config: `conf/model/transformer.yaml`.
+
 ## Candidate architectures to benchmark
 
 Extend as needed:
 
+- Plain single-sequence transformer (implemented, see above) — baseline to benchmark others against.
 - Perceiver / Perceiver IO.
 - Cross-attention Transformer (queries from anchor points or task positions).
 - Hierarchical windowed attention (Swin-style, per source + cross-source).
