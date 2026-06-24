@@ -1,6 +1,5 @@
 # @package _global_
-# Dummy experiment: reconstruct pmw_gmi_gpm from concurrent PMW passes.
-# Uses ChannelwiseAffineBackbone (via masked_reconstruction defaults) for quick
+# Dummy experiment: reconstruct GMI from concurrent PMW passes.
 # local smoke-testing.
 defaults:
   - override /lightning_module: masked_reconstruction

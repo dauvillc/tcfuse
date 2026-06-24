@@ -1,5 +1,5 @@
 defaults:
-  - /model@model: channelwise_affine   # mounts conf/model/<name>.yaml at the `model` key; override with "- override /model@model: <name>"
+  - /model@model: transformer   # mounts conf/model/<name>.yaml at the `model` key; override with "- override /model@model: <name>"
 
 _target_: tcfuse.lightning.masked_reconstruction.MaskedReconstructionLightningModule
 adamw_kwargs: ${optimizer}
