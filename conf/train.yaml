@@ -14,3 +14,9 @@ defaults:
   - experiment: ???         # must be specified at launch; can override submitit and other base values
 
 submitit: true  # Set to false to run locally
+
+# Logical-run identifier: groups all W&B segments and keys the checkpoint dir.
+# Leave null to derive it from the launch timestamp (one fresh run). To resume an
+# interrupted run by hand, pass run_id=<existing id> so training picks up that
+# run's last.ckpt and logs into the same W&B group.
+run_id: null

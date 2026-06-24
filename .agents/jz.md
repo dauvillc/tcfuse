@@ -230,10 +230,20 @@ Use the generated `requirements-jz.txt` overlay for pip installs on the login no
 
 Jobs must run with W&B offline. The `slurm_setup` commands in `conf/setup/jz_<hw>.yaml` set `WANDB_MODE=offline` automatically.
 
-After a job completes, sync from the login node:
+**Run model: grouped segments.** W&B cannot truly resume an offline run, so each process launch (initial run, SLURM requeue, or manual restart) logs as a **distinct W&B "segment" run** with a unique id `<run_id>-<launch-ts>`, all sharing `group=<run_id>`. The `run_id` is the logical-run key (set in `scripts/train/train.py`) and also names the checkpoint dir. Continuity comes from the checkpoint (`global_step`, model/optimizer state) plus the W&B group overlay — **not** from W&B resume or `wandb sync --append`.
+
+Sync from the login node — safe to run repeatedly, mid-run and after, because unique ids make each offline folder a distinct run and wandb's `.synced` marker skips already-synced folders (no double-counting):
 ```bash
 ssh jz "bash -l -c 'wandb sync \$WORK/tcfuse/wandb/offline-run-*/'"
 ```
+Do **not** pass `--append` (fragile, not idempotent) or `--include-synced` (re-uploads already-synced folders).
+
+**Manual resume.** To continue an interrupted run by hand, relaunch with the existing `run_id` so training picks up that run's `last.ckpt` and logs into the same group:
+```bash
+python scripts/train/train.py experiment=<exp> paths=jz setup=jz_<hw> run_id=<existing id>
+```
+
+**Viewing.** In the W&B workspace, group runs by `group` and plot metrics against `trainer/global_step` for a single continuous curve across segments.
 
 ## One-time setup
 

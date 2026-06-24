@@ -154,10 +154,15 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         if not self.trainer.is_global_zero:
             return
         wandb_logger = cast(WandbLogger, self.logger)
-        # Display name only; the run id (used for resume across SLURM requeues) is set
-        # once in train.py and never touched here. Deriving from .id rather than .name
+        # Display name only; the segment id (unique per launch) and the run group are
+        # set in train.py and never touched here. Deriving from .id rather than .name
         # keeps this idempotent if on_train_start runs again after a requeue.
         wandb_logger.experiment.name = f"{self._experiment_name}-{wandb_logger.experiment.id}"
+        # Each launch is a separate W&B segment run grouped under the logical run id.
+        # Plot against trainer/global_step (monotonic across resumes) so the grouped
+        # segments concatenate into one continuous curve instead of overlapping at
+        # the per-run _step origin.
+        wandb_logger.experiment.define_metric("*", step_metric="trainer/global_step")
         train_dataloader = self.trainer.train_dataloader
         # Per .agents/context.md W&B conventions: always log source types and
         # the number of training samples.
@@ -298,18 +303,23 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         params = dict(self.named_parameters())
         # Decay 2D+ tensors only (weight matrices, conv kernels).
         # Skip 1D tensors (norms, biases, embeddings if 1D).
-        decay_params = {k for k, v in params.items() if v.ndim >= 2 and "norm" not in k}
+        # Membership set only — never iterate it: set iteration order over string
+        # keys varies per process (PYTHONHASHSEED), and Lightning saves/loads
+        # optimizer state positionally, so a non-deterministic param order would
+        # corrupt the state-to-param mapping on resume. Iterate the ordered
+        # `params` dict (registration order) for the actual grouping instead.
+        decay_keys = {k for k, v in params.items() if v.ndim >= 2 and "norm" not in k}
         # Weight decay applies only to the decay group; other kwargs go to AdamW.
         adamw_kwargs = dict(self._adamw_kwargs)
         weight_decay = adamw_kwargs.pop("weight_decay", 0.0)
         # Matrices and conv kernels get L2 decay; biases, norms, and 1D params do not.
         param_groups: list[dict[str, Any]] = [
             {
-                "params": [params[k] for k in decay_params],
+                "params": [params[k] for k in params if k in decay_keys],
                 "weight_decay": weight_decay,
             },
             {
-                "params": [params[k] for k in params if k not in decay_params],
+                "params": [params[k] for k in params if k not in decay_keys],
                 "weight_decay": 0.0,
             },
         ]

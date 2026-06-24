@@ -50,14 +50,18 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     # Resolve the "auto" precision sentinel against the current hardware.
     trainer_cfg["precision"] = resolve_precision(trainer_cfg["precision"])
     ckpt_cbs = build_checkpoint_callbacks(checkpoint_dir, checkpoint_every_n_steps)
-    # Run dir name is stable across SLURM requeues, so reusing it as the W&B run
-    # id/name lets a resumed run continue logging to the same W&B run.
-    run_name = checkpoint_dir.parent.name
+    # W&B cannot truly resume an offline run, so instead of one resumable run we
+    # log each process launch (initial run, SLURM requeue, or manual restart) as a
+    # distinct W&B "segment" run, all tied together by a shared group. run_id is
+    # the stable logical-run key (the checkpoint dir name); segment_id is unique
+    # per launch via a fresh timestamp. Unique ids make each offline-run folder a
+    # distinct run, so `wandb sync` is idempotent (no --append, no double-counting).
+    run_id = checkpoint_dir.parent.name
+    segment_id = f"{run_id}-{datetime.now():%m%d%H%M%S}"
     wandb_logger = instantiate(
         OmegaConf.create(cfg["logger"]),
-        name=run_name,
-        id=run_name,
-        resume="allow",
+        id=segment_id,
+        group=run_id,
     )
     return pl.Trainer(
         **trainer_cfg,
@@ -144,7 +148,11 @@ def main(raw_cfg: DictConfig) -> None:
     run_started_at = datetime.strptime(
         f"{output_dir.parent.name} {output_dir.name}", "%Y-%m-%d %H-%M-%S"
     )
-    run_id = run_started_at.strftime("%m%d%H%M%S")
+    # run_id is the logical-run key: it groups all W&B segments and roots the
+    # checkpoint dir. Default to the launch timestamp (a fresh run); honor an
+    # explicit run_id=<existing id> override to resume that run's checkpoints.
+    run_id = cfg.get("run_id") or run_started_at.strftime("%m%d%H%M%S")
+    run_id = str(run_id)
     checkpoint_dir = Path(cfg["paths"]["checkpoints"]) / run_id / "checkpoints"
 
     task = TrainingTask(cfg, checkpoint_dir)
