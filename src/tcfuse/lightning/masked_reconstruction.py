@@ -113,6 +113,12 @@ class MaskedReconstructionLightningModule(BaseLightningModule):
 
             pred_values = output_batch.sources[key].values
             true_values = original.values
+
+            # Accumulate per-channel validation metrics in physical space (no-op at train time).
+            if stage == "val":
+                source_name, _ = key
+                self._update_val_metrics(source_name, pred_values, true_values, valid)
+
             all_diffs.append(pred_values[valid] - true_values[valid])
 
         if not all_diffs:

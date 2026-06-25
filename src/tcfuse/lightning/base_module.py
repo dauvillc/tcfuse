@@ -10,6 +10,7 @@ from typing import Any, cast
 
 import lightning
 import torch
+import torchmetrics
 import wandb
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
@@ -19,6 +20,7 @@ from tcfuse.data.collate import WindowBatch
 from tcfuse.data.sources.metadata import MultisourceMetadata
 from tcfuse.data.sources.torch_source import TorchSource
 from tcfuse.lightning.lr_scheduler import CosineAnnealingWarmupRestarts
+from tcfuse.metrics.bias import BiasMetric
 
 
 class BaseLightningModule(ABC, lightning.LightningModule):
@@ -77,6 +79,9 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         self.model = model
         # Build per-source mean/std buffers from the training-split statistics.
         self._register_normalization_buffers(normalization_stats)
+        # Build per-source validation metric collections (one MetricCollection per source).
+        # Being nn.Modules, Lightning moves them to the correct device and syncs DDP ranks.
+        self.val_metrics = self._build_val_metrics()
         # Do not serialize the full model tree, metadata, or raw stats into hparams;
         # the normalization tensors are persisted as buffers instead.
         self.save_hyperparameters(ignore=["model", "sources_metadata", "normalization_stats"])
@@ -184,12 +189,39 @@ class BaseLightningModule(ABC, lightning.LightningModule):
             cast(WandbLogger, self.logger).experiment.summary["train/gpu_mem_peak_mb"] = peak_mb
 
     def on_validation_epoch_end(self) -> None:
-        """Write validation figures on the primary process after each val epoch."""
+        """Log per-source validation metrics and write figures at the end of each val epoch."""
         trainer = self.trainer
-        if trainer is None:
+        # During the Lightning sanity-check pass there may be too few samples to compute
+        # metrics that require a minimum count (e.g. R2Score needs >= 2).  Reset state
+        # so the first real validation epoch starts from scratch.
+        if trainer is not None and trainer.sanity_checking:
+            for _collection in self.val_metrics.values():
+                cast(torchmetrics.MetricCollection, _collection).reset()
             return
-        # Only rank 0 writes figures; skip the initial sanity-check pass.
-        if not trainer.is_global_zero or trainer.sanity_checking:
+        # Compute and log per-source, per-channel metrics on all ranks.
+        # TorchMetrics .compute() handles DDP cross-rank synchronization internally,
+        # so self.log() here is safe to call on every rank.
+        for source_name, _collection in self.val_metrics.items():
+            # ModuleDict.__getitem__ returns Module; cast to access MetricCollection API.
+            collection = cast(torchmetrics.MetricCollection, _collection)
+            try:
+                computed = collection.compute()
+            except ValueError:
+                # Some metrics (e.g. R2Score) raise when fewer than 2 samples were seen.
+                # Skip logging for this source and reset so the next epoch is unaffected.
+                collection.reset()
+                continue
+            channels = self._sources_metadata[source_name].channels
+            for metric_name, values in computed.items():
+                # Ensure values is always 1D (R2 always returns (C,); MAE/MSE/Bias
+                # also return (C,) when num_outputs >= 1, but guard for scalar edge cases).
+                values_1d = torch.atleast_1d(values)
+                for ch_name, ch_val in zip(channels, values_1d):
+                    self.log(f"val/{source_name}/{metric_name}/{ch_name}", ch_val)
+            # Reset accumulated state so the next epoch starts fresh.
+            collection.reset()
+        # Figure writing only on rank 0.
+        if trainer is None or not trainer.is_global_zero:
             return
         self._save_validation_figures()
 
@@ -297,6 +329,66 @@ class BaseLightningModule(ABC, lightning.LightningModule):
     def denormalize(self, batch: WindowBatch) -> WindowBatch:
         """Invert :meth:`normalize`, mapping values back to physical units."""
         return self._affine_transform(batch, invert=True)
+
+    def _build_val_metrics(self) -> nn.ModuleDict:
+        """Build a per-source dict of MetricCollections for validation logging.
+
+        Each source gets its own :class:`~torchmetrics.MetricCollection` containing
+        per-channel Bias, RMSE, MAE, and R2 metrics.  The ``num_outputs`` argument
+        is set to the channel count of each source so all metrics return ``(C,)``
+        tensors and map cleanly to named channel keys when logged.
+
+        Returns:
+            An :class:`~torch.nn.ModuleDict` keyed by source name, each value a
+            :class:`~torchmetrics.MetricCollection`.
+        """
+        # Build one MetricCollection per source; channel count drives num_outputs.
+        metrics_per_source: dict[str, torchmetrics.MetricCollection] = {}
+        for name in self._sources_metadata.names:
+            C = self._sources_metadata[name].num_channels
+            metrics_per_source[name] = torchmetrics.MetricCollection(
+                {
+                    "bias": BiasMetric(num_outputs=C),
+                    "rmse": torchmetrics.MeanSquaredError(squared=False, num_outputs=C),
+                    "mae": torchmetrics.MeanAbsoluteError(num_outputs=C),
+                    "r2": torchmetrics.R2Score(multioutput="raw_values"),
+                }
+            )
+        return nn.ModuleDict(metrics_per_source)
+
+    def _update_val_metrics(
+        self,
+        source_name: str,
+        preds_norm: torch.Tensor,
+        targets_norm: torch.Tensor,
+        valid: torch.Tensor,
+    ) -> None:
+        """Denormalize predictions and targets then update the source's metric collection.
+
+        Denormalization must happen before the ``valid`` mask flattens the tensors,
+        because the per-channel ``(C,)`` normalization buffers only broadcast correctly
+        against the trailing channel axis of the un-masked ``(..., C)`` tensors.
+
+        Args:
+            source_name: Key into ``self.val_metrics`` and the normalization buffers.
+            preds_norm: Model predictions in normalized space, shape ``(B, ..., C)``.
+            targets_norm: Ground-truth values in normalized space, shape ``(B, ..., C)``.
+            valid: Boolean availability mask, same shape as ``preds_norm``.
+        """
+        # Retrieve (C,) normalization buffers registered by _register_normalization_buffers.
+        mean = getattr(self, self._mean_buffer_name(source_name))
+        std = getattr(self, self._std_buffer_name(source_name))
+        # Broadcast (C,) over the trailing channel axis before any masking/flattening.
+        phys_pred = preds_norm * std + mean
+        phys_target = targets_norm * std + mean
+        # Reduce valid mask to spatial dims only: True where every channel is available.
+        # This yields a consistent N across all channels so update() receives (N, C).
+        valid_spatial = valid.all(dim=-1)  # (B, ...) bool
+        # Advanced indexing: (B, ..., C) indexed by (B, ...) bool → (N, C).
+        # Cast from Module (ModuleDict return type) to access the MetricCollection API.
+        cast(torchmetrics.MetricCollection, self.val_metrics[source_name]).update(
+            phys_pred[valid_spatial], phys_target[valid_spatial]
+        )
 
     def configure_optimizers(self) -> OptimizerLRScheduler:
         """AdamW optimizer with cosine warmup-restarts LR schedule (per-step)."""
