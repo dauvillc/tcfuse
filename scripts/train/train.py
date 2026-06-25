@@ -57,11 +57,14 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     # per launch via a fresh timestamp. Unique ids make each offline-run folder a
     # distinct run, so `wandb sync` is idempotent (no --append, no double-counting).
     run_id = checkpoint_dir.parent.name
+    experiment_name: str = cfg["name"]
     segment_id = f"{run_id}-{datetime.now():%m%d%H%M%S}"
+    # Include experiment_name in the group so W&B groups are human-identifiable
+    # without needing to look up what a bare timestamp belongs to.
     wandb_logger = instantiate(
         OmegaConf.create(cfg["logger"]),
         id=segment_id,
-        group=run_id,
+        group=f"{experiment_name}-{run_id}",
     )
     return pl.Trainer(
         **trainer_cfg,

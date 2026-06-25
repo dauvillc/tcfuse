@@ -154,9 +154,10 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         if not self.trainer.is_global_zero:
             return
         wandb_logger = cast(WandbLogger, self.logger)
-        # Display name only; the segment id (unique per launch) and the run group are
-        # set in train.py and never touched here. Deriving from .id rather than .name
-        # keeps this idempotent if on_train_start runs again after a requeue.
+        # Display name only; the segment id (unique per launch) and the run group
+        # ({experiment_name}-{run_id}) are set in train.py and never touched here.
+        # Deriving from .id rather than .name keeps this idempotent if on_train_start
+        # runs again after a requeue.
         wandb_logger.experiment.name = f"{self._experiment_name}-{wandb_logger.experiment.id}"
         # Each launch is a separate W&B segment run grouped under the logical run id.
         # Plot against trainer/global_step (monotonic across resumes) so the grouped
