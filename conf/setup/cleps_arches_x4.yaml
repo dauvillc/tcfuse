@@ -1,0 +1,35 @@
+# @package _global_
+# CLEPS H200 full-node training setup — ARCHES priority partition (default for training).
+# Requires BOTH the partition AND the matching account (-p arches -A arches).
+# Hardware: H200 GPUs. NOTE: the arches node spec (GPUs/node, CPUs/GPU, walltime
+# cap) is not in the public CLEPS docs — verify on the cluster and adjust
+# slurm_gres / cpus_per_gpu / trainer.devices if the node differs:
+#   ssh cleps "sinfo -p arches -N -o '%n %G %c'"
+# No module load (pixi env is inherited) and no WANDB_MODE (W&B runs online).
+# For a single-GPU debug run, use setup=cleps_arches instead.
+
+defaults:
+  - override /paths: cleps
+
+setup:
+  timeout_min: 2880                          # 2 days (verify arches cap)
+  slurm_partition: arches
+  slurm_account: arches
+  slurm_nodes: 1
+  slurm_ntasks_per_node: ${trainer.devices}  # one task per GPU
+  slurm_gres: "gpu:h200:4"                   # one full node (verify GPU count)
+  slurm_signal_delay_s: 120
+  slurm_additional_parameters:
+    # On CLEPS use --cpus-per-gpu (not --cpus-per-task) so allocated CPUs sit on
+    # the same NUMA node as the GPUs. ~32 CPUs/GPU for H100/H200-class nodes.
+    cpus_per_gpu: 32
+  name: tc_fusion_cleps_h200
+
+trainer:
+  devices: 4
+  num_nodes: 1
+
+dataloader:
+  num_workers: 8                             # per GPU
+
+archive: false

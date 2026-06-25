@@ -1,0 +1,34 @@
+# @package _global_
+# Jean-Zay H100 single-GPU setup — gpu_p6 partition (Eviden nodes).
+# Hardware: 1x H100 SXM5 80 GB NVLink, 24 CPUs (Intel).
+# QoS: qos_gpu_h100-t3 (default, 20h) or qos_gpu_h100-t4 (100h, <=16 GPU/job).
+# Slurm constraint -C h100 is mandatory to target this partition.
+# For a full-node 4-GPU training run, use setup=jz_4xh100 instead.
+
+defaults:
+  - override /paths: jz
+
+setup:
+  timeout_min: 1200               # 20h default; set 6000 for qos_gpu_h100-t4
+  slurm_nodes: 1
+  cpus_per_task: 24
+  slurm_ntasks_per_node: ${trainer.devices}
+  slurm_gres: "gpu:1"
+  slurm_constraint: h100          # -C h100 is mandatory for this partition
+  slurm_account: "xyw@h100"
+  slurm_signal_delay_s: 120
+  slurm_additional_parameters:
+    hint: nomultithread
+  slurm_setup:
+    - "source ${oc.env:HOME}/.bash_profile"
+    - "h100"
+  name: tc_fusion_jz_h100
+
+trainer:
+  devices: 1
+  num_nodes: 1
+
+dataloader:
+  num_workers: 22                 # 24 CPUs allocated, leaving slack for the main process
+
+archive: true

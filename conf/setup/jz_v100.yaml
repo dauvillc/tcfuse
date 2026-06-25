@@ -1,8 +1,9 @@
 # @package _global_
-# Jean-Zay V100 quad-GPU partition (gpu_p13, default GPU partition).
-# Hardware: 4x V100 (16 or 32 GB), 40 CPUs, ~160 GB RAM.
+# Jean-Zay V100 single-GPU setup — gpu_p13 partition (default GPU partition).
+# Hardware: 1x V100 (16 or 32 GB), 10 CPUs (Intel).
 # QoS: qos_gpu-t3 (default, max 20h) or qos_gpu-t4 (max 100h, <=16 GPU/job).
 # To target 32 GB V100 only, add: setup.slurm_constraint=v100-32g
+# For a full-node 4-GPU training run, use setup=jz_4xv100 instead.
 
 defaults:
   - override /paths: jz
@@ -12,7 +13,7 @@ setup:
   slurm_nodes: 1
   cpus_per_task: 10
   slurm_ntasks_per_node: ${trainer.devices}
-  slurm_gres: "gpu:4"
+  slurm_gres: "gpu:1"
   slurm_account: "xyw@v100"
   slurm_signal_delay_s: 120
   slurm_additional_parameters:
@@ -23,10 +24,10 @@ setup:
   name: tc_fusion_jz_v100
 
 trainer:
-  devices: 4
+  devices: 1
   num_nodes: 1
 
 dataloader:
-  num_workers: 8                  # per GPU (40 CPUs / 4 GPUs, leaving slack)
+  num_workers: 8                  # 10 CPUs allocated, leaving slack for the main process
 
 archive: true

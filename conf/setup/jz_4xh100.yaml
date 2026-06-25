@@ -1,8 +1,9 @@
 # @package _global_
-# Jean-Zay H100 quad-GPU partition (gpu_p6, Eviden nodes).
+# Jean-Zay H100 full-node setup — 4× H100, gpu_p6 partition (Eviden nodes).
 # Hardware: 4x H100 SXM5 80 GB NVLink, 96 CPUs (Intel), ~468 GB RAM.
 # QoS: qos_gpu_h100-t3 (default, 20h) or qos_gpu_h100-t4 (100h, <=16 GPU/job).
 # Slurm constraint -C h100 is mandatory to target this partition.
+# For a single-GPU smoke test, use setup=jz_h100 instead.
 
 defaults:
   - override /paths: jz

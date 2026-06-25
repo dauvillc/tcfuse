@@ -7,7 +7,7 @@ Usage::
     python scripts/train/train.py experiment=my_exp submitit=false
 
     # Jean-Zay GPU submission
-    python scripts/train/train.py experiment=my_exp paths=jz setup=jz_gpu_v100
+    python scripts/train/train.py experiment=my_exp paths=jz setup=jz_4xv100
 """
 
 from __future__ import annotations

@@ -49,9 +49,10 @@ is defined in `~/.ssh/config` (ProxyJump `bastion-paris`, ControlMaster on).
    job ID and its partition/state to the user.
 4. **Ask before cancelling.** Never call `scancel` without explicit user
    confirmation.
-5. **Pick the right config.** Training → `setup=cleps_gpu_arches` (priority H200).
-   Quick debug/smoke test → `setup=cleps_gpu_rtx8000` (generic gpu, may be
-   preempted). Preprocessing / eval / downloads → `setup=cleps_cpu`.
+5. **Pick the right config.** Training (4 H200) → `setup=cleps_arches_x4`. Single
+   H200 debug → `setup=cleps_arches`. Quick smoke test → `setup=cleps_rtx8000`
+   (generic gpu, may be preempted; full RTX8000 node → `setup=cleps_rtx8000_x3`).
+   Preprocessing / eval / downloads → `setup=cleps_cpu`.
 6. **Use a login shell for SSH.** `$SCRATCH` (and other cluster env vars) are
    **not set in non-interactive SSH sessions**. Wrap every payload in a login
    shell that sources the profile:
@@ -84,8 +85,10 @@ key aliases `$SCRATCH`.
 | Config | Partition | Account | Hardware | CPU binding | Max walltime |
 |---|---|---|---|---|---|
 | `cleps_cpu` | *(default `cpu_devel`)* | — | CPU nodes (12-18 cores), preprocessing / eval / **downloads** | `cpus_per_task=16` | 1 week |
-| `cleps_gpu_arches` | `arches` | `arches` | H200 (priority) — training default | `cpus_per_gpu=32` | 2 days* |
-| `cleps_gpu_rtx8000` | `gpu` | — | RTX8000 48 GB — debug / smoke test | `cpus_per_gpu=16` | 2 days |
+| `cleps_arches` | `arches` | `arches` | 1× H200 — single-GPU debug | `cpus_per_gpu=32` | 2 days* |
+| `cleps_arches_x4` | `arches` | `arches` | 4× H200 — full-node training default | `cpus_per_gpu=32` | 2 days* |
+| `cleps_rtx8000` | `gpu` | — | 1× RTX8000 48 GB — smoke test | `cpus_per_gpu=16` | 2 days |
+| `cleps_rtx8000_x3` | `gpu` | — | 3× RTX8000 48 GB — full RTX8000 node | `cpus_per_gpu=16` | 2 days |
 
 \* The `arches` node spec (GPUs/node, CPUs/GPU, walltime cap) is **not in the
 public CLEPS docs**. The config defaults to `gpu:h200:4` / `cpus_per_gpu=32` /
@@ -95,18 +98,20 @@ ssh cleps "bash -lc 'sinfo -p arches -N -o \"%n %G %c\" && scontrol show partiti
 ```
 
 **Partition routing:**
-- **Training** → `cleps_gpu_arches` (priority partition, both `-p arches` and
-  `-A arches` are set in the config).
-- **Debugging** → `cleps_gpu_rtx8000` on the generic `gpu` partition. This may be
-  **preempted** by jobs from the partitions that own the hardware. To avoid
+- **Full training** → `cleps_arches_x4` (4× H200, priority partition, both
+  `-p arches` and `-A arches` are set in the config).
+- **Single-GPU debug on arches** → `cleps_arches` (1× H200, same priority partition).
+- **Smoke test / quick debug** → `cleps_rtx8000` on the generic `gpu` partition. This
+  may be **preempted** by jobs from the partitions that own the hardware. To avoid
   preemption, exclude proprietary nodes on the CLI:
   `setup.slurm_additional_parameters.exclude=gpu009,gpu01[2-3],gpu01[5-7]`.
+- **Full RTX8000 node** → `cleps_rtx8000_x3` (3 GPUs/node, same `gpu` partition).
 - **CPU work** (preprocessing, eval, downloads) → `cleps_cpu`. CLEPS compute
   nodes have internet, so downloads need no special partition.
 
 Override individual SLURM params on the CLI, e.g.:
 ```bash
-pixi run python scripts/train/train.py paths=cleps setup=cleps_gpu_arches \
+pixi run python scripts/train/train.py paths=cleps setup=cleps_arches_x4 \
   setup.timeout_min=120 experiment=<name>
 ```
 
@@ -129,13 +134,17 @@ Abort if any check fails.
 
 ### Step 3 — Submit the job
 ```bash
-# Training (H200, arches priority partition)
+# Training — H200 full node (arches priority partition, 4 GPUs)
 ssh cleps "bash -lc 'source /etc/profile; cd ~/tcfuse && \
-  pixi run python scripts/train/train.py paths=cleps setup=cleps_gpu_arches experiment=<name>'"
+  pixi run python scripts/train/train.py paths=cleps setup=cleps_arches_x4 experiment=<name>'"
 
-# Debug / smoke test (generic gpu partition, RTX8000)
+# Training — H200 single GPU (arches priority partition, debug)
 ssh cleps "bash -lc 'source /etc/profile; cd ~/tcfuse && \
-  pixi run python scripts/train/train.py paths=cleps setup=cleps_gpu_rtx8000 \
+  pixi run python scripts/train/train.py paths=cleps setup=cleps_arches experiment=<name>'"
+
+# Debug / smoke test (generic gpu partition, RTX8000 single GPU)
+ssh cleps "bash -lc 'source /etc/profile; cd ~/tcfuse && \
+  pixi run python scripts/train/train.py paths=cleps setup=cleps_rtx8000 \
   setup.timeout_min=60 experiment=<name>'"
 
 # Preprocessing / eval / downloads (default cpu_devel partition)
@@ -239,7 +248,7 @@ resume is automatic. To manually resume a run, relaunch with the existing
 `run_id`:
 ```bash
 ssh cleps "bash -lc 'source /etc/profile; cd ~/tcfuse && \
-  pixi run python scripts/train/train.py paths=cleps setup=cleps_gpu_arches \
+  pixi run python scripts/train/train.py paths=cleps setup=cleps_arches_x4 \
   experiment=<name> run_id=<existing id>'"
 ```
 

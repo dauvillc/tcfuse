@@ -113,17 +113,21 @@ Abort if any check fails. Fix the issue (quota, missing env, etc.) before contin
 
 ### Step 3 — Submit the job
 ```bash
-# Training (V100 default)
+# Training — V100 single GPU (smoke test / debug)
 ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
-  python scripts/train.py paths=jz setup=jz_gpu_v100 experiment=<name>'"
+  python scripts/train.py paths=jz setup=jz_v100 experiment=<name>'"
 
-# Training (A100)
-ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load arch/a100 && module load pytorch-gpu/py3/2.8.0 && \
-  python scripts/train.py paths=jz setup=jz_gpu_a100 experiment=<name>'"
+# Training — V100 full node (4 GPUs)
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
+  python scripts/train.py paths=jz setup=jz_4xv100 experiment=<name>'"
 
-# Training (H100)
+# Training — H100 single GPU (smoke test / debug)
 ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load arch/h100 && module load pytorch-gpu/py3/2.8.0 && \
-  python scripts/train.py paths=jz setup=jz_gpu_h100 experiment=<name>'"
+  python scripts/train.py paths=jz setup=jz_h100 experiment=<name>'"
+
+# Training — H100 full node (4 GPUs)
+ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load arch/h100 && module load pytorch-gpu/py3/2.8.0 && \
+  python scripts/train.py paths=jz setup=jz_4xh100 experiment=<name>'"
 
 # Preprocessing / eval (default CPU partition — no internet)
 ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
@@ -169,7 +173,7 @@ Log files: `$WORK/tcfuse/submitit/<jobid>_<task>_log.out` / `…_log.err`.
 
 ### Interactive session on a compute node
 
-The compute account is keyed by the **project group `xyw`**, not the username — use `xyw@v100`, `xyw@a100`, `xyw@h100`, or `xyw@cpu` (verify with `sacctmgr -n show assoc user=$USER format=Account,Partition,QOS`).
+The compute account is keyed by the **project group `xyw`**, not the username — use `xyw@v100`, `xyw@h100`, or `xyw@cpu` (verify with `sacctmgr -n show assoc user=$USER format=Account,Partition,QOS`).
 
 ```bash
 # GPU node (V100 dev QoS)
@@ -208,9 +212,8 @@ module purge
 module load pytorch-gpu/py3/2.8.0
 ```
 
-**A100 and H100 require loading the arch module first:**
+**H100 requires loading the arch module first:**
 ```bash
-module load arch/a100 && module load pytorch-gpu/py3/2.8.0   # A100
 module load arch/h100 && module load pytorch-gpu/py3/2.8.0   # H100
 ```
 
@@ -261,9 +264,10 @@ ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && bas
 
 | Config | Partition | Hardware | CPUs | Max walltime | Dev QoS (smoke test) |
 |---|---|---|---|---|---|
-| `jz_gpu_v100` | `gpu_p13` | 4× V100 32 GB | 40 (Intel) | 100 h (`qos_gpu-t4`) | `qos_gpu-dev` — 2 h, 32 GPU/user |
-| `jz_gpu_a100` | `gpu_p5` | 8× A100 80 GB | 64 (AMD Milan) | **20 h** (no t4 QoS) | `qos_gpu_a100-dev` — 2 h, 32 GPU/user |
-| `jz_gpu_h100` | `gpu_p6` | 4× H100 80 GB | 96 (Intel) | 100 h (`qos_gpu_h100-t4`) | `qos_gpu_h100-dev` — 2 h, 32 GPU/user |
+| `jz_v100` | `gpu_p13` | 1× V100 32 GB | 10 (Intel) | 100 h (`qos_gpu-t4`) | `qos_gpu-dev` — 2 h, 32 GPU/user |
+| `jz_4xv100` | `gpu_p13` | 4× V100 32 GB | 40 (Intel) | 100 h (`qos_gpu-t4`) | `qos_gpu-dev` — 2 h, 32 GPU/user |
+| `jz_h100` | `gpu_p6` | 1× H100 SXM5 80 GB | 24 (Intel) | 100 h (`qos_gpu_h100-t4`) | `qos_gpu_h100-dev` — 2 h, 32 GPU/user |
+| `jz_4xh100` | `gpu_p6` | 4× H100 SXM5 80 GB | 96 (Intel) | 100 h (`qos_gpu_h100-t4`) | `qos_gpu_h100-dev` — 2 h, 32 GPU/user |
 | `jz_cpu` | *(default cpu)* | Regular CPU nodes — preprocessing, eval (no internet) | 40 (Intel) | 20 h (`qos_cpu-t3`) | `qos_cpu-dev` — 2 h, 128 nodes/user |
 | `jz_prepost` | `prepost` | Pre/post CPU nodes — data downloads (**internet access**) | 4 (Intel) | 20 h | — |
 
@@ -273,7 +277,7 @@ ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && bas
 
 Override individual SLURM params on the CLI:
 ```bash
-python scripts/train.py paths=jz setup=jz_gpu_v100 setup.timeout_min=6000 experiment=<name>
+python scripts/train.py paths=jz setup=jz_4xv100 setup.timeout_min=6000 experiment=<name>
 ```
 
 Local debug without submitit:

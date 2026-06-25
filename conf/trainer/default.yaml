@@ -1,6 +1,6 @@
 # pl.Trainer kwargs — all overridable per experiment.
 # devices and num_nodes default to 1 for local runs; JZ setup configs override
-# them at the global level (e.g. setup=jz_gpu_h100 sets trainer.devices=4).
+# them at the global level (e.g. setup=jz_4xh100 sets trainer.devices=4).
 max_epochs: ???               # required; set in experiment config
 precision: auto               # auto -> bf16-mixed if the GPU supports bf16, else 16-mixed;
                               # override with an explicit value (e.g. 32-true) per experiment
