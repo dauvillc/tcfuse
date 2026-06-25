@@ -16,6 +16,7 @@ Read the matching skill file before doing work in that area. The Claude slash co
 |---|---|---|
 | Dataset preprocessing pipeline (per-source HDF5, assembled storms, splits, normalization) | [`.agents/preprocess.md`](preprocess.md) | `/preprocess` |
 | Jean-Zay cluster operations (rsync, SLURM, monitoring, W&B sync, checkpoints) | [`.agents/jz.md`](jz.md) | `/jz` |
+| CLEPS cluster operations (pixi, W&B online, persistent scratch, SLURM, monitoring) | [`.agents/cleps.md`](cleps.md) | `/cleps` |
 | Forecast output storage (`PredictionRun`, `SamplePrediction`, `ibtracs.parquet`) | [`.agents/predictions/skill.md`](predictions/skill.md) | `/predictions` |
 | Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`.agents/visualize.md`](visualize.md) | `/visualize` |
 | Model backbone architecture (embedding/encoder/decoder design, candidate backbones, pre-training task) | [`.agents/architecture.md`](architecture.md) | `/architecture` |
@@ -88,7 +89,7 @@ project_root/
 
 - Use `conf/` for Hydra configuration and `cfg.paths.*` for all paths.
 - Assemble full run configs only in `conf/experiment/`.
-- Path resolution is handled by `conf/paths/`. Select the environment at launch: `paths=local` (default) for local debugging, `paths=jz` on Jean-Zay. All code must reference paths via `cfg.paths.*` — never hardcode filesystem paths.
+- Path resolution is handled by `conf/paths/`. Select the environment at launch: `paths=local` (default) for local debugging, `paths=jz` on Jean-Zay, `paths=cleps` on CLEPS. All code must reference paths via `cfg.paths.*` — never hardcode filesystem paths.
 - Never import anything from `notebooks/` into `src/`.
 - Keep source embedders unit-testable with synthetic tensors only (no real data required for unit tests).
 - Preserve the preprocessing order: `assemble.py`, `build_splits.py`, then `compute_normalization.py`.
@@ -153,6 +154,10 @@ Python 3.10+, PyTorch, PyTorch Lightning, Hydra (config), Weights & Biases (logg
 
 Full workflow and hardware configs (rsync, preflight, submission, monitoring, W&B sync, checkpoints, `jz_gpu_v100` / `jz_gpu_a100` / `jz_gpu_h100` / `jz_cpu` / `jz_prepost`) → [`.agents/jz.md`](jz.md).
 
+## CLEPS cluster quick reference
+
+Second launch target (Inria Paris). Key differences from Jean-Zay: **pixi** (no modules), **W&B online** (no offline sync), **persistent scratch** (no `$STORE`/archive), internet on all compute nodes, and **`cpus_per_gpu`** for GPU jobs. Code lives in `$HOME/tcfuse`, data/checkpoints/wandb/predictions on `$SCRATCH/tcfuse`. `rsynctf` already syncs to both clusters. Configs: `cleps_gpu_arches` (H200, training default) / `cleps_gpu_rtx8000` (debug) / `cleps_cpu` (preprocessing, eval, downloads). Full workflow → [`.agents/cleps.md`](cleps.md).
+
 ## Workflow rules
 
 1. **Plan before implementing.** For any non-trivial task, propose a plan (module structure, interface, test strategy) and wait for approval before writing code.
@@ -163,7 +168,7 @@ Full workflow and hardware configs (rsync, preflight, submission, monitoring, W&
 6. **Update the rules and skills** whenever:
    - A new source type or embedding convention is decided → update the data abstraction table.
    - A new architecture is added → update [`.agents/architecture.md`](architecture.md).
-   - A new SLURM script is written → update [`.agents/jz.md`](jz.md).
+   - A new SLURM script is written → update [`.agents/jz.md`](jz.md) (Jean-Zay) or [`.agents/cleps.md`](cleps.md) (CLEPS).
    - A new dataset path is confirmed → update the dataset stack table and [`.agents/preprocess.md`](preprocess.md).
    - A new W&B convention is established → update the W&B section.
    - Prediction storage convention or on-disk layout changes → update [`.agents/predictions/skill.md`](predictions/skill.md) and `.claude/commands/predictions.md` if triggers or behavior rules change.

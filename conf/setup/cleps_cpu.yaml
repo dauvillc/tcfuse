@@ -1,0 +1,23 @@
+# @package _global_
+# CLEPS CPU setup — preprocessing, eval, and downloads.
+# Runs on the default cpu_devel partition (node021-056, up to 1 week walltime):
+# omitting slurm_partition lets SLURM use the default, which is easiest to
+# schedule. Unlike Jean-Zay, CLEPS compute nodes have outbound internet, so the
+# same config handles data downloads — there is no separate "prepost" partition.
+# No module load (pixi env is inherited) and no WANDB_MODE (W&B runs online).
+
+defaults:
+  - override /paths: cleps
+
+setup:
+  timeout_min: 1440          # 24 h default; cpu_devel allows up to 1 week
+  cpus_per_task: 16          # cpu_devel nodes have 12-18 physical cores
+  slurm_ntasks_per_node: 1
+  name: preproc_cleps
+  slurm_signal_delay_s: 120
+  slurm_additional_parameters:
+    hint: nomultithread      # CLEPS allocates whole cores; avoid hyperthread sharing
+
+num_workers: 15
+# Scratch is persistent on CLEPS and backed up by the user, so never archive.
+archive: false

@@ -1,0 +1,32 @@
+# @package _global_
+# CLEPS GPU debug setup — generic `gpu` partition (no priority account).
+# Open to everyone but may be PREEMPTED by jobs from the partitions that own the
+# hardware (almanach / willow / astra). To avoid preemption, exclude proprietary
+# nodes, e.g. add on the CLI:
+#   setup.slurm_additional_parameters.exclude=gpu009,gpu01[2-3],gpu01[5-7]
+# Hardware: RTX8000 48 GB (gpu006-009), 3 GPUs/node, ~16 CPUs/GPU. Single GPU by
+# default — meant for smoke tests and quick debugging, not full training runs.
+# No module load (pixi env is inherited) and no WANDB_MODE (W&B runs online).
+
+defaults:
+  - override /paths: cleps
+
+setup:
+  timeout_min: 2880                          # gpu partition caps at 2 days
+  slurm_partition: gpu
+  slurm_nodes: 1
+  slurm_ntasks_per_node: ${trainer.devices}  # one task per GPU
+  slurm_gres: "gpu:rtx8000:1"
+  slurm_signal_delay_s: 120
+  slurm_additional_parameters:
+    cpus_per_gpu: 16                          # cpus/gpu for rtx8000 nodes
+  name: tc_fusion_cleps_rtx8000
+
+trainer:
+  devices: 1
+  num_nodes: 1
+
+dataloader:
+  num_workers: 8
+
+archive: false
