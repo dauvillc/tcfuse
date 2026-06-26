@@ -116,13 +116,27 @@ class BaseLightningModule(ABC, lightning.LightningModule):
     def training_step(self, batch: WindowBatch, batch_idx: int) -> torch.Tensor:
         """One training optimizer step (in normalized space)."""
         loss = self._shared_step(self.normalize(batch), "train")
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log(
+            "train/loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=batch.batch_size,
+        )
         return loss
 
     def validation_step(self, batch: WindowBatch, batch_idx: int) -> torch.Tensor:
         """One validation forward pass (in normalized space)."""
         loss = self._shared_step(self.normalize(batch), "val")
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log(
+            "val/loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=batch.batch_size,
+        )
         return loss
 
     def predict_step(self, batch: WindowBatch, batch_idx: int) -> WindowBatch:
