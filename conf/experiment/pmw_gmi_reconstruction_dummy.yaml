@@ -1,6 +1,7 @@
 # @package _global_
 # Dummy experiment: reconstruct GMI from concurrent PMW passes.
-# local smoke-testing.
+# Lightweight smoke test for local runs and JZ sanity checks.
+# Submit to JZ: add submitit=true setup=jz_v100 paths=jz on the CLI.
 defaults:
   - override /lightning_module: masked_reconstruction
   - override /windows_setup: pmw_gmi_reconstruction
@@ -15,9 +16,19 @@ trainer:
   devices: 1
 
 dataloader:
-  batch_size: 4
+  batch_size: 2
   num_workers: 0
   pin_memory: false
   persistent_workers: false
+
+# Tiny model so the sanity-check val loop fits on a 16 GB V100.
+# patch_size=16 → floor(340/16)=21 tokens per side → 441 tokens per field.
+# With ~3–5 PMW context passes the full sequence is ≤2200 tokens:
+# attention memory ≈ B×H×S²×4 B = 2×4×2200²×4 ≈ 155 MB.
+model:
+  patch_size: 16
+  embed_dim: 64
+  num_layers: 2
+  num_heads: 4
 
 submitit: false
