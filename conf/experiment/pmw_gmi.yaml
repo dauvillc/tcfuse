@@ -5,6 +5,7 @@ defaults:
   - override /lightning_module: masked_reconstruction
   - override /model@lightning_module.model: perceiver
   - override /windows_setup: pmw_gmi_reconstruction
+  - override /setup: jz_4xh100
 
 # Short name used to build the W&B run's display name (see BaseLightningModule.on_train_start).
 name: pmw-gmi
@@ -15,5 +16,4 @@ trainer:
   strategy: ddp_find_unused_parameters_true
 
 dataloader:
-  batch_size: 8
-  num_workers: 4
+  batch_size: 16
