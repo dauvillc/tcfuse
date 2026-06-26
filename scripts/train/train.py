@@ -27,6 +27,8 @@ from omegaconf import DictConfig, OmegaConf
 # Resolve project root so tcfuse imports work regardless of CWD.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from lightning.pytorch.callbacks import LearningRateMonitor
+
 from tcfuse.training.callbacks import StepProgressCallback
 from tcfuse.utils.checkpoint import build_checkpoint_callbacks, latest_checkpoint
 from tcfuse.utils.precision import resolve_precision
@@ -58,6 +60,10 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     # files — tqdm (Lightning's default progress bar) silently disables itself
     # when stdout is not a TTY, which is always the case under SLURM.
     progress_cb = StepProgressCallback(log_every_n_steps=log_every_n_steps)
+    # LearningRateMonitor reads the LR directly from the scheduler every step,
+    # bypassing Lightning's log_every_n_steps buffer so the curve is always present
+    # in W&B even on short debug runs where the buffer never fills.
+    lr_monitor = LearningRateMonitor(logging_interval="step")
     # W&B cannot truly resume an offline run, so instead of one resumable run we
     # log each process launch (initial run, SLURM requeue, or manual restart) as a
     # distinct W&B "segment" run, all tied together by a shared group. run_id is
@@ -76,7 +82,7 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     )
     return pl.Trainer(
         **trainer_cfg,
-        callbacks=[*ckpt_cbs, progress_cb],
+        callbacks=[*ckpt_cbs, progress_cb, lr_monitor],
         logger=wandb_logger,
         # Disable tqdm: it silently does nothing when stdout is not a TTY (SLURM).
         # StepProgressCallback provides plain-print progress instead.
