@@ -116,11 +116,12 @@ class BaseLightningModule(ABC, lightning.LightningModule):
     def training_step(self, batch: WindowBatch, batch_idx: int) -> torch.Tensor:
         """One training optimizer step (in normalized space)."""
         loss = self._shared_step(self.normalize(batch), "train")
+        # Training is iteration-based: log per-step only (no epoch aggregation).
         self.log(
             "train/loss",
             loss,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             prog_bar=True,
             batch_size=batch.batch_size,
         )
@@ -255,8 +256,9 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         """Persist validation diagnostic plots under validation_dir."""
         self._validation_dir.mkdir(parents=True, exist_ok=True)
         # TODO: call tcfuse.data.visualization.training once implemented.
-        epoch = self.current_epoch
-        figure_path = self._validation_dir / f"{epoch:04d}_val_summary.svg"
+        # Name figures by global step — validation runs are step-triggered, not per-epoch.
+        step = self.global_step
+        figure_path = self._validation_dir / f"{step:08d}_val_summary.svg"
         # No-op until the TODO above actually writes figure_path; activates
         # automatically once tcfuse.data.visualization.training is implemented.
         if figure_path.exists():

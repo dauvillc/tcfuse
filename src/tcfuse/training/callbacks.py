@@ -15,8 +15,8 @@ class StepProgressCallback(pl.Callback):
     job log files.  This callback uses plain ``print()`` calls instead, which
     always appear in log files and work with ``jzlog``/``jzask`` monitoring tools.
 
-    Each progress line includes elapsed time, an ETA for the current epoch, and
-    the throughput in steps/s so the user can judge how long an epoch will take.
+    Each progress line includes elapsed time, an ETA to reach max_steps, and the
+    throughput in steps/s so the user can judge how long the run will take.
 
     Only rank 0 prints in multi-GPU (DDP) runs to avoid duplicated lines.
 
@@ -26,17 +26,20 @@ class StepProgressCallback(pl.Callback):
 
     def __init__(self, log_every_n_steps: int = 50) -> None:
         self.log_every_n_steps = log_every_n_steps
-        # Epoch-level timing state; reset in on_train_epoch_start.
-        self._epoch_start_time: float = 0.0
-        self._epoch_start_step: int = 0
+        # Run-level timing state; initialized in on_train_start. Throughput and ETA
+        # are measured from training start (or the resumed step) rather than per-epoch,
+        # since training is iteration-based and epoch boundaries are not meaningful.
+        self._run_start_time: float = 0.0
+        self._run_start_step: int = 0
 
-    def on_train_epoch_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
-        """Record the wall-clock time and global step at the start of each epoch."""
+    def on_train_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Record the wall-clock time and global step at the start of the run."""
         if not trainer.is_global_zero:
             return
-        self._epoch_start_time = time.monotonic()
-        # global_step hasn't been incremented yet at epoch start.
-        self._epoch_start_step = trainer.global_step
+        self._run_start_time = time.monotonic()
+        # Anchor throughput at the current step (0 for a fresh run, the resumed
+        # step after a requeue) so steps/s reflects only this process's progress.
+        self._run_start_step = trainer.global_step
 
     def on_train_batch_end(
         self,
@@ -53,20 +56,18 @@ class StepProgressCallback(pl.Callback):
         step = trainer.global_step
         if step % self.log_every_n_steps != 0:
             return
-        epoch = trainer.current_epoch
-        max_epochs = trainer.max_epochs
+        # int() guards against the rare Inf sentinel when max_steps is unset.
+        max_steps = int(trainer.max_steps)
 
         # --- timing ---
-        elapsed_s = time.monotonic() - self._epoch_start_time
-        # Steps completed within the current epoch (global_step was just incremented).
-        steps_done_in_epoch = step - self._epoch_start_step
-        # Total batches this epoch; int() guards against the rare Inf sentinel.
-        total_steps_in_epoch = int(trainer.num_training_batches)
-        steps_remaining = max(total_steps_in_epoch - steps_done_in_epoch, 0)
+        elapsed_s = time.monotonic() - self._run_start_time
+        # Steps completed by this process since it started (handles resumes).
+        steps_done = step - self._run_start_step
+        steps_remaining = max(max_steps - step, 0)
 
         # Throughput and ETA — only meaningful once at least one step has elapsed.
-        if steps_done_in_epoch > 0 and elapsed_s > 0:
-            steps_per_sec = steps_done_in_epoch / elapsed_s
+        if steps_done > 0 and elapsed_s > 0:
+            steps_per_sec = steps_done / elapsed_s
             eta_s = steps_remaining / steps_per_sec
             timing_str = (
                 f"  {steps_per_sec:.2f} steps/s"
@@ -76,34 +77,31 @@ class StepProgressCallback(pl.Callback):
         else:
             timing_str = f"  elapsed={_fmt_seconds(elapsed_s)}"
 
-        # Read the step-level train loss.  Lightning appends _step to the key
-        # when a metric is logged with both on_step=True and on_epoch=True
-        # (as in BaseLightningModule.training_step).
-        loss_tensor = trainer.callback_metrics.get("train/loss_step")
+        # train/loss is logged on_step=True, on_epoch=False, so the key has no
+        # _step suffix (Lightning only appends it when both on_step and on_epoch).
+        loss_tensor = trainer.callback_metrics.get("train/loss")
         loss_str = f"  loss={loss_tensor.item():.4f}" if loss_tensor is not None else ""
 
         print(
-            f"[epoch {epoch}/{max_epochs}"
-            f"  step {steps_done_in_epoch}/{total_steps_in_epoch}]{timing_str}{loss_str}",
+            f"[step {step}/{max_steps}]{timing_str}{loss_str}",
             flush=True,
         )
 
     def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
-        """Print a validation summary line after each validation epoch."""
-        # Skip the sanity-check pass (epoch index -1) and non-zero ranks.
+        """Print a validation summary line after each step-triggered validation run."""
+        # Skip the sanity-check pass and non-zero ranks.
         if not trainer.is_global_zero or trainer.sanity_checking:
             return
-        epoch = trainer.current_epoch
-        max_epochs = trainer.max_epochs
-        # Total epoch wall time (validation is included in the elapsed window since
-        # on_train_epoch_start fires before val in Lightning's epoch loop order).
-        elapsed_s = time.monotonic() - self._epoch_start_time
+        step = trainer.global_step
+        max_steps = int(trainer.max_steps)
+        # Wall time since the run started (or resumed).
+        elapsed_s = time.monotonic() - self._run_start_time
         # val/loss is logged on_epoch=True only, so the key is plain val/loss.
         val_loss = trainer.callback_metrics.get("val/loss")
         val_str = f"  val_loss={val_loss.item():.4f}" if val_loss is not None else ""
         print(
-            f"[epoch {epoch}/{max_epochs}  validation end"
-            f"  epoch_time={_fmt_seconds(elapsed_s)}]{val_str}",
+            f"[step {step}/{max_steps}  validation end"
+            f"  elapsed={_fmt_seconds(elapsed_s)}]{val_str}",
             flush=True,
         )
 

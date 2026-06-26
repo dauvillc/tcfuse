@@ -1,0 +1,19 @@
+# @package _global_
+# Reconstruct GMI from concurrent PMW passes (masked-source reconstruction).
+# Submit to JZ: add submitit=true setup=jz_v100 paths=jz on the CLI.
+defaults:
+  - override /lightning_module: masked_reconstruction
+  - override /model@lightning_module.model: perceiver
+  - override /windows_setup: pmw_gmi_reconstruction
+
+# Short name used to build the W&B run's display name (see BaseLightningModule.on_train_start).
+name: pmw-gmi
+
+trainer:
+  max_steps: 100000          # total optimizer steps (placeholder — tune for this run)
+  val_check_interval: 1000    # validate every 1000 global steps
+  strategy: ddp_find_unused_parameters_true
+
+dataloader:
+  batch_size: 8
+  num_workers: 4

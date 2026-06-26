@@ -10,7 +10,8 @@ defaults:
 name: pmw-gmi-dummy
 
 trainer:
-  max_epochs: 2
+  max_steps: 20              # tiny step budget for the smoke test
+  val_check_interval: 10     # validate every 10 global steps
   accelerator: gpu
   strategy: auto
   devices: 1

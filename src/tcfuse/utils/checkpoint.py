@@ -21,7 +21,8 @@ def latest_checkpoint(checkpoint_dir: Path) -> Path | None:
     last = checkpoint_dir / "last.ckpt"
     if last.exists():
         return last
-    # Fall back to the newest checkpoint by name (epoch/step suffix sorts correctly).
+    # Fall back to the lexicographically newest checkpoint by name; last.ckpt above
+    # is the canonical resume point, this is only a best-effort fallback.
     ckpts = sorted(checkpoint_dir.glob("*.ckpt"))
     return ckpts[-1] if ckpts else None
 
@@ -45,7 +46,7 @@ def build_checkpoint_callbacks(checkpoint_dir: Path, every_n_train_steps: int) -
     )
     best_cb = ModelCheckpoint(
         dirpath=checkpoint_dir,
-        filename="best-{epoch}-{step}",
+        filename="best-{step}",
         monitor="val/loss",
         mode="min",
         save_top_k=1,
