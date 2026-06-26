@@ -137,6 +137,7 @@ class BaseLightningModule(ABC, lightning.LightningModule):
             on_epoch=True,
             prog_bar=True,
             batch_size=batch.batch_size,
+            sync_dist=True,
         )
         return loss
 
@@ -218,8 +219,8 @@ class BaseLightningModule(ABC, lightning.LightningModule):
             self._val_updated_sources.clear()
             return
         # Compute and log per-source, per-channel metrics on all ranks.
-        # TorchMetrics .compute() handles DDP cross-rank synchronization internally,
-        # so self.log() here is safe to call on every rank.
+        # TorchMetrics .compute() syncs metric state across DDP ranks; Lightning still
+        # requires sync_dist=True on epoch-level self.log() to gather logged scalars.
         for source_name, _collection in self.val_metrics.items():
             # ModuleDict.__getitem__ returns Module; cast to access MetricCollection API.
             collection = cast(torchmetrics.MetricCollection, _collection)
@@ -242,7 +243,11 @@ class BaseLightningModule(ABC, lightning.LightningModule):
                 # also return (C,) when num_outputs >= 1, but guard for scalar edge cases).
                 values_1d = torch.atleast_1d(values)
                 for ch_name, ch_val in zip(channels, values_1d):
-                    self.log(f"val/{source_name}/{metric_name}/{ch_name}", ch_val)
+                    self.log(
+                        f"val/{source_name}/{metric_name}/{ch_name}",
+                        ch_val,
+                        sync_dist=True,
+                    )
             # Reset accumulated state so the next epoch starts fresh.
             collection.reset()
         # Clear the updated-sources tracking set for the next validation epoch.
