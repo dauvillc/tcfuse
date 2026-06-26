@@ -82,6 +82,9 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         # Build per-source validation metric collections (one MetricCollection per source).
         # Being nn.Modules, Lightning moves them to the correct device and syncs DDP ranks.
         self.val_metrics = self._build_val_metrics()
+        # Sources that received at least one update() call in the current val epoch.
+        # Cleared at the end of each on_validation_epoch_end to start the next epoch fresh.
+        self._val_updated_sources: set[str] = set()
         # Do not serialize the full model tree, metadata, or raw stats into hparams;
         # the normalization tensors are persisted as buffers instead.
         self.save_hyperparameters(ignore=["model", "sources_metadata", "normalization_stats"])
@@ -197,6 +200,7 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         if trainer is not None and trainer.sanity_checking:
             for _collection in self.val_metrics.values():
                 cast(torchmetrics.MetricCollection, _collection).reset()
+            self._val_updated_sources.clear()
             return
         # Compute and log per-source, per-channel metrics on all ranks.
         # TorchMetrics .compute() handles DDP cross-rank synchronization internally,
@@ -204,6 +208,12 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         for source_name, _collection in self.val_metrics.items():
             # ModuleDict.__getitem__ returns Module; cast to access MetricCollection API.
             collection = cast(torchmetrics.MetricCollection, _collection)
+            # Skip sources that never received an update() call this epoch (e.g. a source
+            # that was never selected as a target in any validation batch).  Calling
+            # compute() on a metric with no updates triggers a UserWarning and returns a
+            # meaningless default value that would pollute the W&B logs.
+            if source_name not in self._val_updated_sources:
+                continue
             try:
                 computed = collection.compute()
             except ValueError:
@@ -220,6 +230,8 @@ class BaseLightningModule(ABC, lightning.LightningModule):
                     self.log(f"val/{source_name}/{metric_name}/{ch_name}", ch_val)
             # Reset accumulated state so the next epoch starts fresh.
             collection.reset()
+        # Clear the updated-sources tracking set for the next validation epoch.
+        self._val_updated_sources.clear()
         # Figure writing only on rank 0.
         if trainer is None or not trainer.is_global_zero:
             return
@@ -386,6 +398,8 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         valid_spatial = valid.all(dim=-1)  # (B, ...) bool
         # Advanced indexing: (B, ..., C) indexed by (B, ...) bool → (N, C).
         # Cast from Module (ModuleDict return type) to access the MetricCollection API.
+        # Mark source as updated so on_validation_epoch_end knows to call compute().
+        self._val_updated_sources.add(source_name)
         cast(torchmetrics.MetricCollection, self.val_metrics[source_name]).update(
             phys_pred[valid_spatial], phys_target[valid_spatial]
         )
