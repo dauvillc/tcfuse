@@ -84,10 +84,8 @@ class CrossAttention(nn.Module):
             )
         self.num_heads = num_heads
         self.dropout = dropout
-        # Project queries and key/values into the shared query_dim head space.
         self.q_proj = nn.Linear(query_dim, query_dim)
-        self.k_proj = nn.Linear(kv_dim, query_dim)
-        self.v_proj = nn.Linear(kv_dim, query_dim)
+        self.kv_proj = nn.Linear(kv_dim, 2 * query_dim)
         self.out_proj = nn.Linear(query_dim, query_dim)
 
     def forward(self, query: Tensor, kv: Tensor) -> Tensor:
@@ -102,8 +100,8 @@ class CrossAttention(nn.Module):
         """
         # Project each stream into the shared head space.
         q = self.q_proj(query)
-        k = self.k_proj(kv)
-        v = self.v_proj(kv)
+        # Single fused key/value matmul, then split into (B, Lkv, query_dim) each.
+        k, v = self.kv_proj(kv).chunk(2, dim=-1)
         # (B, L, query_dim) -> (B, num_heads, L, head_dim) for per-head attention.
         q, k, v = (rearrange(t, "b l (h d) -> b h l d", h=self.num_heads) for t in (q, k, v))
         # Fused attention kernel; internally scales by 1/sqrt(head_dim).
