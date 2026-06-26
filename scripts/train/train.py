@@ -27,6 +27,7 @@ from omegaconf import DictConfig, OmegaConf
 # Resolve project root so tcfuse imports work regardless of CWD.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from tcfuse.training.callbacks import StepProgressCallback
 from tcfuse.utils.checkpoint import build_checkpoint_callbacks, latest_checkpoint
 from tcfuse.utils.precision import resolve_precision
 from tcfuse.utils.submitit_utils import make_executor
@@ -49,7 +50,14 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     checkpoint_every_n_steps: int = trainer_cfg.pop("checkpoint_every_n_steps")
     # Resolve the "auto" precision sentinel against the current hardware.
     trainer_cfg["precision"] = resolve_precision(trainer_cfg["precision"])
+    # Read log_every_n_steps before it is consumed by **trainer_cfg so the
+    # progress callback uses the same cadence as the W&B logger.
+    log_every_n_steps: int = int(trainer_cfg.get("log_every_n_steps", 50))
     ckpt_cbs = build_checkpoint_callbacks(checkpoint_dir, checkpoint_every_n_steps)
+    # StepProgressCallback prints to stdout so progress is visible in SLURM log
+    # files — tqdm (Lightning's default progress bar) silently disables itself
+    # when stdout is not a TTY, which is always the case under SLURM.
+    progress_cb = StepProgressCallback(log_every_n_steps=log_every_n_steps)
     # W&B cannot truly resume an offline run, so instead of one resumable run we
     # log each process launch (initial run, SLURM requeue, or manual restart) as a
     # distinct W&B "segment" run, all tied together by a shared group. run_id is
@@ -68,8 +76,11 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     )
     return pl.Trainer(
         **trainer_cfg,
-        callbacks=ckpt_cbs,
+        callbacks=[*ckpt_cbs, progress_cb],
         logger=wandb_logger,
+        # Disable tqdm: it silently does nothing when stdout is not a TTY (SLURM).
+        # StepProgressCallback provides plain-print progress instead.
+        enable_progress_bar=False,
         # Absolute path: stable across SLURM requeues where CWD may change.
         default_root_dir=str(checkpoint_dir.parent),
     )

@@ -4,11 +4,13 @@
 max_epochs: ???               # required; set in experiment config
 precision: auto               # auto -> bf16-mixed if the GPU supports bf16, else 16-mixed;
                               # override with an explicit value (e.g. 32-true) per experiment
-log_every_n_steps: 50
+log_every_n_steps: 50         # also controls StepProgressCallback print cadence
 strategy: ddp                 # single-GPU experiments can override to auto
 devices: 1
 num_nodes: 1
 accelerator: gpu              # override to cpu for CPU-only runs
+# Note: enable_progress_bar is forced to False in train.py — tqdm silently
+# disables itself in SLURM log files (no TTY); use StepProgressCallback instead.
 
 # ModelCheckpoint kwarg — not forwarded to Trainer, consumed by train.py
 checkpoint_every_n_steps: 500
