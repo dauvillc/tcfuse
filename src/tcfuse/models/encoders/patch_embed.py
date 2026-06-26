@@ -7,6 +7,7 @@ Coordinate / time encoding is intentionally deferred to a later iteration.
 
 from __future__ import annotations
 
+import torch.nn.functional as F
 from torch import nn
 
 from tcfuse.data.sources.torch_source import TorchSource
@@ -43,7 +44,9 @@ class ScalarEncoder(SourceEncoder):
         """Project (B, C) channel vectors to (B, D) embeddings."""
         # values: (B, C) → (B, D)
         features = self.proj(source.values)
-        return EmbeddedSource(kind=source.kind, features=features, source_name=source.source_name)
+        return EmbeddedSource(
+            kind=source.kind, features=features, source_name=source.source_name, input_shape=()
+        )
 
 
 class ProfileEncoder(SourceEncoder):
@@ -72,13 +75,20 @@ class ProfileEncoder(SourceEncoder):
 
     def forward(self, source: TorchSource) -> EmbeddedSource:
         """Patch-embed (B, L, C) profiles into (B, El, D) tokens."""
+        L = source.values.shape[1]
         # Conv1d expects channels-first: (B, L, C) → (B, C, L).
         x = source.values.permute(0, 2, 1)
+        # Pad L to the next multiple of patch_size so every level belongs to a complete patch.
+        pad_l = (-L) % self.patch_size
+        if pad_l > 0:
+            x = F.pad(x, (0, pad_l))
         # Strided conv collapses each patch of p levels into one token: (B, D, El).
         x = self.proj(x)
         # Back to tokens-last: (B, D, El) → (B, El, D).
         features = x.permute(0, 2, 1)
-        return EmbeddedSource(kind=source.kind, features=features, source_name=source.source_name)
+        return EmbeddedSource(
+            kind=source.kind, features=features, source_name=source.source_name, input_shape=(L,)
+        )
 
 
 class FieldEncoder(SourceEncoder):
@@ -108,10 +118,18 @@ class FieldEncoder(SourceEncoder):
 
     def forward(self, source: TorchSource) -> EmbeddedSource:
         """Patch-embed (B, H, W, C) fields into (B, Eh, Ew, D) tokens."""
+        H, W = source.values.shape[1], source.values.shape[2]
         # Conv2d expects channels-first: (B, H, W, C) → (B, C, H, W).
         x = source.values.permute(0, 3, 1, 2)
+        # Pad H and W to the next multiple of patch_size so every spatial patch is complete.
+        # F.pad order for 4-D: (pad_W_left, pad_W_right, pad_H_top, pad_H_bottom).
+        pad_h, pad_w = (-H) % self.patch_size, (-W) % self.patch_size
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, (0, pad_w, 0, pad_h))
         # Strided conv collapses each p-by-p patch into one token: (B, D, Eh, Ew).
         x = self.proj(x)
         # Back to tokens-last: (B, D, Eh, Ew) → (B, Eh, Ew, D).
         features = x.permute(0, 2, 3, 1)
-        return EmbeddedSource(kind=source.kind, features=features, source_name=source.source_name)
+        return EmbeddedSource(
+            kind=source.kind, features=features, source_name=source.source_name, input_shape=(H, W)
+        )

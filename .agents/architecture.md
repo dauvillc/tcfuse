@@ -26,12 +26,14 @@ The framework is **architecture-agnostic at the backbone level**. The embedding 
 
 **The plain single-sequence transformer backbone (implemented):** `tcfuse.models.transformer.backbone.SingleSequenceTransformerBackbone` is the first concrete backbone candidate. Unlike `ChannelwiseAffineBackbone`, it owns its own `MultiSourceEncoder` / `MultiSourceDecoder` internally (built from `sources_metadata` + `embed_dim` + `patch_size` passed to its constructor), so externally it still satisfies `WindowBatch -> WindowBatch`. Internally: every source's embedded tokens are flattened to `(B, Ls, D)` and concatenated into one `(B, L_total, D)` multi-source sequence; a stack of pre-norm `TransformerBlock`s (`tcfuse.models.transformer.block`) processes the whole sequence with dense self-attention (`tcfuse.models.transformer.attention.MultiHeadSelfAttention`, built on `torch.nn.functional.scaled_dot_product_attention`, no mask — see token-validity caveat below) and a position-wise feed-forward sub-layer (`tcfuse.models.transformer.feedforward.FeedForward`); the sequence is then split and reshaped back per source and decoded. Config: `conf/model/transformer.yaml`.
 
+**The Perceiver IO backbone (implemented):** `tcfuse.models.perceiver.backbone.PerceiverIOBackbone` is the second concrete backbone candidate, fully independent of the transformer modules (deliberate code redundancy). Like the transformer it owns its own `MultiSourceEncoder` / `MultiSourceDecoder` and satisfies `WindowBatch -> WindowBatch`. Internally: source tokens are flattened/concatenated into one `(B, L, D)` sequence `X`; a learned latent array `Z` of shape `(M, Dz)` (`nn.Parameter`, expanded to `(B, M, Dz)`) is the working memory. An encode cross-attention (`CrossAttentionBlock`, queries = `Z`, keys/values = `X`) writes the sources into the latents; a stack of pre-norm `LatentBlock`s (self-attention + MLP on `Z`, dims `Dz`) does the heavy compute on the short latent sequence; a decode cross-attention (`CrossAttentionBlock`, queries = `X`, keys/values = `Z`) reads the latents back out into `X'`, which is split/reshaped per source and decoded. All attention uses `torch.nn.functional.scaled_dot_product_attention` (`tcfuse.models.perceiver.attention.SelfAttention` / `CrossAttention`); cross-attention blocks are Perceiver-IO style (pre-LN on query and kv, residual on the query stream, then a pre-norm MLP). Because the decode queries come from `X` and masked sources were zeroed before embedding, those queries carry only coordinate information — reconstructing them from `Z` leaks no value information. `cross_num_heads` must divide both `embed_dim` and `latent_dim`; `num_heads` must divide `latent_dim`. Config: `conf/model/perceiver.yaml`.
+
 ## Candidate architectures to benchmark
 
 Extend as needed:
 
 - Plain single-sequence transformer (implemented, see above) — baseline to benchmark others against.
-- Perceiver / Perceiver IO.
+- Perceiver / Perceiver IO (implemented, see above).
 - Cross-attention Transformer (queries from anchor points or task positions).
 - Hierarchical windowed attention (Swin-style, per source + cross-source).
 

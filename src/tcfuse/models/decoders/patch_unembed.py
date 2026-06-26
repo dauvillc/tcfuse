@@ -79,10 +79,13 @@ class ProfileDecoder(SourceDecoder):
         """Un-patch-embed (B, El, D) tokens into (B, L, C) profiles."""
         # ConvTranspose1d expects channels-first: (B, El, D) → (B, D, El).
         x = embedded.features.permute(0, 2, 1)
-        # Strided transposed conv expands each token back into p levels: (B, C, L).
+        # Strided transposed conv expands each token back into p levels: (B, C, L_padded).
         x = self.proj(x)
-        # Back to channels-last: (B, C, L) → (B, L, C).
+        # Back to channels-last: (B, C, L_padded) → (B, L_padded, C).
         values = x.permute(0, 2, 1)
+        # Crop away any padding added by the encoder to reach a patch_size multiple.
+        (L,) = embedded.input_shape
+        values = values[:, :L, :]
         return DecodedSource(kind=embedded.kind, values=values, source_name=embedded.source_name)
 
 
@@ -138,8 +141,11 @@ class FieldDecoder(SourceDecoder):
         x = embedded.features.permute(0, 3, 1, 2)
         # Mix neighbouring tokens and expand the channel axis for pixel shuffle.
         x = self.conv(x)
-        # Rearrange the expanded channels into spatial resolution: (B, C, H, W).
+        # Rearrange the expanded channels into spatial resolution: (B, C, H_padded, W_padded).
         x = self.pixel_shuffle(x)
-        # Back to channels-last: (B, C, H, W) → (B, H, W, C).
+        # Back to channels-last: (B, C, H_padded, W_padded) → (B, H_padded, W_padded, C).
         values = x.permute(0, 2, 3, 1)
+        # Crop away any padding added by the encoder to reach a patch_size multiple.
+        H, W = embedded.input_shape
+        values = values[:, :H, :W, :]
         return DecodedSource(kind=embedded.kind, values=values, source_name=embedded.source_name)

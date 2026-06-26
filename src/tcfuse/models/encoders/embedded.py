@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 from torch import Tensor
@@ -25,14 +25,22 @@ class EmbeddedSource:
         kind: Dimensionality class of the originating source.
         features: Embedded tokens, always batched.
             - SCALAR:  (B, D)
-            - PROFILE: (B, El, D)       — El = L // patch_size
-            - FIELD:   (B, Eh, Ew, D)   — Eh = H // patch_size, Ew = W // patch_size
+            - PROFILE: (B, El, D)       — El = ceil(L / patch_size)
+            - FIELD:   (B, Eh, Ew, D)   — Eh = ceil(H / patch_size), Ew = ceil(W / patch_size)
         source_name: Human-readable source identifier, e.g. "pmw_amsr2".
+        input_shape: Original spatial shape of the source before any patch-size padding.
+            Stored by the encoder so the paired decoder can crop the output back to
+            the exact original spatial dimensions.
+            - SCALAR:  ``()``
+            - PROFILE: ``(L,)``
+            - FIELD:   ``(H, W)``
+            Defaults to ``()`` (no cropping applied in the decoder).
     """
 
     kind: SourceKind
     features: Tensor
     source_name: str
+    input_shape: tuple[int, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         """Validate that ``features`` has the rank expected for its kind."""
@@ -94,6 +102,7 @@ class EmbeddedSource:
             kind=self.kind,
             features=self.features.to(device),
             source_name=self.source_name,
+            input_shape=self.input_shape,
         )
 
 
