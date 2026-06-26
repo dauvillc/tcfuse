@@ -70,6 +70,9 @@ class SingleSequenceTransformerBackbone(nn.Module):
                 for _ in range(num_layers)
             ]
         )
+        # Final pre-decoder norm: a pre-LN stack leaves the residual stream
+        # unnormalized, so normalize once before the decoder reads it.
+        self.norm = nn.LayerNorm(embed_dim)
 
     def forward(self, batch: WindowBatch) -> WindowBatch:
         """Run the full encode -> transform -> decode pipeline on a WindowBatch.
@@ -88,6 +91,8 @@ class SingleSequenceTransformerBackbone(nn.Module):
         # Run the shared transformer stack over the whole multi-source sequence.
         for block in self.blocks:
             sequence = block(sequence)
+        # Normalize the pre-LN residual stream before decoding.
+        sequence = self.norm(sequence)
         # Split the processed sequence back into per-source token tensors.
         new_embedded = self._unflatten_sequence(sequence, embedded)
         # Un-embed tokens back into raw per-source values.

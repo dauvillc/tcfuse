@@ -72,7 +72,10 @@ class PerceiverIOBackbone(nn.Module):
             sources_metadata, embed_dim=embed_dim, patch_size=patch_size
         )
         # Learned latent array Z of shape (M, Dz), expanded per batch at runtime.
-        self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
+        # Truncated-normal std=0.02 init (Perceiver convention): keeps the latents
+        # small at start instead of the std~1 of torch.randn.
+        self.latents = nn.Parameter(torch.empty(num_latents, latent_dim))
+        nn.init.trunc_normal_(self.latents, std=0.02)
         # Encode cross-attention: latents (queries) read from the source tokens.
         self.encode_cross = CrossAttentionBlock(
             query_dim=latent_dim,
@@ -101,6 +104,9 @@ class PerceiverIOBackbone(nn.Module):
             mlp_ratio=mlp_ratio,
             dropout=dropout,
         )
+        # Final pre-decoder norm on the read-out source stream: the decode-cross
+        # output is an un-normalized pre-LN residual, so normalize before decoding.
+        self.norm = nn.LayerNorm(embed_dim)
 
     def forward(self, batch: WindowBatch) -> WindowBatch:
         """Run the full encode -> route -> decode pipeline on a WindowBatch.
@@ -126,6 +132,8 @@ class PerceiverIOBackbone(nn.Module):
             latents = block(latents)
         # Decode cross-attention: read the latents back out using source tokens as queries.
         sequence = self.decode_cross(sequence, latents)
+        # Normalize the read-out residual stream before decoding.
+        sequence = self.norm(sequence)
         # Split the updated sequence back into per-source token tensors.
         new_embedded = self._unflatten_sequence(sequence, embedded)
         # Un-embed tokens back into raw per-source values.
