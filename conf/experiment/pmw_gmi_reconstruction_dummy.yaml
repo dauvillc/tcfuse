@@ -22,13 +22,12 @@ dataloader:
   persistent_workers: false
 
 # Tiny model so the sanity-check val loop fits on a 16 GB V100.
-# patch_size=16 → floor(340/16)=21 tokens per side → 441 tokens per field.
-# With ~3–5 PMW context passes the full sequence is ≤2200 tokens:
-# attention memory ≈ B×H×S²×4 B = 2×4×2200²×4 ≈ 155 MB.
-model:
-  patch_size: 16
-  embed_dim: 64
-  num_layers: 2
-  num_heads: 4
+# The model lives at lightning_module.model (mounted there by masked_reconstruction.yaml).
+lightning_module:
+  model:
+    patch_size: 16
+    embed_dim: 64
+    num_layers: 2
+    num_heads: 4
 
 submitit: false
