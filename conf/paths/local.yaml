@@ -21,7 +21,7 @@ preprocessed_data: ${paths.scratch}/data/preprocessed/assembled/
 
 # Paths for training outputs
 checkpoints: ${paths.work}/checkpoints
-wandb: ${paths.scratch}/wandb
+wandb: ${paths.scratch}  # W&B will itself create a "wandb" subdir here.
 figures: /home/cdauvill/inria/tcfuse/figures
 
 # Root directory for prediction runs.

@@ -26,7 +26,7 @@ preprocessed_data: ${paths.scratch}/data/preprocessed/assembled/
 # Checkpoints live on scratch (not work): home is only 100 GB and checkpoints
 # are large. Scratch is persistent on CLEPS, so this is safe.
 checkpoints: ${paths.scratch}/checkpoints
-wandb: ${paths.scratch}/wandb
+wandb: ${paths.scratch}  # W&B will itself create a "wandb" subdir here.
 figures: ${paths.work}/figures
 
 # Root directory for prediction runs.
