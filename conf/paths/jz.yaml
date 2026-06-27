@@ -24,11 +24,6 @@ checkpoints: ${paths.work}/checkpoints
 wandb: ${paths.scratch}  # W&B will itself create a "wandb" subdir here.
 figures: ${paths.work}/figures
 
-# Root directory for prediction runs.
-# Each run lives at ${paths.predictions}/<run_id>/ with manifest.yaml,
-# index.parquet, ibtracs.parquet, and samples/<sample_id>.h5.
-predictions: ${paths.scratch}/predictions
-
 # Archive paths on STORE (tarballs, one per source type or per run).
 # Jobs that write to these paths use the archive SLURM partition.
 archives:
@@ -37,4 +32,3 @@ archives:
   preprocessed_sources: ${paths.store}/archives/preprocessed/sources  # dir; one .tar.gz per source
   preprocessed_data:    ${paths.store}/archives/preprocessed/assembled.tar.gz
   checkpoints:          ${paths.store}/archives/checkpoints  # dir; one .tar.gz per run ID
-  predictions:          ${paths.store}/archives/predictions  # dir; one .tar.gz per run ID

@@ -24,7 +24,6 @@ Read the matching `SKILL.md` before doing work in that area. Each Cursor skill h
 | Dataset preprocessing pipeline (per-source HDF5, assembled storms, splits, normalization) | [`tcfuse-preprocess`](mdc:.cursor/skills/tcfuse-preprocess/SKILL.md) | `/preprocess` |
 | Jean-Zay cluster operations (rsync, SLURM, monitoring, W&B sync, checkpoints) | [`tcfuse-jz`](mdc:.cursor/skills/tcfuse-jz/SKILL.md) | `/jz` |
 | CLEPS cluster operations (pixi, W&B online, persistent scratch, SLURM, monitoring) | [`tcfuse-cleps`](mdc:.cursor/skills/tcfuse-cleps/SKILL.md) | `/cleps` |
-| Forecast output storage (`PredictionRun`, `SamplePrediction`, `ibtracs.parquet`) | [`tcfuse-predictions`](mdc:.cursor/skills/tcfuse-predictions/SKILL.md) | `/predictions` |
 | Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`tcfuse-visualize`](mdc:.cursor/skills/tcfuse-visualize/SKILL.md) | `/visualize` |
 | Model backbone architecture (embedding/encoder/decoder design, candidate backbones, pre-training task) | [`tcfuse-architecture`](mdc:.cursor/skills/tcfuse-architecture/SKILL.md) | `/architecture` |
 | Basedpyright diagnostics workflow | [`pyright-typing-fixer`](mdc:.cursor/skills/pyright-typing-fixer/SKILL.md) | (none) |
@@ -162,7 +161,7 @@ Full workflow and hardware configs (rsync, preflight, submission, monitoring, W&
 
 ## CLEPS cluster quick reference
 
-Second launch target (Inria Paris). Key differences from Jean-Zay: **pixi** (no modules), **W&B online** (no offline sync), **persistent scratch** (no `$STORE`/archive), internet on all compute nodes, and **`cpus_per_gpu`** for GPU jobs. Code lives in `$HOME/tcfuse`, data/checkpoints/wandb/predictions on `$SCRATCH/tcfuse`. `rsynctf` already syncs to both clusters. Configs: `cleps_arches` / `cleps_arches_x4` (1×/4× H200, training) / `cleps_rtx8000` / `cleps_rtx8000_x3` (1×/3× RTX8000, debug) / `cleps_cpu` (preprocessing, eval, downloads). Full workflow → [`tcfuse-cleps`](mdc:.cursor/skills/tcfuse-cleps/SKILL.md).
+Second launch target (Inria Paris). Key differences from Jean-Zay: **pixi** (no modules), **W&B online** (no offline sync), **persistent scratch** (no `$STORE`/archive), internet on all compute nodes, and **`cpus_per_gpu`** for GPU jobs. Code lives in `$HOME/tcfuse`, data/checkpoints/wandb on `$SCRATCH/tcfuse`. `rsynctf` already syncs to both clusters. Configs: `cleps_arches` / `cleps_arches_x4` (1×/4× H200, training) / `cleps_rtx8000` / `cleps_rtx8000_x3` (1×/3× RTX8000, debug) / `cleps_cpu` (preprocessing, eval, downloads). Full workflow → [`tcfuse-cleps`](mdc:.cursor/skills/tcfuse-cleps/SKILL.md).
 
 ## Workflow rules
 
@@ -177,5 +176,4 @@ Second launch target (Inria Paris). Key differences from Jean-Zay: **pixi** (no 
    - A new SLURM script is written → update [`tcfuse-jz`](mdc:.cursor/skills/tcfuse-jz/SKILL.md) (Jean-Zay) or [`tcfuse-cleps`](mdc:.cursor/skills/tcfuse-cleps/SKILL.md) (CLEPS).
    - A new dataset path is confirmed → update the dataset stack table and [`tcfuse-preprocess`](mdc:.cursor/skills/tcfuse-preprocess/SKILL.md).
    - A new W&B convention is established → update the W&B section.
-   - Prediction storage convention or on-disk layout changes → update [`tcfuse-predictions`](mdc:.cursor/skills/tcfuse-predictions/SKILL.md) and `.claude/commands/predictions.md` if triggers or behavior rules change.
    - A new skill area is added or an existing one is renamed/removed → update `.agents/<topic>.md`, then update **both** `.cursor/skills/<topic>/SKILL.md` (thin pointer) and `.claude/commands/<topic>.md` (slash-command redirect); update the skills table in `context.md`, `CLAUDE.md`, and `AGENTS.md`.

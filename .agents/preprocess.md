@@ -25,7 +25,6 @@ of previous stages — never raw inputs from earlier ones.
 - Adding a new dataset to the project.
 
 For Jean-Zay submission, preflight, or SLURM setup, see [jz.md](jz.md).
-For forecast output storage (predictions, not preprocessing), see [predictions/skill.md](predictions/skill.md).
 
 **Coding style:** follow project-wide rules in [`.agents/context.md`](context.md) § Human-readable code (priority). Preprocess-specific layout below.
 

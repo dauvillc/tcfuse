@@ -69,7 +69,7 @@ is defined in `~/.ssh/config` (ProxyJump `bastion-paris`, ControlMaster on).
 | Location | Use | Notes |
 |---|---|---|
 | `$HOME` | Code, pixi env (`.pixi`), `figures` | Backed up, **100 GB quota** — keep it small |
-| `$SCRATCH` | Raw data, preprocessed tensors, **checkpoints**, wandb dir, predictions | Lustre, **persistent on CLEPS**, 20 TB project quota. User makes their own backups |
+| `$SCRATCH` | Raw data, preprocessed tensors, **checkpoints**, wandb dir | Lustre, **persistent on CLEPS**, 20 TB project quota. User makes their own backups |
 | `/local` (`$TMP_DIR`) | Intra-job temp / fast local scratch | **Deleted when the job ends** |
 
 **Unlike Jean-Zay, scratch is kept and there is no archive step** — every

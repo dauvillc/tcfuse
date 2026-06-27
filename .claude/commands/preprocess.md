@@ -4,7 +4,7 @@ Source of truth: [`.agents/preprocess.md`](../../.agents/preprocess.md).
 
 This command activates the TC-Fuse preprocessing skill. **Before running any preprocessor, modifying `src/tcfuse/data/sources/`, or working with Stage 1 / Stage 2 HDF5 layouts**, read the skill file. All behavior rules, pipeline invariants, schema details, and coding-style requirements are defined there.
 
-Jean-Zay submission: [`/jz`](jz.md). Forecast output storage: [`/predictions`](predictions.md).
+Jean-Zay submission: [`/jz`](jz.md).
 
 Keep docs in sync: when a Stage 0/1/2 schema or preprocess script changes, update `.agents/preprocess.md` and this file together; update the dataset table in `.agents/context.md` when a new dataset path is confirmed.
 
