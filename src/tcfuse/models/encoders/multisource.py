@@ -10,6 +10,7 @@ from tcfuse.data.sources.source import SourceKind
 from tcfuse.models.encoders.base import SourceEncoder
 from tcfuse.models.encoders.embedded import EmbeddedBatch, EmbeddedSource
 from tcfuse.models.encoders.patch_embed import FieldEncoder, ProfileEncoder, ScalarEncoder
+from tcfuse.models.encoders.positional import CoordEncodingConfig
 
 # Map each source kind to the encoder class that embeds it.
 _KIND_TO_ENCODER: dict[SourceKind, type[SourceEncoder]] = {
@@ -25,16 +26,17 @@ class MultiSourceEncoder(nn.Module):
     Allocates one :class:`~tcfuse.models.encoders.base.SourceEncoder` per source
     name at construction time, choosing the encoder class from the source's
     :class:`~tcfuse.data.sources.source.SourceKind` and reading its channel count
-    from ``sources_metadata``. Like
-    :class:`~tcfuse.models.affine_backbone.ChannelwiseAffineBackbone`, it is meant
-    to be a Hydra partial (``_partial_: true``) so ``BaseLightningModule`` can pass
-    ``sources_metadata`` at runtime.
+    from ``sources_metadata``. Meant to be a Hydra partial (``_partial_: true``)
+    so ``BaseLightningModule`` can pass ``sources_metadata`` at runtime.
 
     Args:
         sources_metadata: Static descriptors for all sources in the dataset.
             Provides each source's kind and channel count.
         embed_dim: Output embedding dimension D, shared across all sources.
         patch_size: Patch size p used by PROFILE / FIELD encoders.
+        coord_encoding: Fourier positional-encoding hyperparameters shared by all
+            per-source encoders. Defaults to :class:`CoordEncodingConfig` defaults
+            (encoding enabled) when ``None``.
     """
 
     def __init__(
@@ -43,8 +45,11 @@ class MultiSourceEncoder(nn.Module):
         *,
         embed_dim: int,
         patch_size: int,
+        coord_encoding: CoordEncodingConfig | None = None,
     ) -> None:
         super().__init__()
+        # Fall back to default coordinate-encoding hyperparameters when unset.
+        coord_encoding = coord_encoding if coord_encoding is not None else CoordEncodingConfig()
         encoders: dict[str, SourceEncoder] = {}
         # Map original source name -> sanitized ModuleDict key.
         # ModuleDict does not allow '.' or '-' in keys.
@@ -59,6 +64,7 @@ class MultiSourceEncoder(nn.Module):
                 num_channels=meta.num_channels,
                 embed_dim=embed_dim,
                 patch_size=patch_size,
+                coord_encoding=coord_encoding,
             )
             self._key_map[name] = name.replace(".", "_").replace("-", "_")
         self._encoders = nn.ModuleDict(encoders)

@@ -23,6 +23,7 @@ from tcfuse.data.sources.source import SourceKind
 from tcfuse.models.decoders.multisource import MultiSourceDecoder
 from tcfuse.models.encoders.embedded import EmbeddedBatch, EmbeddedSource
 from tcfuse.models.encoders.multisource import MultiSourceEncoder
+from tcfuse.models.encoders.positional import CoordEncodingConfig
 from tcfuse.models.perceiver.block import CrossAttentionBlock, LatentBlock
 
 
@@ -48,6 +49,8 @@ class PerceiverIOBackbone(nn.Module):
             divide both ``embed_dim`` and ``latent_dim``.
         mlp_ratio: Feed-forward hidden width as a multiple of the block dim.
         dropout: Dropout probability used inside every block.
+        coord_encoding: Fourier positional-encoding hyperparameters forwarded to
+            the :class:`MultiSourceEncoder` (defaults applied when ``None``).
     """
 
     def __init__(
@@ -63,10 +66,14 @@ class PerceiverIOBackbone(nn.Module):
         cross_num_heads: int,
         mlp_ratio: float = 4.0,
         dropout: float = 0.0,
+        coord_encoding: CoordEncodingConfig | None = None,
     ) -> None:
         super().__init__()
         self.encoder = MultiSourceEncoder(
-            sources_metadata, embed_dim=embed_dim, patch_size=patch_size
+            sources_metadata,
+            embed_dim=embed_dim,
+            patch_size=patch_size,
+            coord_encoding=coord_encoding,
         )
         self.decoder = MultiSourceDecoder(
             sources_metadata, embed_dim=embed_dim, patch_size=patch_size

@@ -9,3 +9,14 @@ num_heads: 8
 cross_num_heads: 8
 mlp_ratio: 4.0
 dropout: 0.0
+
+coord_encoding:
+  _target_: tcfuse.models.encoders.positional.CoordEncodingConfig
+  enabled: true
+  num_frequencies: 16
+  angular_min_wavelength: 0.1
+  angular_max_wavelength: 360.0
+  vertical_min_wavelength: 50.0
+  vertical_max_wavelength: 20000.0
+  temporal_min_wavelength: 0.01
+  temporal_max_wavelength: 1.0

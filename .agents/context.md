@@ -75,7 +75,6 @@ project_root/
 │   │   ├── masked_reconstruction.py ← MaskedReconstructionLightningModule (general masked-source reconstruction; targets from WindowBatch.is_target, NaN masking, MSE loss)
 │   │   └── lr_scheduler.py         ← CosineAnnealingWarmupRestarts
 │   ├── models/
-│   │   ├── affine_backbone.py      ← ChannelwiseAffineBackbone (per-channel weight+bias, testing/baseline)
 │   │   └── encoders/               ← source embedding layer: EmbeddedSource/EmbeddedBatch (embedded.py), SourceEncoder (base.py), Scalar/Profile/Field patch-embed encoders (patch_embed.py), MultiSourceEncoder dispatcher WindowBatch→EmbeddedBatch (multisource.py)
 │   ├── training/              ← losses.py, callbacks.py
 │   └── utils/                 ← coords.py, archive.py

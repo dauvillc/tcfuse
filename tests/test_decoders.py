@@ -14,6 +14,11 @@ from tcfuse.models.decoders.multisource import MultiSourceDecoder
 from tcfuse.models.decoders.patch_unembed import FieldDecoder, ProfileDecoder, ScalarDecoder
 from tcfuse.models.encoders.multisource import MultiSourceEncoder
 from tcfuse.models.encoders.patch_embed import FieldEncoder, ProfileEncoder, ScalarEncoder
+from tcfuse.models.encoders.positional import CoordEncodingConfig
+
+# Coordinate encoding is exercised in tests/test_embeddings.py; disable it here so
+# decoder round-trip tests isolate the value-path shape inversion.
+_NO_COORD = CoordEncodingConfig(enabled=False)
 
 # ---------------------------------------------------------------------------
 # Synthetic source builders (mirror tests/test_embeddings.py conventions).
@@ -75,7 +80,13 @@ def test_scalar_decoder_shape() -> None:
     """ScalarDecoder maps (B, D) features back to the original (B, C) shape."""
     B, C, D = 3, 5, 16
     source = make_scalar_source(B=B, C=C)
-    encoder = ScalarEncoder(source_name="best_track", num_channels=C, embed_dim=D, patch_size=4)
+    encoder = ScalarEncoder(
+        source_name="best_track",
+        num_channels=C,
+        embed_dim=D,
+        patch_size=4,
+        coord_encoding=_NO_COORD,
+    )
     decoder = ScalarDecoder(source_name="best_track", num_channels=C, embed_dim=D, patch_size=4)
     decoded = decoder(encoder(source))
     assert decoded.kind is SourceKind.SCALAR
@@ -86,7 +97,9 @@ def test_profile_decoder_shape() -> None:
     """ProfileDecoder maps (B, L // p, D) features back to the original (B, L, C) shape."""
     B, L, C, D, p = 3, 12, 5, 16, 4
     source = make_profile_source(B=B, L=L, C=C)
-    encoder = ProfileEncoder(source_name="dropsonde", num_channels=C, embed_dim=D, patch_size=p)
+    encoder = ProfileEncoder(
+        source_name="dropsonde", num_channels=C, embed_dim=D, patch_size=p, coord_encoding=_NO_COORD
+    )
     decoder = ProfileDecoder(source_name="dropsonde", num_channels=C, embed_dim=D, patch_size=p)
     decoded = decoder(encoder(source))
     assert decoded.kind is SourceKind.PROFILE
@@ -97,7 +110,9 @@ def test_field_decoder_shape() -> None:
     """FieldDecoder maps (B, H // p, W // p, D) features back to the original (B, H, W, C) shape."""
     B, H, W, C, D, p = 2, 8, 12, 2, 16, 4
     source = make_field_source(B=B, H=H, W=W, C=C)
-    encoder = FieldEncoder(source_name="pmw_ssmi", num_channels=C, embed_dim=D, patch_size=p)
+    encoder = FieldEncoder(
+        source_name="pmw_ssmi", num_channels=C, embed_dim=D, patch_size=p, coord_encoding=_NO_COORD
+    )
     decoder = FieldDecoder(source_name="pmw_ssmi", num_channels=C, embed_dim=D, patch_size=p)
     decoded = decoder(encoder(source))
     assert decoded.kind is SourceKind.FIELD
