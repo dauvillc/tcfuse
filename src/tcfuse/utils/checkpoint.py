@@ -27,28 +27,22 @@ def latest_checkpoint(checkpoint_dir: Path) -> Path | None:
     return ckpts[-1] if ckpts else None
 
 
-def resolve_checkpoint_spec(spec: str, checkpoints_root: Path) -> Path:
-    """Resolve a checkpoint_path config value to an actual .ckpt file.
+def best_checkpoint(run_id: str, checkpoints_root: Path) -> Path:
+    """Return the best-*.ckpt for a training run_id under checkpoints_root.
 
     Args:
-        spec: Either a path to a .ckpt file, or a bare run_id (the directory
-            name under checkpoints_root, as assigned by scripts/train/train.py).
-        checkpoints_root: paths.checkpoints, used to resolve a run_id.
+        run_id: The training run id, i.e. the directory name under
+            checkpoints_root as assigned by scripts/train/train.py.
+        checkpoints_root: paths.checkpoints, used to locate the run.
 
     Returns:
-        Path to the checkpoint file to load.
+        Path to the run's best-validation-loss checkpoint file.
     """
-    direct = Path(spec)
-    if direct.is_file():
-        return direct
-
-    # Not a file: treat spec as a run_id and look for its best checkpoint.
-    run_dir = checkpoints_root / spec / "checkpoints"
+    # Checkpoints for a run live under checkpoints_root/<run_id>/checkpoints/.
+    run_dir = checkpoints_root / run_id / "checkpoints"
     if not run_dir.is_dir():
-        raise FileNotFoundError(
-            f"checkpoint_path {spec!r} is neither an existing file nor a known "
-            f"run_id under {checkpoints_root}"
-        )
+        raise FileNotFoundError(f"run_id {run_id!r} is not a known run under {checkpoints_root}")
+    # The "best" ModelCheckpoint callback names its file best-{step}.ckpt.
     best_ckpts = sorted(run_dir.glob("best-*.ckpt"))
     if not best_ckpts:
         raise FileNotFoundError(f"No best-*.ckpt checkpoint found in {run_dir}")

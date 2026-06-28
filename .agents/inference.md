@@ -24,24 +24,25 @@ Read this before touching `scripts/inference/`, `src/tcfuse/data/predictions/`, 
 ```bash
 python scripts/inference/infer.py \
     experiment=pmw_gmi_reconstruction_dummy \
-    checkpoint_path=/abs/path/to/best.ckpt \
+    run_id=0627015132 \
     split=test
 ```
 
-`checkpoint_path` also accepts a bare run_id (e.g. `checkpoint_path=0627015132`); it
-resolves to that run's `best-*.ckpt` under `paths.checkpoints/<run_id>/checkpoints/`
-via `resolve_checkpoint_spec` (`src/tcfuse/utils/checkpoint.py`).
+`run_id` is the training run identifier (the directory name under
+`paths.checkpoints`); inference resolves that run's `best-*.ckpt` under
+`paths.checkpoints/<run_id>/checkpoints/` via `best_checkpoint`
+(`src/tcfuse/utils/checkpoint.py`). The `experiment=` chosen here defines the
+**inference** experiment (sources, datamodule, lightning_module, windows_setup)
+and need not match the one used for training.
 
 `conf/inference.yaml` fields (override on the CLI):
 
 | Field | Default | Meaning |
 |---|---|---|
 | `experiment` | `???` | Required. Defines `name` + sources + mounts `lightning_module` and `windows_setup`. |
-| `checkpoint_path` | `???` | Required. Either a `.ckpt` file path or a bare run_id (resolves to `{paths.checkpoints}/{run_id}/checkpoints/best-*.ckpt` via `resolve_checkpoint_spec`). Weights loaded into the rebuilt module (`checkpoint["state_dict"]`). |
+| `run_id` | `???` | Required. Training run id (dir name under `paths.checkpoints`); resolves to `{paths.checkpoints}/{run_id}/checkpoints/best-*.ckpt` via `best_checkpoint`. Weights loaded into the rebuilt module (`checkpoint["state_dict"]`). |
 | `split` | `test` | Split to run over: `train` / `val` / `test`. |
-| `run_name` | `null` | Output subdir under `paths.predictions`. Null → `{name}-{checkpoint_stem}`. |
 | `limit_samples` | `null` | Cap on windows processed (smoke tests). Translated to `limit_predict_batches`. |
-| `device` | `cuda` | Falls back to CPU when CUDA is unavailable. |
 | `compute_metrics` | `true` | Write `metrics.csv` next to the run after prediction. |
 | `paths` | `local` | Override with `paths=jz` / `paths=cleps`. |
 
@@ -63,14 +64,16 @@ via `resolve_checkpoint_spec` (`src/tcfuse/utils/checkpoint.py`).
 ## Output format
 
 ```
-{paths.predictions}/{run_name}/
+{paths.predictions}/{run_id}/{experiment_name}/
 ├── manifest.yaml          # run-level metadata
 ├── index.parquet          # one row per (sample_id, source_name, source_index)
 ├── samples/{sample_id}.h5 # one SamplePrediction per window
 └── metrics.csv            # optional; per (source, channel, metric) row
 ```
 
-**`manifest.yaml` keys:** `checkpoint_path`, `experiment_name`, `windows_setup_name`, `split`, `units` (`"physical"`), `created_utc` (ISO 8601), `num_samples` (added by `finalize`).
+Re-running a different `split` for the same `run_id` + inference `experiment` overwrites this directory (split is recorded only in the manifest); use a distinct inference `experiment=` to keep them separate.
+
+**`manifest.yaml` keys:** `run_id`, `checkpoint_path`, `experiment_name`, `windows_setup_name`, `split`, `units` (`"physical"`), `created_utc` (ISO 8601), `num_samples` (added by `finalize`).
 
 **`index.parquet` columns** (long-format, one row per predicted source slot): `sample_id`, `sid`, `season`, `basin`, `subbasin`, `window_ref_time_utc`, `source_name`, `source_index`, `kind`, `time_utc`, `n_channels`.
 

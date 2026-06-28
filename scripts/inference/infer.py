@@ -11,11 +11,11 @@ evaluation metrics.
 Usage::
 
     python scripts/inference/infer.py experiment=pmw_gmi_reconstruction_dummy \
-        checkpoint_path=/abs/path/to/best.ckpt split=test
+        run_id=0627015132 split=test
 
-``checkpoint_path`` also accepts a bare run_id (e.g. ``checkpoint_path=0627015132``),
-in which case the best checkpoint under ``paths.checkpoints/<run_id>/checkpoints/``
-is resolved automatically.
+``run_id`` is the training run identifier (the directory name under
+``paths.checkpoints``); inference resolves that run's best checkpoint under
+``paths.checkpoints/<run_id>/checkpoints/`` automatically.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from tcfuse.data.collate import WindowBatch, collate_window_samples
 from tcfuse.data.dataset import TCWindowDataset
 from tcfuse.data.predictions.run import PredictionRun
 from tcfuse.lightning.prediction_writer import PredictionWriter
-from tcfuse.utils.checkpoint import resolve_checkpoint_spec
+from tcfuse.utils.checkpoint import best_checkpoint
 
 
 @hydra.main(config_path="../../conf/", config_name="inference", version_base=None)
@@ -62,11 +62,8 @@ def main(raw_cfg: DictConfig) -> None:
         normalization_stats=dm.normalization_stats,
         experiment_name=cfg["name"],
     )
-    # checkpoint_path may be a precise file or a bare run_id; resolve it to the
-    # run's best checkpoint in the latter case.
-    checkpoint_path = resolve_checkpoint_spec(
-        str(cfg["checkpoint_path"]), Path(cfg["paths"]["checkpoints"])
-    )
+    # Resolve the run's best checkpoint from its run_id.
+    checkpoint_path = best_checkpoint(str(cfg["run_id"]), Path(cfg["paths"]["checkpoints"]))
     # weights_only=False: our own training checkpoints embed OmegaConf hparams,
     # which the (newer-PyTorch default) safe unpickler rejects. The file is a
     # trusted local artifact, so full unpickling is fine here.
@@ -110,11 +107,13 @@ def main(raw_cfg: DictConfig) -> None:
     )
 
     # Open the output run; the writer appends to it as each batch is predicted.
-    run_name = cfg["run_name"] or f"{cfg['name']}-{checkpoint_path.stem}"
-    run_dir = Path(cfg["paths"]["predictions"]) / str(run_name)
+    # The output dir is keyed by the training run_id and the (inference)
+    # experiment name.
+    run_dir = Path(cfg["paths"]["predictions"]) / str(cfg["run_id"]) / str(cfg["name"])
     run = PredictionRun.create(
         run_dir,
         manifest={
+            "run_id": str(cfg["run_id"]),
             "checkpoint_path": str(checkpoint_path),
             "experiment_name": cfg["name"],
             "windows_setup_name": str(cfg["windows_setup"]["name"]),

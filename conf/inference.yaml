@@ -1,10 +1,11 @@
 # Inference / evaluation entry point.
-# Loads a trained checkpoint, runs it over a split, and writes a PredictionRun.
+# Loads a training run's best checkpoint, runs it over a split, and writes a
+# PredictionRun.
 #
 # Usage::
 #
-#     python scripts/inference/infer.py experiment=pmw_gmi_reconstruction_dummy \
-#         checkpoint_path=/abs/path/to/best.ckpt split=test
+#     python scripts/inference/infer.py experiment=pmw_gmi \
+#         run_id=0627015132 split=test
 defaults:
   - dataloader: default
   - datamodule: default
@@ -17,23 +18,16 @@ defaults:
   - _self_
   - experiment: ???           # must be specified at launch (defines name + sources)
 
-# Checkpoint whose weights are loaded into the instantiated module (required).
-# Either a path to a .ckpt file, or a bare run_id (resolves to that run's
-# best-*.ckpt under paths.checkpoints).
-checkpoint_path: ???
+# Training run id whose best checkpoint is loaded (required). This is the
+# directory name under paths.checkpoints assigned by scripts/train/train.py;
+# inference resolves its best-*.ckpt automatically.
+run_id: ???
 
 # Which split to run inference over: "train", "val", or "test".
 split: test
 
-# Output subdirectory name under paths.predictions. Null -> derived from the
-# experiment name and the checkpoint file stem.
-run_name: null
-
 # Optional cap on the number of windows to process (null = all). For smoke tests.
 limit_samples: null
-
-# Device for the forward pass; falls back to CPU when CUDA is unavailable.
-device: cuda
 
 # Compute and save per-source/per-channel metrics (metrics.csv) after writing.
 compute_metrics: true
