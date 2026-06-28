@@ -83,7 +83,6 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         # Being nn.Modules, Lightning moves them to the correct device and syncs DDP ranks.
         self.val_metrics = self._build_val_metrics()
         # Sources that received at least one update() call in the current val epoch.
-        # Cleared at the end of each on_validation_epoch_end to start the next epoch fresh.
         self._val_updated_sources: set[str] = set()
         # Do not serialize the full model tree, metadata, or raw stats into hparams;
         # the normalization tensors are persisted as buffers instead.
@@ -231,8 +230,7 @@ class BaseLightningModule(ABC, lightning.LightningModule):
                 continue
             channels = self._sources_metadata[source_name].channels
             for metric_name, values in computed.items():
-                # Ensure values is always 1D (R2 always returns (C,); MAE/MSE/Bias
-                # also return (C,) when num_outputs >= 1, but guard for scalar edge cases).
+                # Force 1D so the per-channel zip works even for scalar edge cases.
                 values_1d = torch.atleast_1d(values)
                 for ch_name, ch_val in zip(channels, values_1d):
                     self.log(
@@ -256,8 +254,7 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         # Name figures by global step — validation runs are step-triggered, not per-epoch.
         step = self.global_step
         figure_path = self._validation_dir / f"{step:08d}_val_summary.svg"
-        # No-op until the TODO above actually writes figure_path; activates
-        # automatically once tcfuse.data.visualization.training is implemented.
+        # No-op until the TODO above writes figure_path.
         if figure_path.exists():
             wandb_logger = cast(WandbLogger, self.logger)
             wandb_logger.experiment.log({"val/summary": wandb.Image(str(figure_path))})
@@ -395,18 +392,15 @@ class BaseLightningModule(ABC, lightning.LightningModule):
             targets_norm: Ground-truth values in normalized space, shape ``(B, ..., C)``.
             valid: Boolean availability mask, same shape as ``preds_norm``.
         """
-        # Retrieve (C,) normalization buffers registered by _register_normalization_buffers.
+        # (C,) normalization buffers for this source.
         mean = getattr(self, self._mean_buffer_name(source_name))
         std = getattr(self, self._std_buffer_name(source_name))
         # Broadcast (C,) over the trailing channel axis before any masking/flattening.
         phys_pred = preds_norm * std + mean
         phys_target = targets_norm * std + mean
-        # Reduce valid mask to spatial dims only: True where every channel is available.
-        # This yields a consistent N across all channels so update() receives (N, C).
-        valid_spatial = valid.all(dim=-1)  # (B, ...) bool
-        # Advanced indexing: (B, ..., C) indexed by (B, ...) bool → (N, C).
-        # Cast from Module (ModuleDict return type) to access the MetricCollection API.
-        # Mark source as updated so on_validation_epoch_end knows to call compute().
+        # Keep positions where every channel is available, giving a consistent (N, C).
+        valid_spatial = valid.all(dim=-1)
+        # Mark the source updated so on_validation_epoch_end calls compute() for it.
         self._val_updated_sources.add(source_name)
         cast(torchmetrics.MetricCollection, self.val_metrics[source_name]).update(
             phys_pred[valid_spatial], phys_target[valid_spatial]
@@ -416,8 +410,6 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         """AdamW optimizer with cosine warmup-restarts LR schedule (per-step)."""
         # Map parameter names to tensors for decay vs no-decay grouping.
         params = dict(self.named_parameters())
-        # Decay 2D+ tensors only (weight matrices, conv kernels).
-        # Skip 1D tensors (norms, biases, embeddings if 1D).
         # Membership set only — never iterate it: set iteration order over string
         # keys varies per process (PYTHONHASHSEED), and Lightning saves/loads
         # optimizer state positionally, so a non-deterministic param order would

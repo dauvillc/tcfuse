@@ -82,7 +82,6 @@ class PredictionRun:
             sample: The window prediction to persist.  Its ``sample_id`` names
                 the on-disk file ``samples/{sample_id}.h5``.
         """
-        # Persist the per-window HDF5 file.
         sample.write(self._sample_path(sample.sample_id))
         # Record one index row per predicted (source_name, source_index).
         for (source_name, source_index), source in sample.predicted.items():

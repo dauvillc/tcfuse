@@ -76,7 +76,6 @@ class SamplePrediction:
             f.attrs["subbasin"] = self.subbasin
             f.attrs["window_ref_time_utc"] = self.window_ref_time_utc
 
-            # Write predicted and target Sources under their respective groups.
             self._write_sources(f.create_group(_PREDICTED_GROUP), self.predicted)
             self._write_sources(f.create_group(_TARGET_GROUP), self.target)
 
