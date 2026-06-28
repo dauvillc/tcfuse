@@ -6,7 +6,7 @@
 # For a single-GPU smoke test, use setup=jz_h100 instead.
 
 defaults:
-  - override /paths: jz
+  - /paths: jz
 
 setup:
   timeout_min: 1200               # 20h default; set 6000 for qos_gpu_h100-t4

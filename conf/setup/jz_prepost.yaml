@@ -5,7 +5,7 @@
 # Max walltime: 20 h.  Account: xyw@cpu.
 
 defaults:
-  - override /paths: jz
+  - /paths: jz
 
 setup:
   slurm_partition: prepost

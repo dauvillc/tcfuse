@@ -44,7 +44,7 @@ and need not match the one used for training.
 | `split` | `test` | Split to run over: `train` / `val` / `test`. |
 | `limit_samples` | `null` | Cap on windows processed (smoke tests). Translated to `limit_predict_batches`. |
 | `compute_metrics` | `true` | Write `metrics.csv` next to the run after prediction. |
-| `paths` | `local` | Override with `paths=jz` / `paths=cleps`. |
+| `paths` | (set by `setup`) | Owned by the setup config; `setup=local` → `paths=local`, `setup=jz_*` → `paths=jz`, etc. Override explicitly with `paths=jz` if needed. |
 
 `optimizer`, `lr_scheduler`, and `setup` are carried only to satisfy the module constructor / experiment resolution — unused at inference.
 

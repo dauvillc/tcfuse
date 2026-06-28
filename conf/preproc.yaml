@@ -1,7 +1,6 @@
 # Main configuration file for data preprocessing.
 defaults:
-  - paths: jz    # override with paths=jz on Jean-Zay
-  - setup: jz_cpu    # override with setup=jz_<hw> on Jean-Zay
+  - setup: jz_cpu    # setup configs own paths; override with setup=<name>
   - windows_setup: ibtracs_forecast_24h    # override with windows_setup=<name>
   - _self_
 

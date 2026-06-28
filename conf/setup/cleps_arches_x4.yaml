@@ -9,7 +9,7 @@
 # For a single-GPU debug run, use setup=cleps_arches instead.
 
 defaults:
-  - override /paths: cleps
+  - /paths: cleps
 
 setup:
   timeout_min: 2880                          # 2 days (verify arches cap)

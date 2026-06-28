@@ -5,7 +5,7 @@
 # For outbound downloads (S3, HTTP), use setup=jz_prepost instead.
 
 defaults:
-  - override /paths: jz
+  - /paths: jz
 
 setup:
   timeout_min: 240

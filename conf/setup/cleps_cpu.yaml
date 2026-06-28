@@ -7,7 +7,7 @@
 # No module load (pixi env is inherited) and no WANDB_MODE (W&B runs online).
 
 defaults:
-  - override /paths: cleps
+  - /paths: cleps
 
 setup:
   timeout_min: 1440          # 24 h default; cpu_devel allows up to 1 week

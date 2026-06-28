@@ -12,8 +12,7 @@ defaults:
   - optimizer: default        # unused at inference, but the module __init__ requires it
   - lr_scheduler: default     # likewise carried only to satisfy the constructor
   - windows_setup: ???        # provided by the experiment
-  - paths: local              # override with paths=jz / paths=cleps
-  - setup: local              # unused (no submitit here); kept so experiments resolve
+  - setup: local              # setup configs own paths; unused (no submitit here), kept so experiments resolve
   - lightning_module: ???     # provided by the experiment (mounts its model)
   - _self_
   - experiment: ???           # must be specified at launch (defines name + sources)

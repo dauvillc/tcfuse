@@ -10,7 +10,7 @@
 # For a full-node 3-GPU run, use setup=cleps_rtx8000_x3 instead.
 
 defaults:
-  - override /paths: cleps
+  - /paths: cleps
 
 setup:
   timeout_min: 2880                          # gpu partition caps at 2 days

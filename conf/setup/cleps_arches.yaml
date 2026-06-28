@@ -8,7 +8,7 @@
 # For a full-node 4-GPU training run, use setup=cleps_arches_x4 instead.
 
 defaults:
-  - override /paths: cleps
+  - /paths: cleps
 
 setup:
   timeout_min: 2880                          # 2 days (verify arches cap)
