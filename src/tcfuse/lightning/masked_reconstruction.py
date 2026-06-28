@@ -81,6 +81,30 @@ class MaskedReconstructionLightningModule(BaseLightningModule):
 
         return dataclasses.replace(batch, sources=masked_sources), originals
 
+    def predict_step(self, batch: WindowBatch, batch_idx: int) -> WindowBatch:
+        """Reconstruct masked target sources for inference, in physical units.
+
+        Overrides :meth:`BaseLightningModule.predict_step` to apply the *same*
+        target masking used during training before the forward pass.  Without
+        masking the backbone would simply see the ground-truth target values and
+        echo them back, so evaluation must hide targets exactly as training does.
+
+        The returned :class:`WindowBatch` carries reconstructed values for the
+        target slots (and transformed values for visible slots, which callers
+        ignore) de-normalized back to physical units.
+
+        Args:
+            batch: Collated input batch in physical units.
+            batch_idx: Index of the batch (unused; kept for the Lightning API).
+
+        Returns:
+            A de-normalized :class:`WindowBatch` with target slots reconstructed.
+        """
+        # Normalize, then hide every target slot just like _shared_step does.
+        masked_batch, _originals = self._mask_targets(self.normalize(batch))
+        # Run the backbone on the masked batch and map values back to physical units.
+        return self.denormalize(self(masked_batch))
+
     def _shared_step(self, batch: WindowBatch, stage: str) -> torch.Tensor:
         """Mask targets, run the model, return MSE against the original values.
 

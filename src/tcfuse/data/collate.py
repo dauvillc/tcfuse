@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pandas as pd
@@ -64,6 +64,20 @@ class WindowBatch:
     def batch_size(self) -> int:
         """Number of samples in this batch."""
         return len(self.sample_ids)
+
+    def to(self, device: torch.device | str) -> WindowBatch:
+        """Return a copy with all source tensors and target flags on ``device``.
+
+        Only the batched tensors move; the scalar list attributes (ids, times,
+        basins, …) are carried over unchanged.
+        """
+        return replace(
+            self,
+            # Move each source's value/coord/mask/time tensors.
+            sources={key: src.to(device) for key, src in self.sources.items()},
+            # Move the (B,) is_target flags so they share the sources' device.
+            is_target={key: flags.to(device) for key, flags in self.is_target.items()},
+        )
 
 
 def _time_encoding(time_utc: pd.Timestamp) -> torch.Tensor:

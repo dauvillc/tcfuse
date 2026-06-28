@@ -32,7 +32,8 @@ class TestTransferBatchToDevice:
         dm = TCWindowDataModule("/tmp", "test_windows", dataloader_kwargs={"batch_size": 2})
         batch = _make_window_batch()
         moved = dm.transfer_batch_to_device(batch, torch.device("cpu"), 0)
-        assert moved is batch
+        assert isinstance(moved, WindowBatch)
+        assert moved.sample_ids == batch.sample_ids
         src = moved.sources[("buoy", 0)]
         assert src.values.device.type == "cpu"
         assert src.coords.device.type == "cpu"
@@ -44,7 +45,8 @@ class TestTransferBatchToDevice:
         dm = TCWindowDataModule("/tmp", "test_windows", dataloader_kwargs={"batch_size": 2})
         batch = _make_window_batch()
         moved = dm.transfer_batch_to_device(batch, torch.device("cuda"), 0)
-        assert moved is batch
+        assert isinstance(moved, WindowBatch)
+        assert moved.sample_ids == batch.sample_ids
         src = moved.sources[("buoy", 0)]
         assert src.values.is_cuda
         assert src.coords.is_cuda

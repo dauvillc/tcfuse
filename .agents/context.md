@@ -19,6 +19,7 @@ Read the matching skill file before doing work in that area. The Claude slash co
 | CLEPS cluster operations (pixi, W&B online, persistent scratch, SLURM, monitoring) | [`.agents/cleps.md`](cleps.md) | `/cleps` |
 | Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`.agents/visualize.md`](visualize.md) | `/visualize` |
 | Model backbone architecture (embedding/encoder/decoder design, candidate backbones, pre-training task) | [`.agents/architecture.md`](architecture.md) | `/architecture` |
+| Inference and prediction pipeline (checkpoint loading, task masking, PredictionRun output, metrics) | [`.agents/inference.md`](inference.md) | `/inference` |
 | Basedpyright diagnostics workflow | [`.agents/pyright-fixer.md`](pyright-fixer.md) | (none) |
 
 ## Core data abstraction
@@ -67,11 +68,13 @@ project_root/
 │   │   ├── collocation.py     ← spatiotemporal window queries
 │   │   ├── transforms.py      ← normalization, coordinate encoding
 │   │   ├── collate.py         ← collate_window_samples → WindowBatch
-│   │   └── dataset.py         ← TCWindowDataset (PyTorch map-style Dataset)
+│   │   ├── dataset.py         ← TCWindowDataset (PyTorch map-style Dataset)
+│   │   └── predictions/       ← SamplePrediction, PredictionRun (per-window pred+target HDF5 + index + metrics) — see /inference
 │   ├── lightning/
 │   │   ├── datamodule.py           ← TCWindowDataModule (LightningDataModule)
 │   │   ├── base_module.py          ← BaseLightningModule (general WindowBatch→WindowBatch, normalization, AdamW+cosine-LR; accepts backbone as nn.Module or Hydra partial)
-│   │   ├── masked_reconstruction.py ← MaskedReconstructionLightningModule (general masked-source reconstruction; targets from WindowBatch.is_target, NaN masking, MSE loss)
+│   │   ├── masked_reconstruction.py ← MaskedReconstructionLightningModule (general masked-source reconstruction; targets from WindowBatch.is_target, NaN masking, MSE loss; predict_step masks targets before reconstructing)
+│   │   ├── prediction_writer.py     ← PredictionWriter (BasePredictionWriter → PredictionRun; single-GPU only) — see /inference
 │   │   └── lr_scheduler.py         ← CosineAnnealingWarmupRestarts
 │   ├── models/
 │   │   └── encoders/               ← source embedding layer: EmbeddedSource/EmbeddedBatch (embedded.py), SourceEncoder (base.py), Scalar/Profile/Field patch-embed encoders (patch_embed.py), MultiSourceEncoder dispatcher WindowBatch→EmbeddedBatch (multisource.py)
@@ -79,6 +82,7 @@ project_root/
 │   └── utils/                 ← coords.py, archive.py
 ├── scripts/preprocess/        ← prepare_*.py, assemble.py, build_splits.py, compute_normalization.py
 ├── scripts/train/             ← train.py (Hydra+submitit, Checkpointable, ModelCheckpoint), profile_data.py
+├── scripts/inference/         ← infer.py (Hydra checkpoint → split prediction → PredictionRun + metrics.csv) — see /inference
 ├── tests/
 └── notebooks/                 ← exploration only, never imported by src/
 ```

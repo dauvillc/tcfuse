@@ -22,6 +22,7 @@ When a task touches one of these areas, read the matching skill file before maki
 | CLEPS cluster operations (pixi, W&B online, persistent scratch, SLURM, monitoring) | [`.agents/cleps.md`](.agents/cleps.md) | `/cleps` |
 | Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`.agents/visualize.md`](.agents/visualize.md) | `/visualize` |
 | Model backbone architecture (embedding/encoder/decoder design, candidate backbones, pre-training task) | [`.agents/architecture.md`](.agents/architecture.md) | `/architecture` |
+| Inference and prediction pipeline (checkpoint loading, task masking, PredictionRun output, metrics) | [`.agents/inference.md`](.agents/inference.md) | `/inference` |
 | Basedpyright diagnostics workflow | [`.agents/pyright-fixer.md`](.agents/pyright-fixer.md) | (none) |
 
 ## Update protocol

@@ -138,11 +138,8 @@ class TCWindowDataModule(lightning.LightningDataModule):
     ) -> Any:
         """Move TorchSource tensors and is_target flags in a WindowBatch to ``device``."""
         if isinstance(batch, WindowBatch):
-            # Move every batched source tensor bundle to the target device.
-            batch.sources = {key: src.to(device) for key, src in batch.sources.items()}
-            # Move is_target (B,) bool tensors so they match the device of source masks.
-            batch.is_target = {key: t.to(device) for key, t in batch.is_target.items()}
-            return batch
+            # WindowBatch.to handles moving every batched tensor to the device.
+            return batch.to(device)
         # Fallback for any unexpected batch type.
         return super().transfer_batch_to_device(batch, device, dataloader_idx)
 

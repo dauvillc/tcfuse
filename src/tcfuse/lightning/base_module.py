@@ -6,7 +6,7 @@ import dataclasses
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, override
 
 import lightning
 import torch
@@ -20,7 +20,7 @@ from tcfuse.data.collate import WindowBatch
 from tcfuse.data.sources.metadata import MultisourceMetadata
 from tcfuse.data.sources.torch_source import TorchSource
 from tcfuse.lightning.lr_scheduler import CosineAnnealingWarmupRestarts
-from tcfuse.metrics.bias import BiasMetric
+from tcfuse.metrics.collection import build_source_metric_collection
 
 
 class BaseLightningModule(ABC, lightning.LightningModule):
@@ -97,6 +97,21 @@ class BaseLightningModule(ABC, lightning.LightningModule):
     def forward(self, batch: WindowBatch) -> WindowBatch:
         """Run the injected model on a collated window batch, returning a new WindowBatch."""
         return self.model(batch)  # type: ignore[return-value]
+
+    @override
+    def transfer_batch_to_device(
+        self, batch: Any, device: torch.device, dataloader_idx: int
+    ) -> Any:
+        """Move a WindowBatch to ``device``; used when no datamodule hook applies.
+
+        Lightning calls the datamodule's hook during fit/validate, but standalone
+        ``trainer.predict(model, dataloaders=...)`` runs (e.g. inference over a
+        chosen split) have no datamodule attached, so the module must know how to
+        move its own batch.
+        """
+        if isinstance(batch, WindowBatch):
+            return batch.to(device)
+        return super().transfer_batch_to_device(batch, device, dataloader_idx)
 
     @abstractmethod
     def _shared_step(self, batch: WindowBatch, stage: str) -> torch.Tensor:
@@ -353,17 +368,12 @@ class BaseLightningModule(ABC, lightning.LightningModule):
             :class:`~torchmetrics.MetricCollection`.
         """
         # Build one MetricCollection per source; channel count drives num_outputs.
+        # The collection itself is built by a shared helper so training and offline
+        # prediction evaluation report exactly the same metric set.
         metrics_per_source: dict[str, torchmetrics.MetricCollection] = {}
         for name in self._sources_metadata.names:
             C = self._sources_metadata[name].num_channels
-            metrics_per_source[name] = torchmetrics.MetricCollection(
-                {
-                    "bias": BiasMetric(num_outputs=C),
-                    "rmse": torchmetrics.MeanSquaredError(squared=False, num_outputs=C),
-                    "mae": torchmetrics.MeanAbsoluteError(num_outputs=C),
-                    "r2": torchmetrics.R2Score(multioutput="raw_values"),
-                }
-            )
+            metrics_per_source[name] = build_source_metric_collection(C)
         return nn.ModuleDict(metrics_per_source)
 
     def _update_val_metrics(

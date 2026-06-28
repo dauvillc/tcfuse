@@ -29,6 +29,9 @@ checkpoints: ${paths.scratch}/checkpoints
 wandb: ${paths.scratch}  # W&B will itself create a "wandb" subdir here.
 figures: ${paths.work}/figures
 
+# Root directory for saved inference runs (one subdir per prediction run).
+predictions: ${paths.scratch}/predictions
+
 # Archive paths. On CLEPS scratch is persistent and the user makes their own
 # backups, so archiving is disabled (archive: false in every cleps_* setup).
 # These point at scratch only so the keys resolve; no archive job writes them.
