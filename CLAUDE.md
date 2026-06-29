@@ -23,6 +23,7 @@ When a task touches one of these areas, read the matching skill file before maki
 | Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`.agents/visualize.md`](.agents/visualize.md) | `/visualize` |
 | Model backbone architecture (embedding/encoder/decoder design, candidate backbones, pre-training task) | [`.agents/architecture.md`](.agents/architecture.md) | `/architecture` |
 | Inference and prediction pipeline (checkpoint loading, task masking, PredictionRun output, metrics) | [`.agents/inference.md`](.agents/inference.md) | `/inference` |
+| Evaluation pipeline (plugin-based metrics/figures from saved predictions, results layout) | [`.agents/evaluate.md`](.agents/evaluate.md) | `/evaluate` |
 | Basedpyright diagnostics workflow | [`.agents/pyright-fixer.md`](.agents/pyright-fixer.md) | (none) |
 
 ## Update protocol

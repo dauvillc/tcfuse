@@ -30,6 +30,10 @@ validation: ${paths.scratch}/validation
 # Root directory for saved inference runs (one subdir per prediction run).
 predictions: ${paths.scratch}/predictions
 
+# Root directory for saved evaluation results; evaluate.py keys it by
+# run_id/experiment_name (mirroring the predictions layout), one subdir per plugin.
+results: ${paths.scratch}/results
+
 # Archive paths (on local, store == scratch, and archive is disabled via setup config).
 archives:
   raw_tc_primed:        ${paths.scratch}/archives/raw/tc_primed.tar.gz

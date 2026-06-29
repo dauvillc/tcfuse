@@ -1,0 +1,24 @@
+# Evaluation entry point — compute metrics / figures from a saved PredictionRun.
+#
+# Locates the predictions written by scripts/inference/infer.py for a given
+# (run_id, experiment_name), opens them, and dispatches the run to a set of
+# evaluation plugins. Each enabled plugin writes into its own subfolder under
+# paths.results/<run_id>/<experiment_name>/.
+#
+# Usage::
+#
+#     python scripts/evaluation/evaluate.py \
+#         run_id=0627015132 experiment_name=pmw-gmi-dummy
+defaults:
+  - setup: local            # setup configs own paths (setup=local -> paths=local)
+  - evaluation/quantitative_metrics   # default-enabled plugin (config group below)
+  - _self_
+
+# Training run id whose predictions are evaluated (required). Directory name
+# under paths.predictions, matching the run_id passed to infer.py.
+run_id: ???
+
+# Inference experiment name (required). Must match the `name` of the experiment
+# used when running infer.py — together with run_id it locates the prediction
+# run at paths.predictions/<run_id>/<experiment_name>/.
+experiment_name: ???

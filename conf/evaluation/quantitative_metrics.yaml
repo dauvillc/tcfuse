@@ -1,0 +1,9 @@
+# @package evaluations.quantitative_metrics
+# Core quantitative regression metrics (RMSE, MAE, R2, MAPE), per source/channel.
+# Packaged under evaluations.quantitative_metrics so multiple plugins compose into
+# a single `evaluations` mapping the eval script iterates over.
+_target_: tcfuse.evaluation.quantitative.metrics.QuantitativeMetricsEvaluation
+
+# Optional sample-level fields to group metrics by (sid / season / basin /
+# subbasin). null = a single global result per source/channel.
+group_by: null

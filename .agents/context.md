@@ -70,6 +70,7 @@ project_root/
 │   │   ├── collate.py         ← collate_window_samples → WindowBatch
 │   │   ├── dataset.py         ← TCWindowDataset (PyTorch map-style Dataset)
 │   │   └── predictions/       ← SamplePrediction, PredictionRun (per-window pred+target HDF5 + index + metrics) — see /inference
+│   ├── evaluation/            ← Evaluation plugins (base.py, flatten.py, quantitative/) run over a PredictionRun — see /evaluate
 │   ├── lightning/
 │   │   ├── datamodule.py           ← TCWindowDataModule (LightningDataModule)
 │   │   ├── base_module.py          ← BaseLightningModule (general WindowBatch→WindowBatch, normalization, AdamW+cosine-LR; accepts backbone as nn.Module or Hydra partial)
@@ -83,6 +84,7 @@ project_root/
 ├── scripts/preprocess/        ← prepare_*.py, assemble.py, build_splits.py, compute_normalization.py
 ├── scripts/train/             ← train.py (Hydra+submitit, Checkpointable, ModelCheckpoint), profile_data.py
 ├── scripts/inference/         ← infer.py (Hydra checkpoint → split prediction → PredictionRun + metrics.csv) — see /inference
+├── scripts/evaluation/        ← evaluate.py (Hydra PredictionRun → enabled Evaluation plugins → paths.results) — see /evaluate
 ├── tests/
 └── notebooks/                 ← exploration only, never imported by src/
 ```
