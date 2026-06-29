@@ -118,7 +118,7 @@ visualization/
 ├── tracks.py             ← TC track and intensity maps
 ├── fields.py             ← 2D field plots: plot_field(), plot_field_from_source(), plot_field_source_channels(), plot_sar_wind()
 ├── profiles.py           ← vertical profile plots (dropsonde, Argo)
-└── training.py           ← loss curves, attention weights, model diagnostics
+└── training.py           ← model diagnostics: plot_field_reconstruction() (Target|Pred|Error per channel), loss curves, attention weights
 ```
 
 **CLI scripts** under `scripts/visualization/` (Hydra + `preproc` config):
@@ -209,6 +209,24 @@ fig, ax = plot_sar_wind(source, storm_lat=15.0, storm_lon=-75.0)
 `plot_sar_wind` delegates to `plot_field_from_source()` (channel 0, `sar_wind` colormap).
 `plot_field_source_channels()` lays out every channel in a 2×2 (PMW), 1×3 (radar), or 1×1 grid;
 use it from `plot_source_examples.py` or custom gallery scripts.
+
+### 3. Field reconstruction comparison
+
+**Module:** `training.py`
+**When to use:** Spot-check a reconstructed FIELD source against its ground truth (e.g. during validation, or from an offline inference run).
+
+`plot_field_reconstruction(target, prediction, lats, lons, *, channels, cmap_key="tb", unit="", mask=None, suptitle="", save_path=None)`
+takes plain numpy arrays (`target`/`prediction`/`mask` shape `(H, W, C)`, `lats`/`lons` shape `(H, W)`)
+so it is dataset-agnostic and unit-testable with synthetic data. It draws one row per channel with
+three panels: **Target | Prediction** (shared per-channel color scale) and **Error** = prediction − target
+(symmetric `anomaly` diverging scale).
+
+`render_field_reconstruction(target, prediction, lats, lons, *, channels, source_name, save_path, mask=None, suptitle="")`
+is the convenience wrapper used by training: it derives the colormap/unit from `source_name`, builds and
+saves the SVG, and returns a fixed-size RGB raster (so an image logger gets consistent dimensions) — all
+matplotlib stays here, not in the Lightning module. `MaskedReconstructionLightningModule._render_validation_figures`
+calls it on the first `num_val_figure_samples` validation samples each epoch, saving SVGs under
+`validation_dir/<step>/` and logging the rasters to W&B under `val/reconstruction/<source>`.
 
 ## Adding a new visualization module
 

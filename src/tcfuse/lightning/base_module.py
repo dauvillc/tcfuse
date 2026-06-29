@@ -11,9 +11,8 @@ from typing import Any, cast, override
 import lightning
 import torch
 import torchmetrics
-import wandb
 from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.utilities.types import OptimizerLRScheduler
+from lightning.pytorch.utilities.types import STEP_OUTPUT, OptimizerLRScheduler
 from torch import nn
 
 from tcfuse.data.collate import WindowBatch
@@ -50,6 +49,11 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         adamw_kwargs: Keyword arguments for :class:`torch.optim.AdamW` (excluding ``params``).
         lr_scheduler_kwargs: Keyword arguments for :class:`CosineAnnealingWarmupRestarts`.
         validation_dir: Directory where validation figures are written each epoch.
+        num_val_figure_samples: Number of validation samples to render diagnostic
+            figures for each epoch (taken from the leading validation batch(es),
+            on rank 0 only). Figure rendering itself is delegated to subclasses via
+            :meth:`_render_validation_figures`; the base class only owns the
+            subset/rank/sanity bookkeeping.
         experiment_name: Short name from the experiment config (``cfg["name"]``), used to
             build the W&B run's display name as ``{experiment_name}-{run_id}`` (see
             :meth:`on_train_start`).
@@ -63,6 +67,7 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         adamw_kwargs: dict[str, Any],
         lr_scheduler_kwargs: dict[str, Any],
         validation_dir: str | Path,
+        num_val_figure_samples: int,
         experiment_name: str,
     ) -> None:
         super().__init__()
@@ -71,6 +76,9 @@ class BaseLightningModule(ABC, lightning.LightningModule):
         self._adamw_kwargs = dict(adamw_kwargs)
         self._lr_scheduler_kwargs = dict(lr_scheduler_kwargs)
         self._validation_dir = Path(validation_dir)
+        self._num_val_figure_samples = int(num_val_figure_samples)
+        # Count of validation samples already rendered in the current val epoch.
+        self._val_figures_logged = 0
         self._experiment_name = experiment_name
         # If model is a Hydra partial (not yet an nn.Module), call it now so the
         # backbone can read channel counts and shapes from sources_metadata.
@@ -242,22 +250,51 @@ class BaseLightningModule(ABC, lightning.LightningModule):
             collection.reset()
         # Clear the updated-sources tracking set for the next validation epoch.
         self._val_updated_sources.clear()
-        # Figure writing only on rank 0.
+
+    def on_validation_batch_end(
+        self,
+        outputs: STEP_OUTPUT | None,
+        batch: WindowBatch,
+        batch_idx: int,
+        dataloader_idx: int = 0,
+    ) -> None:
+        """Render diagnostic figures for the first few validation samples each epoch.
+
+        Owns only the generic bookkeeping (subset counting, rank/sanity guards);
+        the actual figures are produced by :meth:`_render_validation_figures`,
+        which subclasses override with task-specific prediction logic.
+        """
+        trainer = self.trainer
+        # Restart the per-epoch sample counter when a fresh validation pass begins.
+        if batch_idx == 0:
+            self._val_figures_logged = 0
+        # Skip the sanity-check pass, non-zero DDP ranks, and disabled rendering.
+        if trainer is not None and trainer.sanity_checking:
+            return
         if trainer is None or not trainer.is_global_zero:
             return
-        self._save_validation_figures()
+        # Stop once the requested number of sample figures has been produced.
+        remaining = self._num_val_figure_samples - self._val_figures_logged
+        if remaining <= 0:
+            return
+        # Delegate the actual rendering; count how many samples were drawn.
+        self._val_figures_logged += self._render_validation_figures(batch, max_samples=remaining)
 
-    def _save_validation_figures(self) -> None:
-        """Persist validation diagnostic plots under validation_dir."""
-        self._validation_dir.mkdir(parents=True, exist_ok=True)
-        # TODO: call tcfuse.data.visualization.training once implemented.
-        # Name figures by global step — validation runs are step-triggered, not per-epoch.
-        step = self.global_step
-        figure_path = self._validation_dir / f"{step:08d}_val_summary.svg"
-        # No-op until the TODO above writes figure_path.
-        if figure_path.exists():
-            wandb_logger = cast(WandbLogger, self.logger)
-            wandb_logger.experiment.log({"val/summary": wandb.Image(str(figure_path))})
+    def _render_validation_figures(self, batch: WindowBatch, max_samples: int) -> int:
+        """Render up to ``max_samples`` diagnostic figures for this batch.
+
+        No-op in the base class (it has no task-specific prediction logic).
+        Subclasses override this to produce and log figures, returning the number
+        of samples they rendered.
+
+        Args:
+            batch: A validation :class:`WindowBatch` in physical units.
+            max_samples: Maximum number of samples still to render this epoch.
+
+        Returns:
+            The number of samples for which figures were produced.
+        """
+        return 0
 
     def _register_normalization_buffers(self, normalization_stats: dict[str, Any]) -> None:
         """Register per-source mean/std buffers ordered by each source's channels.

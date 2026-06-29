@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import dataclasses
+from typing import cast
 
 import torch
+import wandb
+from lightning.pytorch.loggers import WandbLogger
 
 from tcfuse.data.collate import WindowBatch
+from tcfuse.data.sources.source import SourceKind
 from tcfuse.data.sources.torch_source import TorchSource
+from tcfuse.data.visualization.training import render_field_reconstruction
 from tcfuse.lightning.base_module import BaseLightningModule
 
 
@@ -151,3 +156,82 @@ class MaskedReconstructionLightningModule(BaseLightningModule):
 
         residuals = torch.cat(all_diffs)
         return (residuals**2).mean()
+
+    def _render_validation_figures(self, batch: WindowBatch, max_samples: int) -> int:
+        """Render Target | Prediction | Error figures for masked FIELD targets.
+
+        Re-runs the masked forward on this batch (a bounded extra cost, rank 0
+        only, for at most ``max_samples`` samples per epoch) so the figures match
+        what the model actually reconstructs. Targets, coordinates, and masks come
+        from the raw physical ``batch``; predictions come from the de-normalized
+        model output. SCALAR/PROFILE targets are skipped (no FIELD viz for them).
+
+        Args:
+            batch: A validation :class:`WindowBatch` in physical units.
+            max_samples: Maximum number of samples still to render this epoch.
+
+        Returns:
+            The number of samples for which at least one figure was produced.
+        """
+        # Hide targets exactly as training does, then map predictions back to
+        # physical units. The raw batch still holds the un-masked ground truth.
+        masked_batch, _originals = self._mask_targets(self.normalize(batch))
+        output_batch = self.denormalize(self(masked_batch))
+
+        wandb_logger = cast(WandbLogger, self.logger)
+        # Step-keyed subfolder so figures from different validations don't clobber.
+        step = self.global_step
+        # Collect images per source so each source logs a single W&B gallery.
+        images: dict[str, list[wandb.Image]] = {}
+
+        rendered = 0
+        # Iterate at most the still-needed number of samples in this batch.
+        n_samples = min(batch.batch_size, max_samples)
+        for i in range(n_samples):
+            produced = False
+            for key, source in batch.sources.items():
+                # Only FIELD sources have a 2D viz; skip everything else.
+                if source.kind is not SourceKind.FIELD:
+                    continue
+                # Only render slots this sample actually reconstructed.
+                if not bool(batch.is_target[key][i].item()):
+                    continue
+                source_name, source_index = key
+                # Ground truth (physical) for this sample: (H, W, C) and its mask.
+                target = source.values[i].detach().cpu().numpy()
+                mask = source.mask[i].detach().cpu().numpy()
+                # Field coords are (H, W, 2) = [lat, lon].
+                coords = source.coords[i].detach().cpu().numpy()
+                lats = coords[..., 0]
+                lons = coords[..., 1]
+                # Reconstructed values for the same slot (already physical).
+                prediction = output_batch.sources[key].values[i].detach().cpu().numpy()
+
+                sample_id = batch.sample_ids[i]
+                # Delegate all matplotlib work: build + save the SVG under
+                # validation_dir/<step>/ and return a fixed-size raster so that
+                # same-key W&B images share dimensions.
+                fig_name = f"{sample_id}_{source_name}_{source_index}"
+                rgb = render_field_reconstruction(
+                    target,
+                    prediction,
+                    lats,
+                    lons,
+                    channels=source.channels,
+                    source_name=source_name,
+                    save_path=self._validation_dir / f"{step:08d}" / fig_name,
+                    mask=mask,
+                    suptitle=f"{source_name}[{source_index}] — {sample_id}",
+                )
+                # Stage the raster for a single per-source W&B log call below.
+                images.setdefault(f"val/reconstruction/{source_name}", []).append(
+                    wandb.Image(rgb, caption=sample_id)
+                )
+                produced = True
+            if produced:
+                rendered += 1
+
+        # Log all staged galleries at once so they share this validation step.
+        if images:
+            wandb_logger.experiment.log(images)
+        return rendered

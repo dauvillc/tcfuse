@@ -22,7 +22,11 @@ preprocessed_data: ${paths.scratch}/data/preprocessed/assembled/
 # Paths for training outputs
 checkpoints: ${paths.work}/checkpoints
 wandb: ${paths.scratch}  # W&B will itself create a "wandb" subdir here.
-figures: ${paths.work}/figures
+figures: ${paths.work}/figures  # project-wide figures (papers, exploration)
+
+# Root directory for per-run validation diagnostics (figures); train.py keys it
+# by run_id. On scratch (not work): these accumulate per run and can be large.
+validation: ${paths.scratch}/validation
 
 # Root directory for saved inference runs (one subdir per prediction run).
 predictions: ${paths.scratch}/predictions

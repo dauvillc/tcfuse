@@ -175,6 +175,13 @@ def main(raw_cfg: DictConfig) -> None:
     run_id = str(run_id)
     checkpoint_dir = Path(cfg["paths"]["checkpoints"]) / run_id / "checkpoints"
 
+    # Scope validation diagnostics by run_id (mirroring the checkpoint dir layout)
+    # so separate experiments keep their figures in distinct folders instead of
+    # overwriting each other under paths.validation. The config default
+    # (validation_dir: ${paths.validation}) is the base; we append the run_id here
+    # because the timestamp-derived run_id is only known at launch.
+    cfg["lightning_module"]["validation_dir"] = str(Path(cfg["paths"]["validation"]) / run_id)
+
     task = TrainingTask(cfg, checkpoint_dir)
 
     # Local execution: run the task directly in the current process.
