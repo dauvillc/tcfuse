@@ -217,6 +217,17 @@ class TestPreprocessIbtracs:
         snapshots, _ = preprocess_ibtracs(csv)
         assert pd.isna(snapshots["usa_sshs"].iloc[0])
 
+    def test_north_atlantic_basin_not_coerced_to_nan(self, tmp_path: Path) -> None:
+        # The IBTrACS basin code "NA" (North Atlantic) is in pandas' default
+        # na_values; it must survive Stage 0 as the literal string "NA" in both
+        # the snapshots table and the ATCF→SID translation table.
+        csv = _write_ibtracs_csv(tmp_path, [_make_raw_row(basin="NA", subbasin="NA")])
+        snapshots, atcf_to_sid = preprocess_ibtracs(csv)
+        assert snapshots["basin"].iloc[0] == "NA"
+        assert snapshots["subbasin"].iloc[0] == "NA"
+        assert atcf_to_sid["basin"].iloc[0] == "NA"
+        assert atcf_to_sid["subbasin"].iloc[0] == "NA"
+
     def test_multiple_storms_sorted(self, tmp_path: Path) -> None:
         rows = [
             _make_raw_row(sid="SID_B", atcf_id="AL202016", iso_time="2016-10-06 00:00:00"),

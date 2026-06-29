@@ -83,12 +83,18 @@ def _coerce_float(series: pd.Series) -> pd.Series:
 def preprocess_ibtracs(ibtracs_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load and clean the raw IBTrACS CSV into the two output DataFrames."""
     # Row 2 of the IBTrACS CSV is units — skip it on read.
+    # keep_default_na=False is critical: the basin code "NA" (North Atlantic) is
+    # in pandas' default na_values, so the default behaviour silently turns the
+    # most common basin into NaN. We only treat the IBTrACS sentinel " " as
+    # missing; numeric columns are sanitised separately by _coerce_float /
+    # _coerce_nullable_int (to_numeric coerces "" and " " to NaN), and string
+    # columns by _coerce_string (fillna("")), so no real missing data is lost.
     df = pd.read_csv(
         ibtracs_csv,
         skiprows=[1],
         usecols=_RAW_COLUMNS,
         na_values=[" "],
-        keep_default_na=True,
+        keep_default_na=False,
         low_memory=False,
     )
 

@@ -71,7 +71,15 @@ def load_atcf_to_sid(sources_root: Path) -> pd.DataFrame:
             f"ATCF→SID CSV not found at {csv_path}. "
             "Run scripts/preprocess/prepare_ibtracs.py first."
         )
-    df = pd.read_csv(csv_path, dtype={"sid": str, "usa_atcf_id": str})
+    # keep_default_na=False is critical: the IBTrACS basin code "NA" (North
+    # Atlantic) is in pandas' default na_values, so without this the most common
+    # basin would be silently parsed as NaN and later stringified to "nan".
+    # Stage 0 already encodes truly-missing strings as "" (see _coerce_string).
+    df = pd.read_csv(
+        csv_path,
+        dtype={"sid": str, "usa_atcf_id": str, "basin": str, "subbasin": str, "name": str},
+        keep_default_na=False,
+    )
     df["season"] = cast(pd.Series, df["season"]).astype(int)
     return df
 

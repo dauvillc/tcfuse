@@ -81,6 +81,13 @@ and `number` are nullable `Int64`; everything else numeric is `float64`.
 deduplicated on `[sid, usa_atcf_id]`. When a SID maps to multiple `USA_ATCF_ID`
 values, the mapping keeps the ATCF ID with the highest max `USA_WIND`.
 
+**`"NA"` basin pitfall:** the IBTrACS basin code `"NA"` (North Atlantic) is in
+pandas' default `na_values`. Every read of the raw IBTrACS CSV
+(`prepare_ibtracs.py`) and of `atcf_to_sid.csv` (`load_atcf_to_sid`) must pass
+`keep_default_na=False`, otherwise North Atlantic storms are silently turned
+into NaN and later stringified to `"nan"` downstream (assembled index → splits →
+windows). Genuinely-missing strings are encoded as `""` by `_coerce_string`.
+
 **Loader API** in `src/tcfuse/data/ibtracs.py`:
 
 | Function | Purpose |

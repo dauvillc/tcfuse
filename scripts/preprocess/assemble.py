@@ -240,11 +240,17 @@ def main(raw_cfg: DictConfig) -> None:
     # Storm-level constants keyed by SID, derived from the translation table.
     subset_df = cast(pd.DataFrame, translation[["sid", "season", "basin", "subbasin"]])
     keep = cast(pd.DataFrame, subset_df.drop_duplicates(subset=["sid"]))
+
+    # Guard against a missing basin/subbasin sneaking in as a float NaN: never
+    # stringify it to "nan" — a truly-missing code is the empty string instead.
+    def _clean_code(value: Any) -> str:
+        return "" if pd.isna(value) else str(value)
+
     sid_attrs: dict[str, dict[str, Any]] = {
         str(rec["sid"]): {
             "season": int(rec["season"]),
-            "basin": str(rec["basin"]),
-            "subbasin": str(rec["subbasin"]),
+            "basin": _clean_code(rec["basin"]),
+            "subbasin": _clean_code(rec["subbasin"]),
         }
         for rec in cast(list[dict[str, Any]], keep.to_dict(orient="records"))
     }

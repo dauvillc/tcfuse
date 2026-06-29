@@ -113,6 +113,15 @@ class TestStage0Loaders:
         }
         assert (table["sid"] == "A").all()
 
+    def test_load_atcf_to_sid_preserves_na_basin(self, tmp_path: Path) -> None:
+        # "NA" (North Atlantic) collides with pandas' default na_values on read;
+        # the loader must read it back as the literal string, not NaN.
+        df = _make_ibtracs_df(_make_ibtracs_row(sid="A", basin="NA", subbasin="NA"))
+        _write_stage0(tmp_path, df)
+        table = load_atcf_to_sid(tmp_path)
+        assert table["basin"].iloc[0] == "NA"
+        assert table["subbasin"].iloc[0] == "NA"
+
 
 # ---------------------------------------------------------------------------
 # ibtracs_rows_to_sources
