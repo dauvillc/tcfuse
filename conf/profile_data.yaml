@@ -1,9 +1,7 @@
-# Configuration for data-loading profiler (no model, no optimizer).
+# Configuration for the windows-setup data profiler (no model, no dataloader).
 defaults:
-  - dataloader: default
-  - paths: local      # override with paths=jz on Jean-Zay
-  - setup: local      # override with setup=jz_cpu on Jean-Zay
-  - windows_setup: ibtracs_forecast_24h
+  - setup: local            # setup configs own paths; override with setup=jz_cpu on Jean-Zay
+  - windows_setup: pmw_gmi_reconstruction
   - _self_
 
 # Set to true to submit the job via submitit (SLURM).

@@ -118,6 +118,7 @@ visualization/
 ├── tracks.py             ← TC track and intensity maps
 ├── fields.py             ← 2D field plots: plot_field(), plot_field_from_source(), plot_field_source_channels(), plot_sar_wind()
 ├── profiles.py           ← vertical profile plots (dropsonde, Argo)
+├── data_profile.py       ← windows-setup profiling from the windows-index parquet: compute_split_summary() + plot_sample_timeline/samples_per_season/source_availability/target_distribution/sources_per_window_hist/basin_distribution/windows_per_storm (each takes {split: DataFrame})
 └── training.py           ← model diagnostics: plot_field_reconstruction() (Target|Pred|Error per channel), loss curves, attention weights
 ```
 

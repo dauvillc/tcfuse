@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Data-loading profiler — mimics training+validation without any model.
+"""Windows-setup data profiler — no model, no iteration over the dataset.
 
-Iterates every batch in the train and val splits and counts, for each
-``(source_name, source_index)`` slot, how many samples have that source
-available (i.e. at least one unmasked value).  Reports aggregate availability
-fractions as a side-by-side figure.
+Characterizes the train/val/test samples produced by a given windows setup
+straight from the long-format windows-index parquets
+(``{preprocessed_data}/{windows_setup_name}/{split}_windows.parquet``), where
+each row is one ``window_id x source_name x time_utc`` snapshot. Prints a
+per-split summary (also saved as CSV) and saves a set of SVG figures describing
+sample counts, temporal coverage, source availability, target balance, and
+geographic / per-storm distribution.
 
 Usage::
 
@@ -18,114 +21,30 @@ Usage::
 from __future__ import annotations
 
 import sys
-from collections import defaultdict
 from pathlib import Path
 from typing import Any, cast
 
 import hydra
-import matplotlib.pyplot as plt
-import torch
+import pandas as pd
 from omegaconf import DictConfig, OmegaConf
-from tqdm import tqdm
 
 # Resolve project root so sibling-script imports work regardless of CWD.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.preprocess.utils.runner import launch_local_or_slurm
-from tcfuse.data.collate import WindowBatch
-from tcfuse.lightning.datamodule import TCWindowDataModule
+from tcfuse.data.visualization.data_profile import (
+    compute_split_summary,
+    plot_basin_distribution,
+    plot_sample_timeline,
+    plot_samples_per_season,
+    plot_source_availability,
+    plot_sources_per_window_hist,
+    plot_target_distribution,
+    plot_windows_per_storm,
+)
 
-# ── helpers ──────────────────────────────────────────────────────────────────
-
-
-def _count_availability(
-    dataloader: Any,
-    split: str,
-) -> dict[tuple[str, int], dict[str, int]]:
-    """Iterate ``dataloader`` and count source-slot availability per sample.
-
-    Returns a dict mapping ``(source_name, source_index)`` to
-    ``{"available": int, "total": int}``.
-    """
-    counts: dict[tuple[str, int], dict[str, int]] = defaultdict(
-        lambda: {"available": 0, "total": 0}
-    )
-
-    for batch in tqdm(dataloader, desc=split):
-        batch = cast(WindowBatch, batch)
-        B = len(batch.sample_ids)
-
-        for (name, idx), src in batch.sources.items():
-            # mask shape: (B, ...) — True where data is present.
-            available_per_sample = src.mask.reshape(B, -1).any(dim=-1)  # (B,) bool
-            counts[(name, idx)]["available"] += int(available_per_sample.sum().item())
-            counts[(name, idx)]["total"] += B
-
-    return dict(counts)
-
-
-def _plot(
-    split_counts: dict[str, dict[tuple[str, int], dict[str, int]]],
-    windows_setup_name: str,
-    out_path: Path,
-) -> None:
-    """Render side-by-side horizontal bar charts, one per split, and save."""
-    splits = list(split_counts.keys())
-
-    # Collect all source keys across both splits, sorted for stable layout.
-    all_keys: list[tuple[str, int]] = sorted(
-        {key for counts in split_counts.values() for key in counts},
-        key=lambda k: (k[0], k[1]),
-    )
-
-    # Assign a consistent color per unique source_name.
-    source_names = list(dict.fromkeys(k[0] for k in all_keys))
-    palette = plt.cm.tab10.colors  # type: ignore[attr-defined]
-    color_map = {name: palette[i % len(palette)] for i, name in enumerate(source_names)}
-
-    fig, axes = plt.subplots(
-        1,
-        len(splits),
-        figsize=(7 * len(splits), max(3, 0.4 * len(all_keys) + 2)),
-        sharey=True,
-    )
-    if len(splits) == 1:
-        axes = [axes]
-
-    for ax, split in zip(axes, splits):
-        counts = split_counts[split]
-
-        def _frac(k: tuple[str, int]) -> float:
-            slot = counts.get(k, {"available": 0, "total": 0})
-            return slot["available"] / slot["total"] if slot["total"] > 0 else 0.0
-
-        fractions = [_frac(k) for k in all_keys]
-        labels = [f"{name} [{idx}]" for name, idx in all_keys]
-        colors = [color_map[name] for name, _ in all_keys]
-        total_samples = max((counts.get(k, {"total": 0})["total"] for k in all_keys), default=0)
-
-        bars = ax.barh(labels, fractions, color=colors)
-        ax.axvline(1.0, color="black", linewidth=0.8, linestyle="--")
-        ax.set_xlim(0, 1.05)
-        ax.set_xlabel("Fraction of samples with source available")
-        ax.set_title(f"Source availability — {split}\n({total_samples:,} samples)")
-
-        # Annotate bars with percentage text.
-        for bar, frac in zip(bars, fractions):
-            ax.text(
-                min(frac + 0.01, 1.02),
-                bar.get_y() + bar.get_height() / 2,
-                f"{frac:.1%}",
-                va="center",
-                ha="left",
-                fontsize=8,
-            )
-
-    fig.suptitle(f"Windows setup: {windows_setup_name}", fontsize=11, y=1.01)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Figure saved → {out_path}")
+# Splits to profile, in display order.
+_SPLITS = ("train", "val", "test")
 
 
 # ── core run function ─────────────────────────────────────────────────────────
@@ -134,25 +53,51 @@ def _plot(
 def _run(cfg: dict[str, Any]) -> None:
     assembled_root = Path(cfg["paths"]["preprocessed_data"])
     windows_setup_name = str(cfg["windows_setup"]["name"])
+    setup_dir = assembled_root / windows_setup_name
 
-    dm = TCWindowDataModule(
-        assembled_root=assembled_root,
-        windows_setup_name=windows_setup_name,
-        dataloader_kwargs=cfg["dataloader"],
-    )
-    dm.setup("fit")
+    # Load each split's long-format windows index; skip any that are absent.
+    split_frames: dict[str, pd.DataFrame] = {}
+    for split in _SPLITS:
+        index_path = setup_dir / f"{split}_windows.parquet"
+        if not index_path.exists():
+            print(f"[skip] {split}: {index_path} not found")
+            continue
+        split_frames[split] = pd.read_parquet(index_path)
+        n_windows = split_frames[split]["window_id"].nunique()
+        print(f"[load] {split}: {n_windows:,} samples from {index_path.name}")
 
-    split_counts: dict[str, dict[tuple[str, int], dict[str, int]]] = {}
+    # Nothing to do when no split parquet was found.
+    if not split_frames:
+        print(f"No windows-index parquets found under {setup_dir}")
+        return
 
-    # Disable gradient tracking — no model involved.
-    with torch.no_grad():
-        split_counts["train"] = _count_availability(dm.train_dataloader(), "train")
-        split_counts["val"] = _count_availability(dm.val_dataloader(), "val")
-
-    figures_dir = Path(cfg["paths"]["figures"])
+    # Prepare the output directory for the CSV summary and SVG figures.
+    # One output subdirectory per windows setup, under figures/profile/.
+    figures_dir = Path(cfg["paths"]["figures"]) / "profile" / windows_setup_name
     figures_dir.mkdir(parents=True, exist_ok=True)
-    out_path = figures_dir / f"profile_data_{windows_setup_name}.png"
-    _plot(split_counts, windows_setup_name, out_path)
+
+    # Compute, print, and save the per-split summary table.
+    summary = compute_split_summary(split_frames)
+    print("\n=== Per-split summary ===")
+    print(summary.to_string())
+    summary_path = figures_dir / "summary.csv"
+    summary.to_csv(summary_path)
+    print(f"Summary saved -> {summary_path}")
+
+    # Render every profiling figure as an SVG inside the setup directory.
+    figure_builders = {
+        "timeline": plot_sample_timeline,
+        "season": plot_samples_per_season,
+        "source_availability": plot_source_availability,
+        "target_distribution": plot_target_distribution,
+        "sources_per_window": plot_sources_per_window_hist,
+        "basin": plot_basin_distribution,
+        "windows_per_storm": plot_windows_per_storm,
+    }
+    for name, builder in figure_builders.items():
+        out_path = figures_dir / name
+        builder(split_frames, title=f"{windows_setup_name} — {name}", save_path=out_path)
+        print(f"Figure saved -> {out_path.with_suffix('.svg')}")
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
