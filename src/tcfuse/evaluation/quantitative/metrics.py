@@ -1,16 +1,20 @@
-"""Core quantitative regression metrics (RMSE, MAE, R2, MAPE) over a run.
+"""Core quantitative regression metrics (RMSE, MAE, R2, MAPE) comparing models.
 
 This plugin reproduces the main point-wise regression metrics from saved
 predictions using numpy / scikit-learn only — deliberately **independent** of the
 torchmetrics path used for online validation
 (:func:`tcfuse.metrics.collection.build_source_metric_collection`).  Keeping it
 standalone lets the offline evaluation suite evolve without touching training.
+
+It computes the metrics for every model in the comparison, stacks them into a
+single ``metrics.csv`` (one ``model`` column), and draws a grouped bar chart per
+``(metric, source)`` so the models can be compared at a glance.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -22,6 +26,7 @@ from sklearn.metrics import (
 )
 
 from tcfuse.data.predictions.run import PredictionRun
+from tcfuse.data.visualization.comparison import plot_metric_comparison
 from tcfuse.evaluation.base import Evaluation
 from tcfuse.evaluation.flatten import flatten_valid
 
@@ -34,11 +39,13 @@ _METRICS_FILENAME = "metrics.csv"
 
 
 class QuantitativeMetricsEvaluation(Evaluation):
-    """Per-source, per-channel RMSE / MAE / R2 / MAPE over a prediction run.
+    """Per-source, per-channel RMSE / MAE / R2 / MAPE comparing several models.
 
-    Streams every window once, accumulating the valid (prediction, target) point
-    pairs per ``(group_key, source_name)``, then computes each metric per channel
-    with scikit-learn and writes a tidy ``metrics.csv``.
+    For each model, streams every window once, accumulating the valid
+    (prediction, target) point pairs per ``(group_key, source_name)``, then
+    computes each metric per channel with scikit-learn.  All models are stacked
+    into a single tidy ``metrics.csv`` (with a ``model`` column), and a grouped
+    bar chart is drawn per ``(metric, source)`` for the paper.
 
     Args:
         group_by: Optional list of sample-level fields to group metrics by
@@ -52,8 +59,30 @@ class QuantitativeMetricsEvaluation(Evaluation):
         # Validate eagerly so a bad config fails before the (slow) streaming pass.
         self.group_fields = self._validate_group_by(group_by)
 
-    def run(self, run: PredictionRun, output_dir: Path) -> None:
-        """Compute the metrics for ``run`` and write ``metrics.csv``."""
+    def run(self, runs: dict[str, PredictionRun], output_dir: Path) -> None:
+        """Compute metrics for every model, write ``metrics.csv`` and figures."""
+        # Compute the tidy metric rows for each model, tagging every row with its
+        # model name so the per-model results stack into one comparison table.
+        rows: list[dict[str, Any]] = []
+        for model_name, run in runs.items():
+            for row in self._metric_rows_for_run(run):
+                row["model"] = model_name
+                rows.append(row)
+
+        # Persist the stacked table next to this plugin's other outputs, leading
+        # with the model column for readability.
+        metrics = pd.DataFrame(rows)
+        ordered_columns = ["model", *[c for c in metrics.columns if c != "model"]]
+        metrics = metrics.loc[:, ordered_columns]
+        metrics_path = output_dir / _METRICS_FILENAME
+        metrics.to_csv(metrics_path, index=False)
+        print(f"  [{self.name}] wrote {len(metrics)} metric rows to {metrics_path}")
+
+        # Draw one grouped bar chart per (metric, source) comparing the models.
+        self._write_comparison_figures(metrics, output_dir)
+
+    def _metric_rows_for_run(self, run: PredictionRun) -> list[dict[str, Any]]:
+        """Stream one model's prediction run into tidy per-channel metric rows."""
         # Accumulate valid point pairs per (group_key, source_name); also record
         # each source's channel names once for labelling the output rows.
         preds_by_key: dict[tuple[Any, ...], dict[str, list[np.ndarray]]] = {}
@@ -85,12 +114,28 @@ class QuantitativeMetricsEvaluation(Evaluation):
                 targets = np.concatenate(targets_by_key[group_key][source_name], axis=0)
                 channels = channels_by_source[source_name]
                 rows.extend(self._metric_rows(preds, targets, source_name, channels, group_key))
+        return rows
 
-        # Persist the tidy table next to this plugin's other outputs.
-        metrics = pd.DataFrame(rows)
-        metrics_path = output_dir / _METRICS_FILENAME
-        metrics.to_csv(metrics_path, index=False)
-        print(f"  [{self.name}] wrote {len(metrics)} metric rows to {metrics_path}")
+    def _write_comparison_figures(self, metrics: pd.DataFrame, output_dir: Path) -> None:
+        """Draw a grouped bar chart per (metric, source) comparing the models."""
+        # Figures compare the global result only; when grouping is requested the
+        # per-group breakdown stays in the CSV to keep the figure set bounded.
+        global_metrics = metrics.drop(columns=self.group_fields, errors="ignore")
+        if self.group_fields:
+            # Keep only rows where every group field is null (the global result).
+            is_global = cast("pd.Series", metrics[self.group_fields].isnull().all(axis=1))
+            global_metrics = global_metrics.loc[is_global.to_numpy()]
+
+        # One figure per (metric, source) pair present in the table.
+        for group_key, group in global_metrics.groupby(["metric", "source_name"]):
+            metric, source_name = cast("tuple[str, str]", group_key)
+            save_path = output_dir / f"{metric}_{source_name}"
+            plot_metric_comparison(
+                cast("pd.DataFrame", group),
+                metric=str(metric),
+                source_name=str(source_name),
+                save_path=save_path,
+            )
 
     def _metric_rows(
         self,

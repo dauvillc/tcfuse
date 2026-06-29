@@ -1,24 +1,24 @@
-# Evaluation entry point — compute metrics / figures from a saved PredictionRun.
+# Evaluation entry point — compare models from their saved PredictionRuns.
 #
-# Locates the predictions written by scripts/inference/infer.py for a given
-# (run_id, experiment_name), opens them, and dispatches the run to a set of
-# evaluation plugins. Each enabled plugin writes into its own subfolder under
-# paths.results/<run_id>/<experiment_name>/.
+# Locates the predictions written by scripts/inference/infer.py for every model
+# declared in `models` (each a (run_id, experiment_name) pair), opens them, and
+# dispatches the whole mapping to a set of evaluation plugins. Each enabled
+# plugin compares the models and writes into its own subfolder under
+# paths.results/<eval_name>/.
 #
-# Usage::
+# The model set is supplied by a required `comparison` config (conf/comparison/),
+# which fills the top-level `eval_name` and `models` keys. Pick one on the CLI:
 #
-#     python scripts/evaluation/evaluate.py \
-#         run_id=0627015132 experiment_name=pmw-gmi-dummy
+#     python scripts/evaluation/evaluate.py comparison=debug
+#
+# Add a new comparison by dropping a file in conf/comparison/ (see debug.yaml).
 defaults:
   - setup: local            # setup configs own paths (setup=local -> paths=local)
+  - comparison: ???         # required: selects the model set (eval_name + models)
   - evaluation/quantitative_metrics   # default-enabled plugin (config group below)
   - _self_
 
-# Training run id whose predictions are evaluated (required). Directory name
-# under paths.predictions, matching the run_id passed to infer.py.
-run_id: ???
-
-# Inference experiment name (required). Must match the `name` of the experiment
-# used when running infer.py — together with run_id it locates the prediction
-# run at paths.predictions/<run_id>/<experiment_name>/.
-experiment_name: ???
+# `eval_name` and `models` are provided by the selected `comparison` config above
+# (packaged at _global_). See conf/comparison/debug.yaml for the expected shape:
+#   eval_name: <names the results dir under paths.results/<eval_name>/>
+#   models:    {model_name: {run_id, experiment_name}}  # order = column/plot order

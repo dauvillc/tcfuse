@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""Evaluation entry point — run evaluation plugins over a saved PredictionRun.
+"""Evaluation entry point — compare models over their saved PredictionRuns.
 
-Locates the predictions written by ``scripts/inference/infer.py`` for a given
-``(run_id, experiment_name)``, opens the
-:class:`~tcfuse.data.predictions.run.PredictionRun`, and dispatches it to the set
-of enabled :class:`~tcfuse.evaluation.base.Evaluation` plugins (selected via the
-``conf/evaluation/`` config group). Each plugin writes its results into its own
-subfolder under ``paths.results/<run_id>/<experiment_name>/``.
+Locates the predictions written by ``scripts/inference/infer.py`` for every model
+declared in the ``models`` config mapping (each a ``(run_id, experiment_name)``
+pair), opens each :class:`~tcfuse.data.predictions.run.PredictionRun`, and
+dispatches the whole mapping to the set of enabled
+:class:`~tcfuse.evaluation.base.Evaluation` plugins (selected via the
+``conf/evaluation/`` config group). Each plugin compares the models and writes
+its results into its own subfolder under ``paths.results/<eval_name>/``.
 
 Usage::
 
-    python scripts/evaluation/evaluate.py \
-        run_id=0627015132 experiment_name=pmw-gmi-dummy
+    python scripts/evaluation/evaluate.py eval_name=baseline-vs-fusion \
+        +models.baseline.run_id=0627015132 \
+        +models.baseline.experiment_name=pmw-gmi-dummy \
+        +models.fusion.run_id=0628231045 \
+        +models.fusion.experiment_name=pmw-gmi-fusion
 
-``run_id`` and ``experiment_name`` together identify the prediction run; they
-must match the ``run_id`` and experiment ``name`` used when running inference.
+Each model's ``run_id`` and ``experiment_name`` must match the ``run_id`` and
+experiment ``name`` used when running inference for that model.
 """
 
 from __future__ import annotations
@@ -42,22 +46,37 @@ _MANIFEST_FILENAME = "manifest.yaml"
 @hydra.main(config_path="../../conf/", config_name="evaluation", version_base=None)
 def main(raw_cfg: DictConfig) -> None:
     cfg = cast(dict[str, Any], OmegaConf.to_container(raw_cfg, resolve=True))
-    run_id = str(cfg["run_id"])
-    experiment_name = str(cfg["experiment_name"])
+    eval_name = str(cfg["eval_name"])
+    predictions_root = Path(cfg["paths"]["predictions"])
 
-    # Locate the prediction run on disk (written by infer.py under the same key).
-    pred_dir = Path(cfg["paths"]["predictions"]) / run_id / experiment_name
-    if not (pred_dir / "manifest.yaml").exists():
-        raise FileNotFoundError(
-            f"No prediction run found at {pred_dir}. Run inference first, e.g.:\n"
-            f"    python scripts/inference/infer.py experiment=<exp> "
-            f"run_id={run_id} split=test"
-        )
-    run = PredictionRun.open(pred_dir)
+    # Open every model's prediction run, preserving the config declaration order
+    # so plugins produce stable column / plot order. Each model is identified by
+    # its own (run_id, experiment_name) pair under paths.predictions.
+    runs: dict[str, PredictionRun] = {}
+    model_manifest: dict[str, dict[str, str]] = {}
+    for model_name, model_cfg in cfg["models"].items():
+        run_id = str(model_cfg["run_id"])
+        experiment_name = str(model_cfg["experiment_name"])
+        # Locate this model's prediction run on disk (written by infer.py).
+        pred_dir = predictions_root / run_id / experiment_name
+        if not (pred_dir / "manifest.yaml").exists():
+            raise FileNotFoundError(
+                f"No prediction run found for model '{model_name}' at {pred_dir}. "
+                f"Run inference first, e.g.:\n"
+                f"    python scripts/inference/infer.py experiment=<exp> "
+                f"run_id={run_id} split=test"
+            )
+        runs[model_name] = PredictionRun.open(pred_dir)
+        # Record where this model's predictions came from for the manifest.
+        model_manifest[model_name] = {
+            "run_id": run_id,
+            "experiment_name": experiment_name,
+            "predictions_dir": str(pred_dir),
+        }
 
-    # Results root for this (run_id, experiment_name), mirroring the predictions
-    # layout. Each plugin gets its own subfolder beneath it.
-    results_dir = Path(cfg["paths"]["results"]) / run_id / experiment_name
+    # Results root for this comparison, keyed by the user-chosen eval_name. Each
+    # plugin gets its own subfolder beneath it.
+    results_dir = Path(cfg["paths"]["results"]) / eval_name
     results_dir.mkdir(parents=True, exist_ok=True)
 
     # Run each enabled plugin in turn, isolating its outputs to its own subfolder.
@@ -71,15 +90,15 @@ def main(raw_cfg: DictConfig) -> None:
         plugin_dir = results_dir / evaluation.name
         plugin_dir.mkdir(parents=True, exist_ok=True)
         print(f"Running evaluation '{plugin_key}' -> {plugin_dir}")
-        evaluation.run(run, plugin_dir)
+        # Hand the plugin the whole mapping of models to compare.
+        evaluation.run(runs, plugin_dir)
         evaluation_names.append(evaluation.name)
 
     # Record what ran so the results dir is self-describing (mirrors the
     # prediction run manifest style).
     manifest = {
-        "run_id": run_id,
-        "experiment_name": experiment_name,
-        "predictions_dir": str(pred_dir),
+        "eval_name": eval_name,
+        "models": model_manifest,
         "evaluations": evaluation_names,
         "created_utc": datetime.now(UTC).isoformat(),
     }

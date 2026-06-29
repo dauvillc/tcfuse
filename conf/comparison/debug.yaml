@@ -1,0 +1,18 @@
+# @package _global_
+# Debug comparison: a tiny two-model set for exercising the evaluation pipeline.
+#
+# `comparison` is a required default in conf/evaluation.yaml, so select it with:
+#
+#     python scripts/evaluation/evaluate.py comparison=debug
+#
+# Packaged under _global_ so it fills the top-level `eval_name` / `models` keys
+# required by conf/evaluation.yaml.
+
+# Names the results directory under paths.results/<eval_name>/.
+eval_name: debug-dummy-vs-baseline
+
+# The two prediction sets to compare. run_id values are quoted so their leading
+# zeros survive (YAML would otherwise read them as integers).
+models:
+  dummy: { run_id: "0629151838", experiment_name: pmw-gmi }
+  baseline: { run_id: "0627015132", experiment_name: pmw-gmi }
