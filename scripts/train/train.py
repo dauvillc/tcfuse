@@ -21,6 +21,7 @@ import hydra
 import lightning as pl
 import submitit
 from hydra.core.hydra_config import HydraConfig
+from hydra.types import RunMode
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
@@ -201,13 +202,24 @@ def main(raw_cfg: DictConfig) -> float | None:
     # glance), but root checkpoints under paths.checkpoints (configurable
     # storage tier) rather than under Hydra's own outputs/ directory.
     output_dir = Path(HydraConfig.get().runtime.output_dir)
-    run_started_at = datetime.strptime(
-        f"{output_dir.parent.name} {output_dir.name}", "%Y-%m-%d %H-%M-%S"
-    )
+    # A normal run nests the output dir as outputs/<date>/<time>, so <date>/<time>
+    # are the last two path components. A --multirun sweep nests one level deeper as
+    # multirun/<date>/<time>/<job_num>, so <date>/<time> shift up by one and the last
+    # component is the per-trial job number. Pick the components per mode so the
+    # timestamp always parses, and carry the job number through as a suffix below.
+    if HydraConfig.get().mode == RunMode.MULTIRUN:
+        date_name, time_name = output_dir.parent.parent.name, output_dir.parent.name
+        sweep_job_num = output_dir.name
+    else:
+        date_name, time_name = output_dir.parent.name, output_dir.name
+        sweep_job_num = ""
+    run_started_at = datetime.strptime(f"{date_name} {time_name}", "%Y-%m-%d %H-%M-%S")
     # run_id is the logical-run key: it groups all W&B segments and roots the
     # checkpoint dir. Default to the launch timestamp (a fresh run); honor an
-    # explicit run_id=<existing id> override to resume that run's checkpoints.
-    run_id = cfg.get("run_id") or run_started_at.strftime("%m%d%H%M%S")
+    # explicit run_id=<existing id> override to resume that run's checkpoints. In a
+    # sweep every trial shares one launch timestamp (the sweep dir), so append the
+    # job number to keep each trial's run_id — and thus its checkpoint dir — distinct.
+    run_id = cfg.get("run_id") or f"{run_started_at.strftime('%m%d%H%M%S')}{sweep_job_num}"
     run_id = str(run_id)
     checkpoint_dir = Path(cfg["paths"]["checkpoints"]) / run_id / "checkpoints"
 
