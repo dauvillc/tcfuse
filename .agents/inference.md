@@ -32,15 +32,18 @@ python scripts/inference/infer.py \
 `paths.checkpoints`); inference resolves that run's `best-*.ckpt` under
 `paths.checkpoints/<run_id>/checkpoints/` via `best_checkpoint`
 (`src/tcfuse/utils/checkpoint.py`). The `experiment=` chosen here defines the
-**inference** experiment (sources, datamodule, lightning_module, windows_setup)
-and need not match the one used for training.
+**inference** experiment (sources, datamodule, windows_setup, `name`) and need not
+match the one used for training. The model architecture is **not** taken from the
+experiment — it is rebuilt from the config embedded in the checkpoint
+(`checkpoint["hydra_cfg"]`), so the experiment's `lightning_module.model` block no
+longer has to match the trained weights.
 
 `conf/inference.yaml` fields (override on the CLI):
 
 | Field | Default | Meaning |
 |---|---|---|
 | `experiment` | `???` | Required. Defines `name` + sources + mounts `lightning_module` and `windows_setup`. |
-| `run_id` | `???` | Required. Training run id (dir name under `paths.checkpoints`); resolves to `{paths.checkpoints}/{run_id}/checkpoints/best-*.ckpt` via `best_checkpoint`. Weights loaded into the rebuilt module (`checkpoint["state_dict"]`). |
+| `run_id` | `???` | Required. Training run id (dir name under `paths.checkpoints`); resolves to `{paths.checkpoints}/{run_id}/checkpoints/best-*.ckpt` via `best_checkpoint`. Weights loaded into the rebuilt module (`checkpoint["state_dict"]`); the module architecture is rebuilt from the checkpoint's embedded `checkpoint["hydra_cfg"]["lightning_module"]`. |
 | `split` | `test` | Split to run over: `train` / `val` / `test`. |
 | `limit_samples` | `null` | Cap on windows processed (smoke tests). Translated to `limit_predict_batches`. |
 | `compute_metrics` | `true` | Write `metrics.csv` next to the run after prediction. |
@@ -53,7 +56,7 @@ and need not match the one used for training.
 `scripts/inference/infer.py:main()`:
 
 1. Instantiate the `datamodule`; `dm.setup("predict")` loads `sources_metadata` + `normalization_stats` from the metadata YAML.
-2. Rebuild the task-specific Lightning module via a `_partial_` factory, passing `sources_metadata` / `normalization_stats` / `experiment_name` directly (these are **deliberately omitted** from checkpoint hparams), then `module.load_state_dict(checkpoint["state_dict"])`.
+2. Load the checkpoint (`best_checkpoint` → `torch.load(weights_only=False)`), then rebuild the task-specific Lightning module via a `_partial_` factory from the **checkpoint's embedded config** (`checkpoint["hydra_cfg"]["lightning_module"]`) — so the architecture always matches the weights and need not be re-specified in the inference config. The inference config's `lightning_module` is used only as a fallback for checkpoints that predate config embedding (a warning is printed). `sources_metadata` / `normalization_stats` / `experiment_name` are passed directly from the **inference** datamodule (these are **deliberately omitted** from checkpoint hparams; passing the inference metadata preserves the train≠inference source-subset behavior), then `module.load_state_dict(checkpoint["state_dict"], strict=False)`.
 3. Build `TCWindowDataset(preprocessed_data, windows_setup.name, split)` and a `DataLoader` with `collate_window_samples`, `shuffle=False`.
 4. `PredictionRun.create(run_dir, manifest=...)` opens the output dir; `PredictionWriter(run, dataset)` is registered as a Trainer callback (`write_interval="batch"`).
 5. `pl.Trainer(accelerator=..., devices=1, logger=False, callbacks=[writer], limit_predict_batches=...)`; `trainer.predict(module, dataloaders=loader, return_predictions=False)` owns the loop, device placement, `eval()`/`no_grad`.

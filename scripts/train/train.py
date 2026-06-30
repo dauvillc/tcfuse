@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lightning.pytorch.callbacks import LearningRateMonitor
 
-from tcfuse.training.callbacks import StepProgressCallback
+from tcfuse.training.callbacks import ConfigArchiveCallback, StepProgressCallback
 from tcfuse.utils.checkpoint import build_checkpoint_callbacks, latest_checkpoint
 from tcfuse.utils.precision import resolve_precision
 from tcfuse.utils.submitit_utils import make_executor
@@ -60,6 +60,9 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     # files — tqdm (Lightning's default progress bar) silently disables itself
     # when stdout is not a TTY, which is always the case under SLURM.
     progress_cb = StepProgressCallback(log_every_n_steps=log_every_n_steps)
+    # Embed the full resolved config into every checkpoint (so inference can rebuild
+    # the model architecture from the checkpoint alone) and log it to the W&B run.
+    config_archive_cb = ConfigArchiveCallback(cfg)
     # LearningRateMonitor reads the LR directly from the scheduler every step,
     # bypassing Lightning's log_every_n_steps buffer so the curve is always present
     # in W&B even on short debug runs where the buffer never fills.
@@ -82,7 +85,7 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     )
     return pl.Trainer(
         **trainer_cfg,
-        callbacks=[*ckpt_cbs, progress_cb, lr_monitor],
+        callbacks=[*ckpt_cbs, progress_cb, lr_monitor, config_archive_cb],
         logger=wandb_logger,
         # Disable tqdm: it silently does nothing when stdout is not a TTY (SLURM).
         # StepProgressCallback provides plain-print progress instead.

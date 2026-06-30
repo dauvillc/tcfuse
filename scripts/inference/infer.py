@@ -53,21 +53,41 @@ def main(raw_cfg: DictConfig) -> None:
     dm = instantiate(OmegaConf.create(cfg["datamodule"]))
     dm.setup("predict")
 
-    # Rebuild the task-specific lightning module exactly as in training, then load
-    # the trained weights. sources_metadata / normalization_stats are passed
-    # directly (they are deliberately omitted from the checkpoint hparams).
-    lm_factory = instantiate(OmegaConf.create(cfg["lightning_module"]), _partial_=True)
+    # Resolve the run's best checkpoint from its run_id and load it first: the
+    # checkpoint carries the full training config, from which we rebuild the model.
+    checkpoint_path = best_checkpoint(str(cfg["run_id"]), Path(cfg["paths"]["checkpoints"]))
+    # weights_only=False: our own training checkpoints embed the resolved Hydra
+    # config (and OmegaConf hparams), which the (newer-PyTorch default) safe
+    # unpickler rejects. The file is a trusted local artifact, so full unpickling
+    # is fine here.
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+
+    # Rebuild the task-specific lightning module exactly as in training. Its
+    # architecture (module class + nested model config) is read from the config
+    # embedded in the checkpoint at train time, so it always matches the weights
+    # and need not be re-specified here. sources_metadata / normalization_stats are
+    # passed directly (they are deliberately omitted from the checkpoint hparams);
+    # passing the *inference* datamodule's metadata preserves the train != inference
+    # source-subset behavior (the model allocates encoders/decoders per locally
+    # available source, handled together with strict=False below).
+    embedded_cfg = checkpoint.get("hydra_cfg")
+    if embedded_cfg is not None:
+        lm_cfg = embedded_cfg["lightning_module"]
+    else:
+        # Pre-embedding checkpoint: fall back to the architecture specified in the
+        # inference config, which must then match the trained weights manually.
+        print(
+            "Checkpoint has no embedded config (predates config embedding); "
+            "rebuilding the model from the inference config's lightning_module. "
+            "Ensure its architecture matches the trained weights."
+        )
+        lm_cfg = cfg["lightning_module"]
+    lm_factory = instantiate(OmegaConf.create(lm_cfg), _partial_=True)
     module = lm_factory(
         sources_metadata=dm.sources_metadata,
         normalization_stats=dm.normalization_stats,
         experiment_name=cfg["name"],
     )
-    # Resolve the run's best checkpoint from its run_id.
-    checkpoint_path = best_checkpoint(str(cfg["run_id"]), Path(cfg["paths"]["checkpoints"]))
-    # weights_only=False: our own training checkpoints embed OmegaConf hparams,
-    # which the (newer-PyTorch default) safe unpickler rejects. The file is a
-    # trusted local artifact, so full unpickling is fine here.
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     # strict=False: a checkpoint may have been trained on a machine where more
     # sources were preprocessed than are available here. The model builds one
     # encoder/decoder per locally-available source, so the loaded module is a

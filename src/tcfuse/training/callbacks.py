@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import lightning as pl
+from lightning.pytorch.loggers import WandbLogger
 
 
 class StepProgressCallback(pl.Callback):
@@ -104,6 +106,56 @@ class StepProgressCallback(pl.Callback):
             f"  elapsed={_fmt_seconds(elapsed_s)}]{val_str}",
             flush=True,
         )
+
+
+class ConfigArchiveCallback(pl.Callback):
+    """Archive the full resolved Hydra config into checkpoints and the W&B run.
+
+    Embedding the config makes every checkpoint self-describing: inference can
+    rebuild the exact model architecture from the checkpoint alone, without
+    re-specifying it in the inference config (see ``scripts/inference/infer.py``).
+    Logging the same config to W&B means the exact config of any experiment is
+    always queryable from the run, not just the minimal hparams Lightning logs by
+    default (``BaseLightningModule`` deliberately omits the model tree from its
+    saved hyperparameters).
+
+    The config is the fully-resolved plain dict produced by
+    ``OmegaConf.to_container(resolve=True)`` in ``scripts/train/train.py`` — no
+    ``${...}`` interpolations remain, so the embedded copy is self-contained and
+    portable across machines.
+
+    Args:
+        cfg: The fully-resolved Hydra config dict (a plain dict, not a DictConfig).
+    """
+
+    def __init__(self, cfg: dict[str, Any]) -> None:
+        self._cfg = cfg
+
+    def on_save_checkpoint(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        checkpoint: dict[str, Any],
+    ) -> None:
+        """Embed the resolved config under ``hydra_cfg`` in every checkpoint dict.
+
+        Fires for the periodic, ``last``, and ``best`` checkpoints alike, so each
+        ``.ckpt`` carries the config. Mutating the dict on all DDP ranks is
+        harmless — only rank 0 actually writes the file.
+        """
+        checkpoint["hydra_cfg"] = self._cfg
+
+    def on_train_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Log the resolved config to the W&B run config, once, on rank 0."""
+        # Only rank 0 holds the real wandb run; other DDP ranks get a no-op logger.
+        if not trainer.is_global_zero:
+            return
+        # No-op for non-W&B loggers (e.g. logger=False in some runs).
+        if not isinstance(trainer.logger, WandbLogger):
+            return
+        # allow_val_change keeps this idempotent if on_train_start runs again after
+        # a SLURM requeue. Nested under a single key to keep the run config tidy.
+        trainer.logger.experiment.config.update({"hydra_cfg": self._cfg}, allow_val_change=True)
 
 
 def _fmt_seconds(seconds: float) -> str:

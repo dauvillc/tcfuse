@@ -13,7 +13,11 @@ defaults:
   - lr_scheduler: default     # likewise carried only to satisfy the constructor
   - windows_setup: ???        # provided by the experiment
   - setup: local              # setup configs own paths; unused (no submitit here), kept so experiments resolve
-  - lightning_module: ???     # provided by the experiment (mounts its model)
+  - lightning_module: ???     # provided by the experiment; mounts its model. The model
+                              # architecture is taken from the checkpoint's embedded config
+                              # (hydra_cfg) at inference, so this no longer has to match the
+                              # trained weights — it is only a fallback for checkpoints that
+                              # predate config embedding.
   - _self_
   - experiment: ???           # must be specified at launch (defines name + sources)
 
