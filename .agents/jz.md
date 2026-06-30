@@ -341,6 +341,39 @@ ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
   python scripts/train.py paths=jz setup=jz_<hw> experiment=<name> resume_run_id=<run_id>'"
 ```
 
+## Hyperparameter sweeps
+
+Sweeps use Hydra's **Optuna sweeper** (`hydra/sweeper=...`) with Hydra's **submitit launcher**
+(`hydra/launcher=jz_sweep`) — not the inner submitit path. Full workflow, search-space rules, and
+the objective contract → [`/sweep`](sweep.md). Jean-Zay specifics:
+
+1. **Install the plugin into the JZ env first.** `hydra-optuna-sweeper` is in `requirements-jz.txt`,
+   but the loaded module env may not have it yet. After `rsynctf`, on the login node:
+   ```bash
+   ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
+     pip install --user hydra-optuna-sweeper && python -c \"import optuna, hydra_plugins\"'"
+   ```
+2. **Launch from the login node, not a job.** Compute nodes cannot submit SLURM jobs, so the
+   sweeper process (it submits one job per trial via the launcher) must run on the login node.
+   Run it under `tmux`/`nohup` so it survives a disconnect:
+   ```bash
+   ssh jz "bash -l -c 'cd \$WORK/tcfuse && module load pytorch-gpu/py3/2.8.0 && \
+     python scripts/train/train.py --multirun experiment=pmw_gmi_sweep submitit=false \
+     hydra/launcher=jz_4xv100_32g_sweep hydra/sweeper=perceiver_capacity'"
+   ```
+   `submitit=false` disables the inner executor so Hydra's launcher owns SLURM submission. The
+   experiment pairs `setup=jz_4xv100_32g` (`trainer.devices=4`) with the launcher's
+   `tasks_per_node=4`, so each trial is a 4× V100 DDP job — **keep those two equal** or DDP hangs.
+   `hydra.launcher.array_parallelism` caps concurrent trials (keep it equal to
+   `hydra.sweeper.n_jobs`; at 4 trials × 4 GPUs that is 16 V100 in flight — lower both if quota is
+   tight).
+3. **Results.** Best config + objective land in `multirun/<date>/<time>/optimization_results.yaml`
+   (authoritative, independent of W&B). Per-trial runs are offline `pmw-gmi-sweep-<run_id>` folders —
+   `wandb sync` them as usual (see W&B offline mode above) to inspect curves.
+4. **Launcher configs.** `conf/hydra/launcher/jz_4xv100_32g_sweep.yaml` (default — 4× V100 32 GB
+   DDP) and the single-GPU `jz_sweep.yaml` (H100) / `jz_v100_sweep.yaml` (V100, cheap dry runs)
+   mirror the matching `conf/setup/jz_*` SLURM spec.
+
 ## Maintenance
 
 When changing cluster-related conventions (storage layout, SLURM configs, environment setup, rsync filters), update this skill in the same PR. If triggers or behavior rules change, also update `.claude/commands/jz.md` and [`.agents/context.md`](context.md) (Jean-Zay quick reference table).

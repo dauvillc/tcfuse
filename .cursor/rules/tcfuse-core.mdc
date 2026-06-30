@@ -27,6 +27,7 @@ Read the matching `SKILL.md` before doing work in that area. Each Cursor skill h
 | Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`tcfuse-visualize`](mdc:.cursor/skills/tcfuse-visualize/SKILL.md) | `/visualize` |
 | Model backbone architecture (embedding/encoder/decoder design, candidate backbones, pre-training task) | [`tcfuse-architecture`](mdc:.cursor/skills/tcfuse-architecture/SKILL.md) | `/architecture` |
 | Inference and prediction pipeline (checkpoint loading, task masking, PredictionRun output, metrics) | [`tcfuse-inference`](mdc:.cursor/skills/tcfuse-inference/SKILL.md) | `/inference` |
+| Hyperparameter search (Hydra Optuna sweeper, parallel SLURM trials, search-space/divisibility rules, objective contract) | [`tcfuse-sweep`](mdc:.cursor/skills/tcfuse-sweep/SKILL.md) | `/sweep` |
 | Basedpyright diagnostics workflow | [`pyright-typing-fixer`](mdc:.cursor/skills/pyright-typing-fixer/SKILL.md) | (none) |
 
 ## Core data abstraction
@@ -164,7 +165,7 @@ Python 3.10+, PyTorch, PyTorch Lightning, Hydra (config), Weights & Biases (logg
 
 ## Jean-Zay cluster quick reference
 
-Full workflow and hardware configs (rsync, preflight, submission, monitoring, W&B sync, checkpoints, `jz_v100` / `jz_4xv100` / `jz_h100` / `jz_4xh100` / `jz_cpu` / `jz_prepost`) → [`tcfuse-jz`](mdc:.cursor/skills/tcfuse-jz/SKILL.md).
+Full workflow and hardware configs (rsync, preflight, submission, monitoring, W&B sync, checkpoints, `jz_v100` / `jz_4xv100` / `jz_4xv100_32g` / `jz_h100` / `jz_4xh100` / `jz_cpu` / `jz_prepost`) → [`tcfuse-jz`](mdc:.cursor/skills/tcfuse-jz/SKILL.md).
 
 ## CLEPS cluster quick reference
 

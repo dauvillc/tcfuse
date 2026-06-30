@@ -20,6 +20,7 @@ Read the matching skill file before doing work in that area. The Claude slash co
 | Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`.agents/visualize.md`](visualize.md) | `/visualize` |
 | Model backbone architecture (embedding/encoder/decoder design, candidate backbones, pre-training task) | [`.agents/architecture.md`](architecture.md) | `/architecture` |
 | Inference and prediction pipeline (checkpoint loading, task masking, PredictionRun output, metrics) | [`.agents/inference.md`](inference.md) | `/inference` |
+| Hyperparameter search (Hydra Optuna sweeper, parallel SLURM trials, search-space/divisibility rules, objective contract) | [`.agents/sweep.md`](sweep.md) | `/sweep` |
 | Basedpyright diagnostics workflow | [`.agents/pyright-fixer.md`](pyright-fixer.md) | (none) |
 
 ## Core data abstraction
@@ -157,7 +158,7 @@ Python 3.10+, PyTorch, PyTorch Lightning, Hydra (config), Weights & Biases (logg
 
 ## Jean-Zay cluster quick reference
 
-Full workflow and hardware configs (rsync, preflight, submission, monitoring, W&B sync, checkpoints, `jz_v100` / `jz_4xv100` / `jz_h100` / `jz_4xh100` / `jz_cpu` / `jz_prepost`) → [`.agents/jz.md`](jz.md).
+Full workflow and hardware configs (rsync, preflight, submission, monitoring, W&B sync, checkpoints, `jz_v100` / `jz_4xv100` / `jz_4xv100_32g` / `jz_h100` / `jz_4xh100` / `jz_cpu` / `jz_prepost`) → [`.agents/jz.md`](jz.md).
 
 ## CLEPS cluster quick reference
 

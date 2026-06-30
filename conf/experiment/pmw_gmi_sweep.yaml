@@ -1,0 +1,24 @@
+# @package _global_
+# Short-budget variant of pmw_gmi for the Perceiver capacity hyperparameter search.
+# Each trial runs on a full node of 4× V100 32 GB (DDP); pair with the matching
+# launcher so trainer.devices matches its tasks_per_node:
+#   --multirun submitit=false hydra/sweeper=perceiver_capacity \
+#     hydra/launcher=jz_4xv100_32g_sweep
+defaults:
+  - pmw_gmi                          # reuse the data/task/model wiring
+  - override /setup: jz_4xv100_32g   # 4× V100 32 GB -> trainer.devices=4, paths=jz
+
+# Display name used to build each trial's W&B run name.
+name: pmw-gmi-sweep
+
+trainer:
+  max_steps: 6000                 # short HPO budget (tune); validate every 500 steps
+  val_check_interval: 500
+  strategy: ddp_find_unused_parameters_true  # 4-GPU DDP (matches pmw_gmi)
+  early_stopping_patience_steps: 2000
+
+dataloader:
+  batch_size: 8                   # per GPU
+
+# Don't archive HPO checkpoints to $STORE — they are throwaway.
+archive: false

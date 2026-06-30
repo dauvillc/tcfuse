@@ -1,0 +1,25 @@
+# Hydra submitit launcher for sweep trials on Jean-Zay — 4× V100 32 GB DDP per trial.
+# Selected with `hydra/launcher=jz_4xv100_32g_sweep` (with submitit=false). Pair it with
+# setup=jz_4xv100_32g so trainer.devices=4 matches tasks_per_node below — Lightning DDP
+# detects the 4 SLURM tasks and runs one rank each.
+#
+# Mirrors the SLURM resource spec of conf/setup/jz_4xv100_32g.yaml.
+defaults:
+  - submitit_slurm
+
+timeout_min: 1200             # qos_gpu-t3 (20h); raise for t4
+nodes: 1
+tasks_per_node: 4             # one task per GPU -> 4 DDP ranks
+cpus_per_task: 10             # 10 CPUs/task -> 40 CPUs on the node
+gres: gpu:4
+constraint: v100-32g          # pin to the 32 GB V100 nodes
+account: xyw@v100
+signal_delay_s: 120
+additional_parameters:
+  hint: nomultithread
+setup:
+  - source ${oc.env:HOME}/.bash_profile
+  - v100
+# Concurrent trials; each uses 4 GPUs, so 4 here = 16 V100 in flight. Lower this
+# (and hydra.sweeper.n_jobs to match) if the GPU quota is tighter.
+array_parallelism: 4

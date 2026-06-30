@@ -1,0 +1,30 @@
+# Optuna sweeper for the Perceiver backbone's capacity hyperparameters.
+# Selected with `hydra/sweeper=perceiver_capacity` on a --multirun launch.
+#
+# All searched dimensions are kept as multiples of 8 so the model's divisibility
+# invariants always hold (num_heads=8 divides latent_dim; cross_num_heads=8
+# divides both embed_dim and latent_dim) — every sampled trial is therefore valid.
+defaults:
+  - optuna                        # the registered Optuna sweeper plugin
+
+# Minimize the objective returned by main() — the best val/loss of each trial.
+direction: minimize
+study_name: perceiver_capacity
+# Total trials to evaluate across the whole sweep.
+n_trials: 20
+# Trials proposed per round; the submitit launcher runs them as a parallel SLURM
+# array, so keep this equal to hydra.launcher.array_parallelism.
+n_jobs: 4
+
+# TPE Bayesian sampler with a fixed seed for reproducible proposals.
+sampler:
+  _target_: optuna.samplers.TPESampler
+  seed: 0
+
+# Search space, addressed at the same override paths used on the CLI. The model is
+# mounted at lightning_module.model by the experiment config.
+params:
+  lightning_module.model.embed_dim: choice(128, 256, 384)
+  lightning_module.model.latent_dim: choice(256, 512, 768)
+  lightning_module.model.num_latents: choice(128, 256, 512)
+  lightning_module.model.num_layers: range(4, 10)

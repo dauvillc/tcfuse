@@ -1,0 +1,22 @@
+# Hydra submitit launcher for sweep trials on Jean-Zay V100 (gpu_p13, single GPU/trial).
+# Cheaper/faster-queue variant of jz_sweep — handy for dry runs. Select with
+# `hydra/launcher=jz_v100_sweep` (with submitit=false).
+#
+# Mirrors conf/setup/jz_v100.yaml: 10 CPUs/GPU, xyw@v100 account, no h100 constraint.
+defaults:
+  - submitit_slurm
+
+timeout_min: 1200             # qos_gpu-t3 (20h); raise for t4
+nodes: 1
+tasks_per_node: 1
+cpus_per_task: 10
+gres: gpu:1
+account: xyw@v100
+signal_delay_s: 120
+additional_parameters:
+  hint: nomultithread
+setup:
+  - source ${oc.env:HOME}/.bash_profile
+  - v100
+# Maximum trials running concurrently; keep equal to hydra.sweeper.n_jobs.
+array_parallelism: 4

@@ -27,7 +27,7 @@ from omegaconf import DictConfig, OmegaConf
 # Resolve project root so tcfuse imports work regardless of CWD.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor
+from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 
 from tcfuse.training.callbacks import ConfigArchiveCallback, StepProgressCallback
 from tcfuse.utils.checkpoint import build_checkpoint_callbacks, latest_checkpoint
@@ -126,8 +126,13 @@ class TrainingTask(submitit.helpers.Checkpointable):
         self.cfg = cfg
         self.checkpoint_dir = checkpoint_dir
 
-    def __call__(self) -> None:
-        """Assemble all components and run trainer.fit(), resuming from last checkpoint."""
+    def __call__(self) -> float | None:
+        """Assemble all components, run trainer.fit(), and return the best val/loss.
+
+        Returns:
+            The best validation loss seen during training (the objective a
+            hyperparameter sweeper minimizes), or None if no validation ran.
+        """
         cfg = self.cfg
         # Pick up the checkpoint saved before preemption, if any.
         ckpt_path = latest_checkpoint(self.checkpoint_dir)
@@ -158,6 +163,23 @@ class TrainingTask(submitit.helpers.Checkpointable):
         # dm.setup("fit") already ran; Lightning 2.x will not call it again.
         trainer.fit(lightning_module, datamodule=dm, ckpt_path=ckpt_path)
 
+        # Return the best val/loss as the sweeper objective. The "best" ModelCheckpoint
+        # callback (build_checkpoint_callbacks) monitors val/loss and tracks the minimum
+        # in best_model_score; find it among the trainer's checkpoint callbacks.
+        best_score = next(
+            (
+                cb.best_model_score
+                for cb in trainer.checkpoint_callbacks
+                if isinstance(cb, ModelCheckpoint) and cb.monitor == "val/loss"
+            ),
+            None,
+        )
+        if best_score is not None:
+            return float(best_score)
+        # Fallback for runs too short to ever validate: use the last logged val/loss.
+        last_val_loss = trainer.callback_metrics.get("val/loss")
+        return float(last_val_loss.item()) if last_val_loss is not None else None
+
     def checkpoint(self, *args: Any, **kwargs: Any) -> submitit.helpers.DelayedSubmission:
         """Called by submitit on SIGTERM (SLURM preemption signal).
 
@@ -171,7 +193,7 @@ class TrainingTask(submitit.helpers.Checkpointable):
 
 
 @hydra.main(config_path="../../conf/", config_name="train", version_base=None)
-def main(raw_cfg: DictConfig) -> None:
+def main(raw_cfg: DictConfig) -> float | None:
     cfg = cast(dict[str, Any], OmegaConf.to_container(raw_cfg, resolve=True))
 
     # Use Hydra's <date>/<time> run dir names purely as a unique, requeue-stable
@@ -198,10 +220,11 @@ def main(raw_cfg: DictConfig) -> None:
 
     task = TrainingTask(cfg, checkpoint_dir)
 
-    # Local execution: run the task directly in the current process.
+    # Local execution: run the task directly in the current process. Returning the
+    # task's objective (best val/loss) is what lets the Hydra Optuna sweeper optimize
+    # it; this is the branch used by sweeps (submitit=false + Hydra's own launcher).
     if not cfg.get("submitit", True):
-        task()
-        return
+        return task()
 
     # SLURM execution: submit via submitit and block until the job finishes.
     executor = make_executor(cfg, "train")
@@ -217,11 +240,10 @@ def main(raw_cfg: DictConfig) -> None:
     # run; results() (plural) blocks on every rank and re-raises if any rank failed.
     # Both calls block until completion and propagate job-side exceptions to the launcher.
     if n_total_tasks > 1:
-        # Multi-task DDP job: collect one result per rank.
-        job.results()
-    else:
-        # Single-task job: collect the lone result.
-        job.result()
+        # Multi-task DDP job: collect one result per rank; rank 0 holds the objective.
+        return job.results()[0]
+    # Single-task job: collect the lone result (the best val/loss objective).
+    return job.result()
 
 
 if __name__ == "__main__":

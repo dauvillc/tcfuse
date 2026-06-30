@@ -1,0 +1,34 @@
+# @package _global_
+# Jean-Zay V100 full-node setup pinned to 32 GB cards — 4× V100 32 GB, gpu_p13 partition.
+# Same as jz_4xv100 but adds the v100-32g constraint so SLURM never lands a 16 GB node.
+# Hardware: 4x V100 32 GB, 40 CPUs (Intel), ~160 GB RAM.
+# QoS: qos_gpu-t3 (default, max 20h) or qos_gpu-t4 (max 100h, <=16 GPU/job).
+# For a single-GPU smoke test, use setup=jz_v100 instead.
+
+defaults:
+  - /paths: jz
+
+setup:
+  timeout_min: 1200               # 20h (qos_gpu-t3 default); set 6000 for qos_gpu-t4
+  slurm_nodes: 1
+  cpus_per_task: 10
+  slurm_ntasks_per_node: ${trainer.devices}
+  slurm_gres: "gpu:4"
+  slurm_constraint: v100-32g      # pin to the 32 GB V100 nodes
+  slurm_account: "xyw@v100"
+  slurm_signal_delay_s: 120
+  slurm_additional_parameters:
+    hint: nomultithread
+  slurm_setup:
+    - "source ${oc.env:HOME}/.bash_profile"
+    - "v100"
+  name: tc_fusion_jz_v100
+
+trainer:
+  devices: 4
+  num_nodes: 1
+
+dataloader:
+  num_workers: 8                  # per GPU (40 CPUs / 4 GPUs, leaving slack)
+
+archive: true

@@ -20,6 +20,7 @@ When a task touches one of these areas, read the matching skill file before maki
 | Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`.agents/visualize.md`](.agents/visualize.md) |
 | Model backbone architecture (embedding/encoder/decoder design, candidate backbones, pre-training task) | [`.agents/architecture.md`](.agents/architecture.md) |
 | Inference and prediction pipeline (checkpoint loading, task masking, PredictionRun output, metrics) | [`.agents/inference.md`](.agents/inference.md) |
+| Hyperparameter search (Hydra Optuna sweeper, parallel SLURM trials, search-space/divisibility rules, objective contract) | [`.agents/sweep.md`](.agents/sweep.md) |
 | Basedpyright diagnostics workflow | [`.agents/pyright-fixer.md`](.agents/pyright-fixer.md) |
 
 ## Update protocol

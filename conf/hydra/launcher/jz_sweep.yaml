@@ -1,0 +1,25 @@
+# Hydra submitit launcher for sweep trials on Jean-Zay (gpu_p6, single H100/trial).
+# Selected with `hydra/launcher=jz_sweep` on a --multirun launch (with submitit=false
+# so the inner executor is skipped and this launcher submits each trial to SLURM).
+#
+# Mirrors the SLURM resource spec of conf/setup/jz_h100.yaml, translated to the
+# submitit-launcher key names. The `setup` list reproduces slurm_setup so every
+# trial's compute node loads the right modules before running.
+defaults:
+  - submitit_slurm
+
+timeout_min: 1200             # qos_gpu_h100-t3 (20h); raise for t4
+nodes: 1
+tasks_per_node: 1
+cpus_per_task: 24
+gres: gpu:1
+constraint: h100              # -C h100 is mandatory for the gpu_p6 partition
+account: xyw@h100
+signal_delay_s: 120
+additional_parameters:
+  hint: nomultithread
+setup:
+  - source ${oc.env:HOME}/.bash_profile
+  - h100
+# Maximum trials running concurrently; keep equal to hydra.sweeper.n_jobs.
+array_parallelism: 4
