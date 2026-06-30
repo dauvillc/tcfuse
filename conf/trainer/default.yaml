@@ -20,3 +20,8 @@ accelerator: gpu              # override to cpu for CPU-only runs
 
 # ModelCheckpoint kwarg — not forwarded to Trainer, consumed by train.py
 checkpoint_every_n_steps: 500
+
+# EarlyStopping kwarg — not forwarded to Trainer, consumed by train.py.
+# Stop training after val/loss fails to improve for this many global steps.
+# Set to null (or <= 0) to disable early stopping.
+early_stopping_patience_steps: 25000

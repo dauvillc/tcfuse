@@ -27,7 +27,7 @@ from omegaconf import DictConfig, OmegaConf
 # Resolve project root so tcfuse imports work regardless of CWD.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from lightning.pytorch.callbacks import LearningRateMonitor
+from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor
 
 from tcfuse.training.callbacks import ConfigArchiveCallback, StepProgressCallback
 from tcfuse.utils.checkpoint import build_checkpoint_callbacks, latest_checkpoint
@@ -50,6 +50,9 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     trainer_cfg = dict(cfg["trainer"])
     # checkpoint_every_n_steps is a ModelCheckpoint kwarg, not a Trainer kwarg.
     checkpoint_every_n_steps: int = trainer_cfg.pop("checkpoint_every_n_steps")
+    # early_stopping_patience_steps is an EarlyStopping kwarg, not a Trainer kwarg.
+    # null/<=0 disables early stopping entirely.
+    early_stopping_patience_steps: int | None = trainer_cfg.pop("early_stopping_patience_steps")
     # Resolve the "auto" precision sentinel against the current hardware.
     trainer_cfg["precision"] = resolve_precision(trainer_cfg["precision"])
     # Read log_every_n_steps before it is consumed by **trainer_cfg so the
@@ -67,6 +70,14 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     # bypassing Lightning's log_every_n_steps buffer so the curve is always present
     # in W&B even on short debug runs where the buffer never fills.
     lr_monitor = LearningRateMonitor(logging_interval="step")
+    # Collect always-on callbacks; EarlyStopping is appended below only when enabled.
+    callbacks: list[Any] = [*ckpt_cbs, progress_cb, lr_monitor, config_archive_cb]
+    # EarlyStopping.patience counts validation checks, but we configure the budget in
+    # global steps for consistency with max_steps; convert via val_check_interval.
+    if early_stopping_patience_steps is not None and early_stopping_patience_steps > 0:
+        val_check_interval = int(trainer_cfg.get("val_check_interval", 500))
+        patience_checks = max(1, early_stopping_patience_steps // val_check_interval)
+        callbacks.append(EarlyStopping(monitor="val/loss", mode="min", patience=patience_checks))
     # W&B cannot truly resume an offline run, so instead of one resumable run we
     # log each process launch (initial run, SLURM requeue, or manual restart) as a
     # distinct W&B "segment" run, all tied together by a shared group. run_id is
@@ -85,7 +96,7 @@ def _build_trainer(cfg: dict[str, Any], checkpoint_dir: Path) -> pl.Trainer:
     )
     return pl.Trainer(
         **trainer_cfg,
-        callbacks=[*ckpt_cbs, progress_cb, lr_monitor, config_archive_cb],
+        callbacks=callbacks,
         logger=wandb_logger,
         # Disable tqdm: it silently does nothing when stdout is not a TTY (SLURM).
         # StepProgressCallback provides plain-print progress instead.
