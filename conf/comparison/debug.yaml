@@ -9,10 +9,10 @@
 # required by conf/evaluation.yaml.
 
 # Names the results directory under paths.results/<eval_name>/.
-eval_name: debug-dummy-vs-baseline
+eval_name: debug-eval
 
 # The two prediction sets to compare. run_id values are quoted so their leading
 # zeros survive (YAML would otherwise read them as integers).
 models:
-  dummy: { run_id: "0629151838", experiment_name: pmw-gmi }
-  baseline: { run_id: "0627015132", experiment_name: pmw-gmi }
+  two_layers: { run_id: "0630031130", experiment_name: pmw-gmi }
+  four_layers: { run_id: "0630031916", experiment_name: pmw-gmi }
