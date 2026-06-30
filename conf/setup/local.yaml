@@ -8,4 +8,9 @@ setup:
   timeout_min: 60
   name: tc_fusion_local
 
+dataloader:
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
+
 archive: false
