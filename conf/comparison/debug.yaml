@@ -14,5 +14,4 @@ eval_name: debug-eval
 # The two prediction sets to compare. run_id values are quoted so their leading
 # zeros survive (YAML would otherwise read them as integers).
 models:
-  two_layers: { run_id: "0630031130", experiment_name: pmw-gmi }
-  four_layers: { run_id: "0630031916", experiment_name: pmw-gmi }
+  two_layers: { run_id: "0702144712", experiment_name: pmw-gmi-5min }

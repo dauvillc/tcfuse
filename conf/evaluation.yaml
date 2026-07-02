@@ -16,6 +16,7 @@ defaults:
   - setup: local            # setup configs own paths (setup=local -> paths=local)
   - comparison: ???         # required: selects the model set (eval_name + models)
   - evaluation/quantitative_metrics   # default-enabled plugin (config group below)
+  - evaluation/visual 
   - _self_
 
 # `eval_name` and `models` are provided by the selected `comparison` config above

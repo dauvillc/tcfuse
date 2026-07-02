@@ -120,7 +120,8 @@ visualization/
 ├── profiles.py           ← vertical profile plots (dropsonde, Argo)
 ├── data_profile.py       ← windows-setup profiling from the windows-index parquet: compute_split_summary() + plot_sample_timeline/samples_per_season/source_availability/target_distribution/sources_per_window_hist/basin_distribution/windows_per_storm (each takes {split: DataFrame})
 ├── comparison.py         ← model-comparison figures for the evaluation suite: plot_metric_comparison() (grouped bars, x=channel, one bar per model, per metric/source)
-└── training.py           ← model diagnostics: plot_field_reconstruction() (Target|Pred|Error per channel), loss curves, attention weights
+├── comparison_fields.py  ← multi-model field comparison for the evaluation suite: plot_field_prediction_comparison() (Target|Pred|Diff per model, per channel)
+└── training.py           ← model diagnostics: plot_field_reconstruction() (Target|Pred|Error per channel), loss curves, attention weights; exposes draw_mesh_panel(), masked_channel(), field_display() as shared helpers reused by comparison_fields.py
 ```
 
 **CLI scripts** under `scripts/visualization/` (Hydra + `preproc` config):
@@ -229,6 +230,19 @@ saves the SVG, and returns a fixed-size RGB raster (so an image logger gets cons
 matplotlib stays here, not in the Lightning module. `MaskedReconstructionLightningModule._render_validation_figures`
 calls it on the first `num_val_figure_samples` validation samples each epoch, saving SVGs under
 `validation_dir/<step>/` and logging the rasters to W&B under `val/reconstruction/<source>`.
+
+### 4. Multi-model field comparison
+
+**Module:** `comparison_fields.py`
+**When to use:** Compare several models' reconstructions of the same FIELD source against one shared ground truth (the evaluation suite's `visual` plugin).
+
+`plot_field_prediction_comparison(target, predictions, lats, lons, *, channels, cmap_key="tb", unit="", mask=None, suptitle="", save_path=None)`
+generalizes `plot_field_reconstruction` from one model to `predictions: dict[str, np.ndarray]` (model name → field,
+each `(H, W, C)`). Draws one row per channel with `1 + 2 * len(predictions)` panels, **grouped by model**:
+Target | Pred₁ | Diff₁ | Pred₂ | Diff₂ | … Target/prediction panels share one per-channel color scale; every
+diff panel (prediction − target) for a channel shares one symmetric `anomaly` scale computed across *all*
+models, so error magnitudes are directly comparable. Reuses `draw_mesh_panel()` / `masked_channel()` from
+`training.py` rather than duplicating the panel-drawing logic.
 
 ## Adding a new visualization module
 

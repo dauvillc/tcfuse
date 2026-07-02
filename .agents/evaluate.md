@@ -62,6 +62,9 @@ Quote `run_id` so leading zeros survive YAML parsing.
 - `metrics.csv` columns: `model, source_name, channel, metric, value` (+ one column per `group_by` field). Metrics: `rmse`, `mae`, `r2`, `mape`.
 - `<metric>_<source_name>.svg` — one grouped bar chart per (metric, source): x = channel, one coloured bar per model. With `group_by` set, figures show the global result only; the per-group breakdown stays in the CSV.
 
+`visual/` contents (not enabled by default — add `evaluation/visual` to the `defaults` list or CLI):
+- `<sample_id>_<source_name>_<source_index>.svg` — one figure per window shared by every model (a sample id present in all runs) and FIELD-kind target source, up to `max_samples` windows. One row per channel: Target | Pred | Diff panels repeated per model, grouped by model. Target/prediction panels share a per-channel color scale; diff panels (prediction minus target) share one symmetric diverging scale across all models. SCALAR / PROFILE targets are skipped.
+
 ## Plugin contract
 
 A plugin subclasses `Evaluation` (`src/tcfuse/evaluation/base.py`) and compares models:
