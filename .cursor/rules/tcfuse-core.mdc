@@ -26,6 +26,7 @@ Read the matching `SKILL.md` before doing work in that area. Each Cursor skill h
 | CLEPS cluster operations (pixi, W&B online, persistent scratch, SLURM, monitoring) | [`tcfuse-cleps`](mdc:.cursor/skills/tcfuse-cleps/SKILL.md) | `/cleps` |
 | Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`tcfuse-visualize`](mdc:.cursor/skills/tcfuse-visualize/SKILL.md) | `/visualize` |
 | Model backbone architecture (embedding/encoder/decoder design, candidate backbones, pre-training task) | [`tcfuse-architecture`](mdc:.cursor/skills/tcfuse-architecture/SKILL.md) | `/architecture` |
+| MoTiF backbone (dual value/coord tokens, cross-source + self-attention + MLP blocks, coords conditioning every layer; encoders_motif / motif / decoders_motif) | [`tcfuse-motif`](mdc:.cursor/skills/tcfuse-motif/SKILL.md) | `/motif` |
 | Inference and prediction pipeline (checkpoint loading, task masking, PredictionRun output, metrics) | [`tcfuse-inference`](mdc:.cursor/skills/tcfuse-inference/SKILL.md) | `/inference` |
 | Hyperparameter search (Hydra Optuna sweeper, parallel SLURM trials, search-space/divisibility rules, objective contract) | [`tcfuse-sweep`](mdc:.cursor/skills/tcfuse-sweep/SKILL.md) | `/sweep` |
 | Basedpyright diagnostics workflow | [`pyright-typing-fixer`](mdc:.cursor/skills/pyright-typing-fixer/SKILL.md) | (none) |

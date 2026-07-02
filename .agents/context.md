@@ -19,6 +19,7 @@ Read the matching skill file before doing work in that area. The Claude slash co
 | CLEPS cluster operations (pixi, W&B online, persistent scratch, SLURM, monitoring) | [`.agents/cleps.md`](cleps.md) | `/cleps` |
 | Publication-quality figures (style.py, SVG output, thematic plotting modules) | [`.agents/visualize.md`](visualize.md) | `/visualize` |
 | Model backbone architecture (embedding/encoder/decoder design, candidate backbones, pre-training task) | [`.agents/architecture.md`](architecture.md) | `/architecture` |
+| MoTiF backbone (dual value/coord tokens, cross-source + self-attention + MLP blocks, coords conditioning every layer; encoders_motif / motif / decoders_motif) | [`.agents/motif.md`](motif.md) | `/motif` |
 | Inference and prediction pipeline (checkpoint loading, task masking, PredictionRun output, metrics) | [`.agents/inference.md`](inference.md) | `/inference` |
 | Hyperparameter search (Hydra Optuna sweeper, parallel SLURM trials, search-space/divisibility rules, objective contract) | [`.agents/sweep.md`](sweep.md) | `/sweep` |
 | Basedpyright diagnostics workflow | [`.agents/pyright-fixer.md`](pyright-fixer.md) | (none) |
