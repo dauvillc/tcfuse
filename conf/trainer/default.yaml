@@ -25,3 +25,6 @@ checkpoint_every_n_steps: 500
 # Stop training after val/loss fails to improve for this many global steps.
 # Set to null (or <= 0) to disable early stopping.
 early_stopping_patience_steps: 25000
+
+# Gradient accumulation
+accumulate_grad_batches: 8
