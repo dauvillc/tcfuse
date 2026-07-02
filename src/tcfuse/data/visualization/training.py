@@ -39,7 +39,7 @@ setup_style()
 _N_COLS = 3
 
 
-def _masked_channel(values: np.ndarray, mask: np.ndarray | None, channel_idx: int) -> np.ndarray:
+def masked_channel(values: np.ndarray, mask: np.ndarray | None, channel_idx: int) -> np.ndarray:
     """Return one 2D channel with invalid pixels set to NaN, shape (H, W)."""
     # Slice the requested channel from the (H, W, C) array.
     channel = values[..., channel_idx]
@@ -51,7 +51,7 @@ def _masked_channel(values: np.ndarray, mask: np.ndarray | None, channel_idx: in
     return np.where(valid, channel, np.nan)
 
 
-def _draw_mesh(
+def draw_mesh_panel(
     fig: Figure,
     ax: GeoAxes,
     values: np.ndarray,
@@ -62,9 +62,16 @@ def _draw_mesh(
     vmin: float | None,
     vmax: float | None,
     label: str,
-    title: str,
+    title: str = "",
+    row_label: str = "",
 ) -> None:
-    """Draw a single rasterized pcolormesh panel with coastlines and a colorbar."""
+    """Draw a single rasterized pcolormesh panel with coastlines and a colorbar.
+
+    ``title`` and ``row_label`` are both optional so grids of panels can
+    factor a column header / row label out to a single edge panel instead of
+    repeating it on every panel (see e.g.
+    :func:`tcfuse.data.visualization.comparison_fields.plot_field_prediction_comparison`).
+    """
     # Plot the field; explicit vmin/vmax lets target and prediction share a scale.
     im = ax.pcolormesh(
         lons,
@@ -85,7 +92,21 @@ def _draw_mesh(
     cbar.set_label(label)
     # Frame the domain to the field bounding box.
     ax.set_extent([lons.min(), lons.max(), lats.min(), lats.max()])
-    ax.set_title(title)
+    if title:
+        ax.set_title(title)
+    if row_label:
+        # Axes-fraction text to the left of the panel (works regardless of the
+        # cartopy projection, unlike set_ylabel on a GeoAxes).
+        ax.text(
+            -0.12,
+            0.5,
+            row_label,
+            transform=ax.transAxes,
+            rotation=90,
+            ha="center",
+            va="center",
+            fontsize=plt.rcParams["axes.titlesize"],
+        )
 
 
 def plot_field_reconstruction(
@@ -145,8 +166,8 @@ def plot_field_reconstruction(
     # Draw one row of three panels per channel.
     for ch_idx in range(n_channels):
         # Pull masked target / prediction channels (NaN where unavailable).
-        tgt = _masked_channel(target, mask, ch_idx)
-        pred = _masked_channel(prediction, mask, ch_idx)
+        tgt = masked_channel(target, mask, ch_idx)
+        pred = masked_channel(prediction, mask, ch_idx)
         # Shared color scale for target and prediction from finite target pixels.
         finite = np.isfinite(tgt)
         if finite.any():
@@ -162,7 +183,7 @@ def plot_field_reconstruction(
         ch_name = channels[ch_idx]
         # Target panel.
         ax_tgt = axes_arr[ch_idx, 0]
-        _draw_mesh(
+        draw_mesh_panel(
             fig,
             ax_tgt,
             tgt,
@@ -176,7 +197,7 @@ def plot_field_reconstruction(
         )
         # Prediction panel (same scale as target).
         ax_pred = axes_arr[ch_idx, 1]
-        _draw_mesh(
+        draw_mesh_panel(
             fig,
             ax_pred,
             pred,
@@ -190,7 +211,7 @@ def plot_field_reconstruction(
         )
         # Error panel (symmetric diverging scale).
         ax_err = axes_arr[ch_idx, 2]
-        _draw_mesh(
+        draw_mesh_panel(
             fig,
             ax_err,
             error,
@@ -216,7 +237,7 @@ def plot_field_reconstruction(
     return fig, axes_flat
 
 
-def _field_display(source_name: str) -> tuple[str, str]:
+def field_display(source_name: str) -> tuple[str, str]:
     """Pick a colormap key and physical unit from a FIELD source's name.
 
     A small heuristic so reconstruction figures use a sensible colormap/unit
@@ -278,7 +299,7 @@ def render_field_reconstruction(
     Convenience wrapper for callers (e.g. the validation loop) that need both an
     SVG on disk and a fixed-size pixel array to hand to an image logger, without
     importing matplotlib themselves. Colormap and unit are derived from
-    ``source_name`` via :func:`_field_display`.
+    ``source_name`` via :func:`field_display`.
 
     Args:
         target:      Ground-truth field values, shape (H, W, C), physical units.
@@ -295,7 +316,7 @@ def render_field_reconstruction(
         Fixed-size uint8 RGB array of the rendered figure, shape (H, W, 3).
     """
     # Choose a colormap/unit appropriate for this source.
-    cmap_key, unit = _field_display(source_name)
+    cmap_key, unit = field_display(source_name)
     # Build the Target | Prediction | Error figure and write the SVG.
     fig, _axes = plot_field_reconstruction(
         target,

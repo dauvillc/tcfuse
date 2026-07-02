@@ -1,0 +1,9 @@
+# @package evaluations.visual
+# Target | Prediction | Diff figures comparing several models' FIELD reconstructions.
+# Packaged under evaluations.visual so multiple plugins compose into
+# a single `evaluations` mapping the eval script iterates over.
+_target_: tcfuse.evaluation.visual.figures.VisualEvaluation
+
+# Maximum number of shared windows to render (first model's index order).
+# null = render every window shared by all models (can produce many SVGs).
+max_samples: 8
