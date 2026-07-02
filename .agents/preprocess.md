@@ -452,7 +452,11 @@ Window config keys (see `conf/windows_setup/*.yaml`):
 - `input_sources` — mapping `{source_type: [[start_offset, end_offset, min_required], ...]}`.
   Offsets are `pd.Timedelta`-parseable strings (typically negative). Type keys
   match `source_name` by prefix (`"era5"` → `era5_surface`; `"pmw"` → `pmw_gmi`
-  / `pmw_tmi`, with `min_required` counted across all matching sources).
+  / `pmw_tmi`, with `min_required` counted across all matching sources). If a
+  prefix also matches one of the `target_sources` (e.g. `"pmw"` matching
+  `pmw_gmi_gpm`), the target snapshot itself counts toward that period's
+  `min_required` — for a masked-reconstruction task, set `min_required >= 2` so
+  at least one *non-target* snapshot is guaranteed as context.
 
 Output (long-format, one row per window × source snapshot):
 

@@ -1,7 +1,7 @@
-# Window configuration: PMW GMI reconstruction from concurrent PMW passes.
+# Window configuration: PMW GMI reconstruction from near-concurrent PMW passes.
 # Each pmw_gmi_gpm snapshot anchors a window. Any PMW pass from another sensor
-# within ±3h provides context; the GMI snapshot itself is the masked target.
-name: pmw_gmi_reconstruction
+# within ±5min provides context; the GMI snapshot itself is the masked target.
+name: pmw_gmi_reconstruction_5min
 
 target_sources:
   - pmw_gmi_gpm
@@ -12,4 +12,4 @@ target_sources:
 # least one non-target context image per sample.
 input_sources:
   pmw:
-    - ["-3h", "+3h", 2]   # target + at least one other PMW pass within ±3h required
+    - ["-5m", "+5m", 2]   # target + at least one other PMW pass within ±5min required
